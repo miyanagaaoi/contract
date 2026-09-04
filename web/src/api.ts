@@ -53,3 +53,24 @@ export async function restoreContract(id: number): Promise<Dict> {
   const { data } = await http.put(`/contracts/${id}/restore`)
   return data
 }
+
+// ---------- 标签（T4，AC-05/13） ----------
+export async function fetchTags(): Promise<Dict[]> {
+  const { data } = await http.get('/tags')
+  return data
+}
+
+export async function createTag(name: string): Promise<Dict> {
+  const { data } = await http.post('/tags', { name })
+  return data
+}
+
+export async function renameTag(id: number, name: string): Promise<Dict> {
+  const { data } = await http.put(`/tags/${id}`, { name })
+  return data
+}
+
+export async function deleteTag(id: number): Promise<Dict> {
+  const { data } = await http.delete(`/tags/${id}`)
+  return data
+}

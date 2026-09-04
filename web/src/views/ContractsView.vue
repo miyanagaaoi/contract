@@ -3,10 +3,14 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   createContract,
+  createTag,
+  deleteTag,
   fetchContract,
   fetchContracts,
   fetchLogs,
+  fetchTags,
   getMeta,
+  renameTag,
   restoreContract,
   softDeleteContract,
   updateContract,
@@ -22,6 +26,7 @@ const loading = ref(false)
 
 const meta = ref<Dict>({ contract_types: [], statuses: [], arrival_statuses: [] })
 const frameworks = ref<Dict[]>([])
+const tagOptions = ref<Dict[]>([])
 
 const query = reactive<Dict>({
   keyword: '',
@@ -52,6 +57,10 @@ async function loadFrameworks() {
   frameworks.value = res.items
 }
 
+async function loadTags() {
+  tagOptions.value = await fetchTags()
+}
+
 // ---------- 新增/编辑 ----------
 const dialogVisible = ref(false)
 const saving = ref(false)
@@ -59,14 +68,14 @@ const editingId = ref<number | null>(null)
 const form = reactive<Dict>({
   contract_no: '', name: '', type: '采购', party_a: '', party_b: '',
   sign_date: '', subject_matter: '', amount: 0, paid_amount: 0, status: '内部审批中',
-  owner_name: '', remark: '', is_framework: false, parent_id: null,
+  owner_name: '', remark: '', is_framework: false, parent_id: null, tags: [],
 })
 
 function resetForm() {
   Object.assign(form, {
     contract_no: '', name: '', type: '采购', party_a: '', party_b: '',
     sign_date: '', subject_matter: '', amount: 0, paid_amount: 0, status: '内部审批中',
-    owner_name: '', remark: '', is_framework: false, parent_id: null,
+    owner_name: '', remark: '', is_framework: false, parent_id: null, tags: [],
   })
 }
 
@@ -85,7 +94,7 @@ function openEdit(row: Dict) {
     amount: row.amount ?? 0, paid_amount: row.paid_amount ?? 0,
     status: row.status, owner_name: row.owner_name ?? '',
     remark: row.remark ?? '', is_framework: row.is_framework,
-    parent_id: row.parent_id ?? null,
+    parent_id: row.parent_id ?? null, tags: [...(row.tags ?? [])],
   })
   dialogVisible.value = true
 }
@@ -133,6 +142,53 @@ async function restore(row: Dict) {
   }
 }
 
+// ---------- 标签管理（T4，AC-13） ----------
+const tagDialogVisible = ref(false)
+const newTagName = ref('')
+
+function apiError(e: any): string {
+  return e?.response?.data?.detail || '操作失败'
+}
+
+async function addTag() {
+  const name = newTagName.value.trim()
+  if (!name) return
+  try {
+    await createTag(name)
+    ElMessage.success('标签已新增')
+    newTagName.value = ''
+    await loadTags()
+  } catch (e) {
+    ElMessage.error(apiError(e))
+  }
+}
+
+async function tagRename(tag: Dict) {
+  try {
+    const { value } = await ElMessageBox.prompt('新名称：', `重命名标签「${tag.name}」`, {
+      inputValue: tag.name, confirmButtonText: '确定', cancelButtonText: '取消',
+    })
+    await renameTag(tag.id, value.trim())
+    ElMessage.success('已重命名')
+    await loadTags()
+    load()
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') ElMessage.error(apiError(e))
+  }
+}
+
+async function tagRemove(tag: Dict) {
+  try {
+    await ElMessageBox.confirm(`删除标签「${tag.name}」？它将从 ${tag.usage_count} 个合同上移除。`, '删除确认', { type: 'warning' })
+    await deleteTag(tag.id)
+    ElMessage.success('已删除')
+    await loadTags()
+    load()
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') ElMessage.error(apiError(e))
+  }
+}
+
 // ---------- 详情（AC-01：详情可打开） ----------
 const drawerVisible = ref(false)
 const detail = ref<Dict>({})
@@ -154,7 +210,7 @@ function fmtMoney(v: any): string {
 
 onMounted(async () => {
   meta.value = await getMeta()
-  await Promise.all([load(), loadFrameworks()])
+  await Promise.all([load(), loadFrameworks(), loadTags()])
 })
 </script>
 
@@ -182,6 +238,7 @@ onMounted(async () => {
         </el-form-item>
         <el-form-item style="float: right">
           <el-checkbox v-model="query.include_deleted" label="显示已停用" @change="page = 1; load()" />
+          <el-button @click="tagDialogVisible = true">标签管理</el-button>
           <el-button type="success" @click="openNew()">＋ 新增合同</el-button>
         </el-form-item>
       </el-form>
@@ -268,6 +325,12 @@ onMounted(async () => {
             </el-form-item>
             <el-form-item v-else label="说明"><span class="gray">作为框架合同：其他合同可挂到其下（BR6）</span></el-form-item>
           </el-col>
+          <el-col :span="24"><el-form-item label="标签">
+            <el-select v-model="form.tags" multiple filterable allow-create default-first-option clearable
+                       placeholder="选择已有标签，或输入后回车新建" style="width: 100%">
+              <el-option v-for="t in tagOptions" :key="t.id" :label="t.name" :value="t.name" />
+            </el-select>
+          </el-form-item></el-col>
           <el-col :span="24"><el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item></el-col>
         </el-row>
       </el-form>
@@ -275,6 +338,28 @@ onMounted(async () => {
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </template>
+    </el-dialog>
+
+    <!-- 标签管理（T4，AC-13） -->
+    <el-dialog v-model="tagDialogVisible" title="标签管理" width="520px">
+      <div class="mb" style="display: flex; gap: 8px">
+        <el-input v-model="newTagName" placeholder="新标签名称，回车确认" @keyup.enter="addTag" />
+        <el-button type="primary" @click="addTag">新增</el-button>
+      </div>
+      <el-table :data="tagOptions" size="small" border>
+        <el-table-column label="标签" min-width="160">
+          <template #default="{ row }">
+            <el-tag :color="row.color" style="color:#fff;border:none">{{ row.name }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="usage_count" label="使用合同数" width="100" align="center" />
+        <el-table-column label="操作" width="130">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="tagRename(row)">改名</el-button>
+            <el-button link type="danger" @click="tagRemove(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
     </el-dialog>
 
     <!-- 详情抽屉 -->

@@ -21,6 +21,7 @@ from ..database import get_db
 from ..models import (
     RESTORE_DAYS,
     Contract,
+    Tag,
     compute_warranty_end,
 )
 
@@ -167,6 +168,30 @@ def _fmt(c: Contract, db: Session | None = None) -> dict:
     }
 
 
+def _sync_tags(db: Session, contract: Contract, tag_names: list) -> None:
+    """按名称整体替换合同标签（BR7）：不存在的名称自动新建。返回是否变化。"""
+    names = []
+    for n in tag_names or []:
+        n = (n or "").strip()
+        if n and n not in names:
+            names.append(n)
+    current = {t.name for t in contract.tags}
+    if set(names) == current:
+        return
+    resolved: list[Tag] = []
+    for name in names:
+        tag = db.query(Tag).filter(Tag.name == name).first()
+        if tag is None:
+            count = db.query(Tag).count()
+            tag = Tag(name=name, color=["#409eff", "#67c23a", "#e6a23c", "#f56c6c", "#909399"][count % 5])
+            db.add(tag)
+            db.flush()
+        resolved.append(tag)
+    contract.tags = resolved
+    _log(db, contract, "_tags", ",".join(sorted(current)), ",".join(names), source="manual")
+    db.commit()
+
+
 def _get_contract(db: Session, contract_id: int) -> Contract:
     c = db.get(Contract, contract_id)
     if c is None:
@@ -192,6 +217,8 @@ def create_contract(payload: dict = Body(...), db: Session = Depends(get_db)):
     db.add(c)
     db.flush()
     _apply_updates(db, c, payload, note="新增合同")
+    if "tags" in payload:
+        _sync_tags(db, c, payload.get("tags") or [])
     return _fmt(c, db)
 
 
@@ -251,6 +278,8 @@ def update_contract(contract_id: int, payload: dict = Body(...), db: Session = D
         if dup:
             raise HTTPException(status_code=409, detail="合同编号已存在")
     _apply_updates(db, c, payload)
+    if "tags" in payload:
+        _sync_tags(db, c, payload.get("tags") or [])
     return _fmt(c, db)
 
 

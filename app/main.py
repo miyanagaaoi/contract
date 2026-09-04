@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from .config import APP_NAME, APP_VERSION, ensure_dirs
 from .database import Base, SessionLocal, engine
 from .init_db import seed_dicts
-from .routers import contracts, health, meta
+from .routers import contracts, health, meta, tags
 
 __all__ = ["app"]
 
@@ -33,6 +33,7 @@ app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=lifespan)
 
 app.include_router(health.router)
 app.include_router(meta.router)
+app.include_router(tags.router)
 app.include_router(contracts.router)
 
 
