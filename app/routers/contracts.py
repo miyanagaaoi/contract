@@ -232,21 +232,22 @@ def create_contract(payload: dict = Body(...), db: Session = Depends(get_db)):
     return _fmt(c, db)
 
 
-@router.get("")
-def list_contracts(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=200),
-    keyword: str | None = Query(None, description="关键词：编号/名称/甲方/乙方 模糊"),
-    status: str | None = Query(None),
-    contract_type: str | None = Query(None, alias="type"),
-    is_framework: bool | None = Query(None),
-    include_deleted: bool = Query(False, description="是否含已停用（AC-15）"),
-    owner: str | None = Query(None, description="经办人模糊"),
-    tags: str | None = Query(None, description="逗号分隔的标签ID，取交集(包含全部所选, BR8)"),
-    sign_from: str | None = Query(None, alias="sign_from", description="签订日期起 YYYY-MM-DD"),
-    sign_to: str | None = Query(None, alias="sign_to", description="签订日期止 YYYY-MM-DD"),
-    db: Session = Depends(get_db),
+def _filtered_query(
+    db: Session,
+    *,
+    include_deleted: bool = False,
+    keyword: str | None = None,
+    owner: str | None = None,
+    status: str | None = None,
+    contract_type: str | None = None,
+    is_framework: bool | None = None,
+    sign_from: str | None = None,
+    sign_to: str | None = None,
+    tags: str | None = None,
 ):
+    """列表与导出共用的筛选查询（单一数据源，R7）。"""
+    from datetime import date
+
     q = db.query(Contract)
     if not include_deleted:
         q = q.filter(Contract.deleted == False)  # noqa: E712
@@ -263,8 +264,6 @@ def list_contracts(
     if is_framework is not None:
         q = q.filter(Contract.is_framework == is_framework)
     if sign_from or sign_to:
-        from datetime import date
-
         cond = []
         if sign_from:
             cond.append(Contract.sign_date >= date.fromisoformat(sign_from))
@@ -278,6 +277,27 @@ def list_contracts(
                  .filter(contract_tag.c.tag_id.in_(tag_ids))
                  .group_by(Contract.id)
                  .having(func.count(contract_tag.c.contract_id) == len(tag_ids)))
+    return q
+
+
+@router.get("")
+def list_contracts(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    keyword: str | None = Query(None, description="关键词：编号/名称/甲方/乙方 模糊"),
+    status: str | None = Query(None),
+    contract_type: str | None = Query(None, alias="type"),
+    is_framework: bool | None = Query(None),
+    include_deleted: bool = Query(False, description="是否含已停用（AC-15）"),
+    owner: str | None = Query(None, description="经办人模糊"),
+    tags: str | None = Query(None, description="逗号分隔的标签ID，取交集(包含全部所选, BR8)"),
+    sign_from: str | None = Query(None, alias="sign_from", description="签订日期起 YYYY-MM-DD"),
+    sign_to: str | None = Query(None, alias="sign_to", description="签订日期止 YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+):
+    q = _filtered_query(db, include_deleted=include_deleted, keyword=keyword, owner=owner,
+                        status=status, contract_type=contract_type, is_framework=is_framework,
+                        sign_from=sign_from, sign_to=sign_to, tags=tags)
     total = q.count()
     items = q.order_by(Contract.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     return {"items": [_fmt(c, db) for c in items], "total": total, "page": page, "page_size": page_size}

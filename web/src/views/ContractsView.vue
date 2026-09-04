@@ -75,6 +75,22 @@ async function loadTags() {
   tagOptions.value = await fetchTags()
 }
 
+function exportExcel() {
+  const p = new URLSearchParams()
+  if (query.keyword) p.set('keyword', query.keyword)
+  if (query.type) p.set('type', query.type)
+  if (query.status) p.set('status', query.status)
+  if (query.owner) p.set('owner', query.owner)
+  if (query.tags.length) p.set('tags', query.tags.join(','))
+  if (query.date_range.length === 2) {
+    p.set('sign_from', query.date_range[0])
+    p.set('sign_to', query.date_range[1])
+  }
+  if (query.include_deleted) p.set('include_deleted', 'true')
+  const qs = p.toString()
+  window.open(`/api/export/contracts.xlsx${qs ? `?${qs}` : ''}`, '_blank')
+}
+
 // ---------- 新增/编辑 ----------
 const dialogVisible = ref(false)
 const saving = ref(false)
@@ -369,6 +385,12 @@ onMounted(async () => {
 
     <!-- 表格 -->
     <el-card shadow="never">
+      <template #header>
+        <div style="display: flex; justify-content: space-between; align-items: center">
+          <span>合同台账（共 {{ total }} 条，含当前筛选）</span>
+          <el-button type="primary" plain :disabled="!rows.length && !total" @click="exportExcel">导出 Excel（当前筛选）</el-button>
+        </div>
+      </template>
       <el-table v-loading="loading" :data="rows" border stripe @row-dblclick="view">
         <el-table-column prop="contract_no" label="合同编号" width="130" />
         <el-table-column prop="name" label="合同名称" min-width="180" show-overflow-tooltip />
