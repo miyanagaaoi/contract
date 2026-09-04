@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from .config import APP_NAME, APP_VERSION, ensure_dirs
 from .database import Base, SessionLocal, engine
 from .init_db import seed_dicts
-from .routers import health
+from .routers import contracts, health, meta
 
 __all__ = ["app"]
 
@@ -32,6 +32,8 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=lifespan)
 
 app.include_router(health.router)
+app.include_router(meta.router)
+app.include_router(contracts.router)
 
 
 @app.get("/")

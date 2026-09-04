@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import calendar
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -49,6 +50,26 @@ DEFAULT_TAGS = ["采购", "销售", "项目A", "项目B"]
 
 # 删除保留天数（BR10/Q7：软删除后 30 天内可恢复）
 RESTORE_DAYS = 30
+
+
+def add_months(value: date, months: int) -> date:
+    """日期加 N 个月（按年-月进位，日归一到当月有效范围）。"""
+    total = value.year * 12 + (value.month - 1) + months
+    y, m0 = divmod(total, 12)
+    m = m0 + 1
+    day = min(value.day, calendar.monthrange(y, m)[1])
+    return date(y, m, day)
+
+
+def compute_warranty_end(start: date, months: int) -> date:
+    """质保到期日（BR5/Q2）：生效日 + 期限月 - 1 个月，取该月最后一天。
+
+    例：2025-06-01 起 12 个月 → 2026-05-31（如同一年期保单口径）。
+    months 至少为 1。
+    """
+    months = max(1, months)
+    target = add_months(start, months - 1)
+    return date(target.year, target.month, calendar.monthrange(target.year, target.month)[1])
 
 
 # ---------- 关联表：合同 <-> 标签（多对多） ----------
