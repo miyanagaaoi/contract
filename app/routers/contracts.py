@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import (
     RESTORE_DAYS,
+    STATUSES,
     Contract,
     Tag,
     compute_warranty_end,
@@ -300,7 +301,13 @@ def update_contract(contract_id: int, payload: dict = Body(...), db: Session = D
         dup = db.query(Contract).filter(Contract.contract_no == new_no, Contract.id != contract_id).first()
         if dup:
             raise HTTPException(status_code=409, detail="合同编号已存在")
+    if payload.get("status") is not None and payload["status"] not in STATUSES:
+        raise HTTPException(status_code=422, detail=f"无效状态: {payload['status']}")
     _apply_updates(db, c, payload)
+    note = (payload.get("note") or "").strip()
+    if note:
+        _log(db, c, "备注", None, note)
+        db.commit()
     if "tags" in payload:
         _sync_tags(db, c, payload.get("tags") or [])
     return _fmt(c, db)

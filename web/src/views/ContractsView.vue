@@ -217,6 +217,52 @@ function fmtMoney(v: any): string {
   return v === null || v === undefined ? '—' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })
 }
 
+// ---------- 状态流转（T6，AC-04） ----------
+const statusDlgVisible = ref(false)
+const statusRow = ref<Dict>({})
+const newStatus = ref('')
+const statusNote = ref('')
+
+function openStatus(row: Dict) {
+  statusRow.value = row
+  newStatus.value = row.status
+  statusNote.value = ''
+  statusDlgVisible.value = true
+}
+
+async function saveStatus() {
+  if (!newStatus.value) {
+    ElMessage.warning('请选择新状态')
+    return
+  }
+  try {
+    const payload: Dict = { status: newStatus.value }
+    if (statusNote.value.trim()) payload.note = statusNote.value.trim()
+    await updateContract(statusRow.value.id, payload)
+    ElMessage.success('状态已更新')
+    statusDlgVisible.value = false
+    load()
+  } catch (e) {
+    ElMessage.error(apiError(e))
+  }
+}
+
+// 变更历史字段中文标签（AC-12 展示友好）
+const FIELD_LABELS: Record<string, string> = {
+  contract_no: '合同编号', name: '合同名称', type: '类型', party_a: '甲方', party_b: '乙方',
+  sign_date: '签订日期', effective_date: '生效日期', subject_matter: '标的物', amount: '合同金额',
+  currency: '币种', paid_amount: '累计已付', status: '状态', owner_name: '经办人', remark: '备注',
+  is_framework: '框架合同', parent_id: '所属框架', arrival_status: '到货状态',
+  expected_arrival_date: '预计到货', has_warranty: '有质保金', warranty_amount: '质保金金额',
+  warranty_rate: '质保金比例', warranty_start: '质保生效', warranty_months: '质保期限',
+  warranty_end: '质保到期', warranty_released: '质保已释放', warranty_release_date: '释放日期',
+  warranty_note: '质保备注', deleted: '删除', _tags: '标签', _summary: '概要',
+}
+
+function fLabel(f: string): string {
+  return FIELD_LABELS[f] ?? f
+}
+
 onMounted(async () => {
   meta.value = await getMeta()
   await Promise.all([load(), loadFrameworks(), loadTags()])
@@ -292,7 +338,7 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column prop="status" label="状态" width="110" />
         <el-table-column prop="owner_name" label="经办人" width="80" />
-        <el-table-column label="操作" width="230" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="view(row)">详情</el-button>
             <template v-if="row.deleted">
@@ -300,6 +346,7 @@ onMounted(async () => {
             </template>
             <template v-else>
               <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+              <el-button link type="warning" @click="openStatus(row)">状态</el-button>
               <el-button link type="danger" @click="remove(row)">停用</el-button>
             </template>
           </template>
@@ -361,6 +408,25 @@ onMounted(async () => {
       </template>
     </el-dialog>
 
+    <!-- 状态流转（T6，AC-04） -->
+    <el-dialog v-model="statusDlgVisible" :title="`状态流转 · ${statusRow.contract_no ?? ''}`" width="460px">
+      <el-form label-width="80px">
+        <el-form-item label="当前状态"><el-tag>{{ statusRow.status }}</el-tag></el-form-item>
+        <el-form-item label="新状态">
+          <el-select v-model="newStatus" style="width: 100%">
+            <el-option v-for="s in meta.statuses" :key="s" :label="s" :value="s" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="备注（可选）">
+          <el-input v-model="statusNote" type="textarea" :rows="2" placeholder="流转说明/原因" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="statusDlgVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveStatus">确认流转</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 标签管理（T4，AC-13） -->
     <el-dialog v-model="tagDialogVisible" title="标签管理" width="520px">
       <div class="mb" style="display: flex; gap: 8px">
@@ -415,11 +481,11 @@ onMounted(async () => {
         <el-divider content-position="left">变更历史（时间 · 字段 · 旧值 → 新值）</el-divider>
         <el-timeline v-if="logs.length">
           <el-timeline-item v-for="lg in logs" :key="lg.id" :timestamp="fmtDate(lg.created_at) + ' ' + (lg.created_at || '').slice(11, 19)" placement="top">
-            <div v-if="lg.field_name === '_summary' && !lg.new_value"><b>新增合同</b></div>
+            <div v-if="lg.field_name === '_summary' && lg.new_value">变更字段：{{ lg.new_value }}</div>
+            <div v-else-if="lg.field_name === '_summary'"><b>新增合同</b></div>
             <div v-else-if="lg.field_name === 'deleted'"><b>停用/恢复</b>：{{ lg.note }}</div>
-            <div v-else>
-              <b>{{ lg.field_name }}</b>：{{ lg.old_value ?? '（空）' }} → {{ lg.new_value ?? '（空）' }}
-            </div>
+            <div v-else-if="lg.field_name === '备注'"><b>备注</b>：{{ lg.new_value }}</div>
+            <div v-else><b>{{ fLabel(lg.field_name) }}</b>：{{ lg.old_value ?? '（空）' }} → {{ lg.new_value ?? '（空）' }}</div>
           </el-timeline-item>
         </el-timeline>
         <el-empty v-else description="暂无变更记录" :image-size="60" />
