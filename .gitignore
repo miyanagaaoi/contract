@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# 前端
+node_modules/
+web/dist/
+*.local
+
+# 运行数据
+app/uploads/
+*.db
+*.sqlite3
+logs/
+*.log
+
+# 环境与编辑器
+.env
+.env.*
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
