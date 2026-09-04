@@ -14,7 +14,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -23,6 +23,7 @@ from ..models import (
     Contract,
     Tag,
     compute_warranty_end,
+    contract_tag,
 )
 
 router = APIRouter(prefix="/api/contracts", tags=["contracts"])
@@ -231,6 +232,10 @@ def list_contracts(
     contract_type: str | None = Query(None, alias="type"),
     is_framework: bool | None = Query(None),
     include_deleted: bool = Query(False, description="是否含已停用（AC-15）"),
+    owner: str | None = Query(None, description="经办人模糊"),
+    tags: str | None = Query(None, description="逗号分隔的标签ID，取交集(包含全部所选, BR8)"),
+    sign_from: str | None = Query(None, alias="sign_from", description="签订日期起 YYYY-MM-DD"),
+    sign_to: str | None = Query(None, alias="sign_to", description="签订日期止 YYYY-MM-DD"),
     db: Session = Depends(get_db),
 ):
     q = db.query(Contract)
@@ -240,12 +245,30 @@ def list_contracts(
         like = f"%{keyword}%"
         q = q.filter(or_(Contract.contract_no.like(like), Contract.name.like(like),
                          Contract.party_a.like(like), Contract.party_b.like(like)))
+    if owner:
+        q = q.filter(Contract.owner_name.like(f"%{owner}%"))
     if status:
         q = q.filter(Contract.status == status)
     if contract_type:
         q = q.filter(Contract.type == contract_type)
     if is_framework is not None:
         q = q.filter(Contract.is_framework == is_framework)
+    if sign_from or sign_to:
+        from datetime import date
+
+        cond = []
+        if sign_from:
+            cond.append(Contract.sign_date >= date.fromisoformat(sign_from))
+        if sign_to:
+            cond.append(Contract.sign_date <= date.fromisoformat(sign_to))
+        q = q.filter(*cond)
+    if tags:
+        tag_ids = [int(x) for x in tags.split(",") if x.strip().isdigit()]
+        if tag_ids:
+            q = (q.join(contract_tag)
+                 .filter(contract_tag.c.tag_id.in_(tag_ids))
+                 .group_by(Contract.id)
+                 .having(func.count(contract_tag.c.contract_id) == len(tag_ids)))
     total = q.count()
     items = q.order_by(Contract.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     return {"items": [_fmt(c, db) for c in items], "total": total, "page": page, "page_size": page_size}

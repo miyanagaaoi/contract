@@ -32,6 +32,9 @@ const query = reactive<Dict>({
   keyword: '',
   type: '',
   status: '',
+  owner: '',
+  tags: [] as string[],
+  date_range: [] as string[],
   include_deleted: false,
 })
 
@@ -43,6 +46,12 @@ async function load() {
     if (query.keyword) params.keyword = query.keyword
     if (query.type) params.type = query.type
     if (query.status) params.status = query.status
+    if (query.owner) params.owner = query.owner
+    if (query.tags.length) params.tags = query.tags.join(',')
+    if (query.date_range.length === 2) {
+      params.sign_from = query.date_range[0]
+      params.sign_to = query.date_range[1]
+    }
     if (query.include_deleted) params.include_deleted = true
     const res = await fetchContracts(params)
     rows.value = res.items
@@ -232,9 +241,21 @@ onMounted(async () => {
             <el-option v-for="s in meta.statuses" :key="s" :label="s" :value="s" />
           </el-select>
         </el-form-item>
+        <el-form-item label="经办人">
+          <el-input v-model="query.owner" clearable placeholder="经办人" style="width: 100px" @keyup.enter="page = 1; load()" />
+        </el-form-item>
+        <el-form-item label="标签">
+          <el-select v-model="query.tags" multiple collapse-tags collapse-tags-tooltip clearable placeholder="包含全部所选" style="width: 200px">
+            <el-option v-for="t in tagOptions" :key="t.id" :label="t.name" :value="String(t.id)" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="签订日期">
+          <el-date-picker v-model="query.date_range" type="daterange" value-format="YYYY-MM-DD"
+                          start-placeholder="起" end-placeholder="止" style="width: 240px" />
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="page = 1; load()">查询</el-button>
-          <el-button @click="Object.assign(query, { keyword: '', type: '', status: '' }); load()">重置</el-button>
+          <el-button @click="Object.assign(query, { keyword: '', type: '', status: '', tags: [], date_range: [], owner: '' }); load()">重置</el-button>
         </el-form-item>
         <el-form-item style="float: right">
           <el-checkbox v-model="query.include_deleted" label="显示已停用" @change="page = 1; load()" />
