@@ -2,9 +2,13 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
+  attachmentUrl,
+  canPreview,
   createContract,
   createTag,
+  deleteAttachment,
   deleteTag,
+  fetchAttachments,
   fetchContract,
   fetchContracts,
   fetchLogs,
@@ -14,6 +18,7 @@ import {
   restoreContract,
   softDeleteContract,
   updateContract,
+  uploadAttachment,
   type Dict,
 } from '@/api'
 
@@ -202,11 +207,53 @@ async function tagRemove(tag: Dict) {
 const drawerVisible = ref(false)
 const detail = ref<Dict>({})
 const logs = ref<Dict[]>([])
+const atts = ref<Dict[]>([])
+const uploading = ref(false)
 
 async function view(row: Dict) {
   detail.value = await fetchContract(row.id)
   logs.value = await fetchLogs(row.id)
+  atts.value = await fetchAttachments(row.id)
   drawerVisible.value = true
+}
+
+async function onUpload(file: File) {
+  if (!detail.value.id) return
+  uploading.value = true
+  try {
+    await uploadAttachment(detail.value.id, file)
+    ElMessage.success('上传成功')
+    atts.value = await fetchAttachments(detail.value.id)
+    logs.value = await fetchLogs(detail.value.id)
+  } catch (e) {
+    ElMessage.error(apiError(e))
+  } finally {
+    uploading.value = false
+  }
+}
+
+async function onDeleteAttachment(row: Dict) {
+  try {
+    await ElMessageBox.confirm(`删除附件「${row.file_name}」？`, '删除确认', { type: 'warning' })
+    await deleteAttachment(detail.value.id, row.id)
+    ElMessage.success('已删除')
+    atts.value = await fetchAttachments(detail.value.id)
+    logs.value = await fetchLogs(detail.value.id)
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') ElMessage.error(apiError(e))
+  }
+}
+
+function fmtSize(bytes: number): string {
+  if (!bytes) return '—'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+function openAttachment(row: Dict) {
+  if (canPreview(row.file_name)) window.open(attachmentUrl(row.id, true), '_blank')
+  else window.open(attachmentUrl(row.id), '_blank')
 }
 
 function fmtDate(s: string | null | undefined): string {
@@ -477,6 +524,36 @@ onMounted(async () => {
             金额 {{ fmtMoney(detail.warranty_amount) }}（{{ detail.warranty_rate }}%）· 到期 {{ fmtDate(detail.warranty_end) }}
           </el-descriptions-item>
         </el-descriptions>
+
+        <el-divider content-position="left">附件（T7 · 上传/下载/预览，PDF 与图片可预览）</el-divider>
+        <div class="mb">
+          <el-upload
+            :show-file-list="false"
+            :http-request="(o: any) => onUpload(o.file as File)"
+            :before-upload="(f: File) => f.size <= 20 * 1024 * 1024 || (ElMessage.error('附件不能超过 20MB'), false)"
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.txt"
+          >
+            <el-button type="primary" :loading="uploading" plain>上传附件</el-button>
+          </el-upload>
+        </div>
+        <el-table v-if="atts.length" :data="atts" size="small" border>
+          <el-table-column prop="file_name" label="文件名" min-width="180" show-overflow-tooltip />
+          <el-table-column label="大小" width="90">
+            <template #default="{ row }">{{ fmtSize(row.size_bytes) }}</template>
+          </el-table-column>
+          <el-table-column label="上传时间" width="110">
+            <template #default="{ row }">{{ fmtDate(row.uploaded_at) }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="150">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openAttachment(row)">
+                {{ canPreview(row.file_name) ? '预览' : '下载' }}
+              </el-button>
+              <el-button link type="danger" @click="onDeleteAttachment(row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-else-if="!uploading" description="暂无附件" :image-size="60" />
 
         <el-divider content-position="left">变更历史（时间 · 字段 · 旧值 → 新值）</el-divider>
         <el-timeline v-if="logs.length">

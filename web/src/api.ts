@@ -74,3 +74,35 @@ export async function deleteTag(id: number): Promise<Dict> {
   const { data } = await http.delete(`/tags/${id}`)
   return data
 }
+
+// ---------- 附件（T7，AC-09） ----------
+export async function fetchAttachments(contractId: number): Promise<Dict[]> {
+  const { data } = await http.get(`/contracts/${contractId}/attachments`)
+  return data
+}
+
+export async function uploadAttachment(contractId: number, file: File): Promise<Dict> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await http.post(`/contracts/${contractId}/attachments`, form)
+  return data
+}
+
+export async function deleteAttachment(contractId: number, attachmentId: number, reason?: string): Promise<Dict> {
+  const { data } = await http.delete(`/contracts/${contractId}/attachments/${attachmentId}`, {
+    params: reason ? { reason } : {},
+  })
+  return data
+}
+
+export function attachmentUrl(attachmentId: number, inline = false): string {
+  return `/api/attachments/${attachmentId}/download${inline ? '?inline=1' : ''}`
+}
+
+const PREVIEWABLE = ['.pdf', '.png', '.jpg', '.jpeg', '.gif']
+
+export function canPreview(fileName: string): boolean {
+  const dot = fileName.lastIndexOf('.')
+  if (dot < 0) return false
+  return PREVIEWABLE.includes(fileName.slice(dot).toLowerCase())
+}
