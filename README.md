@@ -38,18 +38,45 @@
 3. 按 `03-development-plan.md` P1 开始原型开发（T1 Git 初始化 → T2 数据模型 → …）；
 4. 原型完成后按 `01-requirements.md` §8 标准组织三类用户演示，形成 Go/No-Go 决策。
 
+## 开发快速开始（原型阶段）
+
+```bash
+# 1) 后端（FastAPI + SQLite）
+cd app
+python -m venv .venv                 # 首次
+.venv\Scripts\python -m pip install -r requirements.txt   # 首次
+.venv\Scripts\python -m app.init_db --demo   # 建表 + 字典种子 + 演示数据
+.venv\Scripts\python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+#   → API 文档 http://127.0.0.1:8000/docs  健康检查 /api/health
+
+# 2) 前端（Vue3 + Vite + Element Plus）
+cd web
+npm install                          # 首次
+npm run dev                          # → http://127.0.0.1:5173（/api 已代理到 8000）
+```
+
+- 代码位置：`app/`（后端）、`web/`（前端）；数据文件 `app/data/ctms.db`、附件 `app/uploads/`（均已 gitignore）；
+- **版本纪律**：每完成一个功能（验收场景全绿）提交一次 Git，格式 `feat: [AC-xx] 功能名`（见 `docs/03-development-plan.md` §3.1）；
+- 无登录/无角色：纯内网使用，打开即用。
+
 ## 目录结构
 
 ```
 D:\dsh\hetong\
 ├── README.md
 ├── prompt.txt              (空，需求来源占位)
-└── docs\
-    ├── 00-sdd-process.md
-    ├── 01-requirements.md
-    ├── 02-system-design.md
-    ├── 03-development-plan.md
-    └── 04-tech-route.md
+├── docs\
+│   ├── 00-sdd-process.md
+│   ├── 01-requirements.md
+│   ├── 02-system-design.md
+│   ├── 03-development-plan.md
+│   └── 04-tech-route.md
+├── app\                    (后端 FastAPI；.venv/data/uploads 不入库)
+│   ├── main.py  config.py  database.py  models.py  init_db.py
+│   └── routers\health.py
+└── web\                    (前端 Vue3 + Vite + Element Plus)
+    ├── package.json  vite.config.ts  index.html
+    └── src\main.ts  App.vue  router\  views\
 ```
 
-> 注：后续代码将置于 `app/`（后端）与 `web/`（前端）子目录，规格文档随代码更新。
+> 代码随规格演进：完成的功能对应一次 Git 提交，规格文档变更同步提交。
