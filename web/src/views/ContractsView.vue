@@ -83,6 +83,8 @@ const form = reactive<Dict>({
   contract_no: '', name: '', type: '采购', party_a: '', party_b: '',
   sign_date: '', subject_matter: '', amount: 0, paid_amount: 0, status: '内部审批中',
   owner_name: '', remark: '', is_framework: false, parent_id: null, tags: [],
+  has_warranty: false, warranty_amount: null, warranty_rate: null,
+  warranty_start: '', warranty_months: null,
 })
 
 function resetForm() {
@@ -90,6 +92,8 @@ function resetForm() {
     contract_no: '', name: '', type: '采购', party_a: '', party_b: '',
     sign_date: '', subject_matter: '', amount: 0, paid_amount: 0, status: '内部审批中',
     owner_name: '', remark: '', is_framework: false, parent_id: null, tags: [],
+    has_warranty: false, warranty_amount: null, warranty_rate: null,
+    warranty_start: '', warranty_months: null,
   })
 }
 
@@ -109,6 +113,11 @@ function openEdit(row: Dict) {
     status: row.status, owner_name: row.owner_name ?? '',
     remark: row.remark ?? '', is_framework: row.is_framework,
     parent_id: row.parent_id ?? null, tags: [...(row.tags ?? [])],
+    has_warranty: row.has_warranty ?? false,
+    warranty_amount: row.warranty_amount ?? null,
+    warranty_rate: row.warranty_rate ?? null,
+    warranty_start: row.warranty_start ?? '',
+    warranty_months: row.warranty_months ?? null,
   })
   dialogVisible.value = true
 }
@@ -429,6 +438,22 @@ onMounted(async () => {
           <el-col :span="8"><el-form-item label="累计已付"><el-input-number v-model="form.paid_amount" :min="0" :precision="2" :controls="false" style="width: 100%" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="状态"><el-select v-model="form.status" style="width: 100%"><el-option v-for="s in meta.statuses" :key="s" :label="s" :value="s" /></el-select></el-form-item></el-col>
         </el-row>
+        <el-divider content-position="left">质保金（BR5 · 到期日自动计算并提醒）</el-divider>
+        <el-row :gutter="12">
+          <el-col :span="24">
+            <el-form-item label="含质保金">
+              <el-switch v-model="form.has_warranty" active-text="是" inactive-text="否" />
+              <span v-if="form.has_warranty" class="gray" style="margin-left: 8px">录比例自动换算金额（或反之）</span>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row v-if="form.has_warranty" :gutter="12">
+          <el-col :span="6"><el-form-item label="质保金额(元)"><el-input-number v-model="form.warranty_amount" :min="0" :precision="2" :controls="false" style="width: 100%" /></el-form-item></el-col>
+          <el-col :span="6"><el-form-item label="比例(%)"><el-input-number v-model="form.warranty_rate" :min="0" :max="100" :precision="2" :controls="false" style="width: 100%" /></el-form-item></el-col>
+          <el-col :span="6"><el-form-item label="生效日期"><el-date-picker v-model="form.warranty_start" type="date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item></el-col>
+          <el-col :span="6"><el-form-item label="期限(月)"><el-input-number v-model="form.warranty_months" :min="1" :max="240" :controls="false" style="width: 100%" /></el-form-item></el-col>
+        </el-row>
+
         <el-divider content-position="left">框架与备注</el-divider>
         <el-row :gutter="12">
           <el-col :span="8"><el-form-item label="框架合同"><el-switch v-model="form.is_framework" active-text="是" inactive-text="否" /></el-form-item></el-col>

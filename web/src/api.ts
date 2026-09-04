@@ -106,3 +106,9 @@ export function canPreview(fileName: string): boolean {
   if (dot < 0) return false
   return PREVIEWABLE.includes(fileName.slice(dot).toLowerCase())
 }
+
+// ---------- 看板（T9，AC-08） ----------
+export async function fetchDashboard(): Promise<Dict> {
+  const { data } = await http.get('/dashboard')
+  return data
+}
