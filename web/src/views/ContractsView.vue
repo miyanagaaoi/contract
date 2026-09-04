@@ -525,6 +525,20 @@ onMounted(async () => {
           </el-descriptions-item>
         </el-descriptions>
 
+        <template v-if="detail.is_framework">
+          <el-divider content-position="left">子合同列表（共 {{ detail.children_count ?? 0 }} 份）</el-divider>
+          <el-table v-if="detail.children?.length" :data="detail.children" size="small" border>
+            <el-table-column prop="contract_no" label="编号" width="130" />
+            <el-table-column prop="name" label="名称" min-width="160" show-overflow-tooltip />
+            <el-table-column label="金额" width="110" align="right">
+              <template #default="{ row }">{{ fmtMoney(row.amount) }}</template>
+            </el-table-column>
+            <el-table-column prop="status" label="状态" width="110" />
+            <el-table-column prop="owner_name" label="经办人" width="80" />
+          </el-table>
+          <el-empty v-else description="暂无子合同" :image-size="60" />
+        </template>
+
         <el-divider content-position="left">附件（T7 · 上传/下载/预览，PDF 与图片可预览）</el-divider>
         <div class="mb">
           <el-upload

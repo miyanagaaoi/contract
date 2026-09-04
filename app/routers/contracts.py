@@ -46,6 +46,12 @@ _DATE_FIELDS = {
     "sign_date", "effective_date", "warranty_start", "warranty_end",
     "warranty_release_date", "expected_arrival_date",
 }
+# 允许显式置空（传 null）的字段；其余必填字段传 null 时忽略
+_NULLABLE_FIELDS = {
+    "sign_date", "effective_date", "parent_id", "expected_arrival_date",
+    "warranty_amount", "warranty_rate", "warranty_start", "warranty_months",
+    "warranty_end", "warranty_release_date", "warranty_note", "owner_name", "remark",
+}
 
 
 def _log(db: Session, contract: Contract, field: str, old, new, note: str | None = None,
@@ -86,9 +92,11 @@ def _apply_updates(db: Session, contract: Contract, payload: dict, note: str | N
     """应用变更并写变更历史，返回发生变更的字段列表。"""
     changed: list[str] = []
     for field in TRACKED_FIELDS:
-        if field not in payload or payload[field] is None:
+        if field not in payload:
             continue
         new_raw = _norm(payload[field], field)
+        if new_raw is None and field not in _NULLABLE_FIELDS:
+            continue  # 非空字段不接受 null
         if field == "has_warranty" and not new_raw:
             # 关闭质保时清空相关字段
             for wf in ("warranty_amount", "warranty_rate", "warranty_start",
