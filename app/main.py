@@ -15,7 +15,7 @@ from .config import APP_NAME, APP_VERSION, ensure_dirs
 from .database import Base, SessionLocal, engine
 from .db_migrate import ensure_schema_upgrades
 from .init_db import seed_dicts
-from .routers import attachments, contracts, dashboard, export, health, meta, settings, tags
+from .routers import attachments, contracts, dashboard, export, health, imports, meta, settings, tags
 
 __all__ = ["app"]
 
@@ -41,6 +41,7 @@ app.include_router(settings.router)
 app.include_router(contracts.router)
 app.include_router(attachments.router)
 app.include_router(export.router)
+app.include_router(imports.router)
 
 
 @app.get("/")

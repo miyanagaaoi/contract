@@ -118,3 +118,15 @@ export async function saveItemTypes(values: string[]): Promise<Dict> {
   const { data } = await http.put('/settings/item-types', { values })
   return data
 }
+
+// ---------- 批量导入（MVP2 需求②：仅新建） ----------
+export function importTemplateUrl(): string {
+  return '/api/import/template.xlsx'
+}
+
+export async function importContracts(file: File): Promise<Dict> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await http.post('/import/contracts', form, { timeout: 120000 })
+  return data
+}

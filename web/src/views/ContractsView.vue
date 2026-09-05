@@ -14,6 +14,8 @@ import {
   fetchLogs,
   fetchTags,
   getMeta,
+  importContracts,
+  importTemplateUrl,
   renameTag,
   restoreContract,
   saveItemTypes,
@@ -421,6 +423,36 @@ async function tagRemove(tag: Dict) {
   }
 }
 
+// ---------- 批量导入（MVP2 需求②） ----------
+const importDlgVisible = ref(false)
+const importing = ref(false)
+const importResult = ref<Dict | null>(null)
+
+function openImportDialog() {
+  importResult.value = null
+  importDlgVisible.value = true
+}
+
+async function onImportFile(file: File) {
+  importing.value = true
+  importResult.value = null
+  try {
+    const res = await importContracts(file)
+    importResult.value = res
+    if (res.success > 0) load()
+    if (res.fail === 0) ElMessage.success(`导入成功 ${res.success} 条`)
+    else ElMessage.warning(`成功 ${res.success} 条，失败 ${res.fail} 条，详见下方报告`)
+  } catch (e) {
+    ElMessage.error(apiError(e))
+  } finally {
+    importing.value = false
+  }
+}
+
+function downloadTemplate() {
+  window.open(importTemplateUrl(), '_blank')
+}
+
 // ---------- 详情（AC-01：详情可打开） ----------
 const drawerVisible = ref(false)
 const detail = ref<Dict>({})
@@ -578,6 +610,7 @@ onMounted(async () => {
           <el-checkbox v-model="query.include_deleted" label="显示已停用" @change="page = 1; load()" />
           <el-button @click="tagDialogVisible = true">标签管理</el-button>
           <el-button @click="openTypes()">系统字典</el-button>
+          <el-button @click="openImportDialog()">导入</el-button>
           <el-button type="success" @click="openNew()">＋ 新增合同</el-button>
         </el-form-item>
       </el-form>
@@ -789,6 +822,30 @@ onMounted(async () => {
       <template #footer>
         <el-button @click="exportDlgVisible = false">取消</el-button>
         <el-button type="primary" @click="doExport">导出（当前筛选）</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 批量导入（MVP2 需求②：仅新建） -->
+    <el-dialog v-model="importDlgVisible" title="批量导入合同（仅新建 · 按系统模板）" width="720px">
+      <el-alert type="info" :closable="false" class="mb"
+        title="① 先下载模板填写 → ② 上传 → ③ 看结果。错误行（编号重复/格式错误）整条跳过、不落库。" />
+      <div class="mb" style="display: flex; gap: 8px">
+        <el-button @click="downloadTemplate">⬇ 下载系统导入模板(.xlsx)</el-button>
+        <el-upload :show-file-list="false" :http-request="(o: any) => onImportFile(o.file as File)"
+                   accept=".xlsx,.xlsm" :disabled="importing">
+          <el-button type="primary" :loading="importing">选择文件并导入</el-button>
+        </el-upload>
+      </div>
+      <template v-if="importResult">
+        <el-alert v-if="importResult.fail === 0" type="success" :closable="false" class="mb"
+          :title="`导入完成：成功 ${importResult.success} 条`" />
+        <el-alert v-else type="warning" :closable="false" class="mb"
+          :title="`导入完成：成功 ${importResult.success} 条，失败 ${importResult.fail} 条（已跳过，不影响库内数据）`" />
+        <el-table v-if="importResult.errors?.length" :data="importResult.errors" size="small" border max-height="280">
+          <el-table-column prop="row" label="Excel 行" width="80" align="center" />
+          <el-table-column prop="contract_no" label="合同编号" width="150" />
+          <el-table-column prop="reason" label="失败原因" min-width="260" show-overflow-tooltip />
+        </el-table>
       </template>
     </el-dialog>
 
