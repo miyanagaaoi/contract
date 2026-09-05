@@ -134,8 +134,66 @@ function exportExcel() {
     p.set('sign_to', query.date_range[1])
   }
   if (query.include_deleted) p.set('include_deleted', 'true')
+  return p
+}
+
+// ---------- 导出配置（MVP2 需求③：重要列默认勾 + 记住选择） ----------
+const exportDlgVisible = ref(false)
+const exportCols = ref<string[]>([])
+const exportRemember = ref(true)
+const MEM_KEY = 'ctms_export_cols'
+
+const impExportCols = computed(() => (meta.value.export_columns ?? []).filter((c: Dict) => c.important))
+const optExportCols = computed(() => (meta.value.export_columns ?? []).filter((c: Dict) => !c.important))
+
+function openExportDialog() {
+  const defaults = meta.value.export_default_cols ?? []
+  let list: string[] | null = null
+  if (exportRemember.value) {
+    try {
+      const saved = localStorage.getItem(MEM_KEY)
+      if (saved) {
+        const arr = JSON.parse(saved)
+        if (Array.isArray(arr)) list = arr.filter((k: string) => defaults.includes(k))
+      }
+    } catch { /* ignore */ }
+  }
+  exportCols.value = list && list.length ? list : [...defaults]
+  exportDlgVisible.value = true
+}
+
+function rememberExportCols() {
+  try {
+    localStorage.setItem(MEM_KEY, JSON.stringify(exportCols.value))
+  } catch { /* ignore */ }
+}
+
+function setAllExportCols() {
+  exportCols.value = (meta.value.export_columns ?? []).map((c: Dict) => c.key)
+  if (exportRemember.value) rememberExportCols()
+}
+
+function clearExportCols() {
+  exportCols.value = []
+  if (exportRemember.value) rememberExportCols()
+}
+
+function resetExportCols() {
+  exportCols.value = [...(meta.value.export_default_cols ?? [])]
+  if (exportRemember.value) rememberExportCols()
+}
+
+function doExport() {
+  if (!exportCols.value.length) {
+    ElMessage.warning('请至少选择一列')
+    return
+  }
+  if (exportRemember.value) rememberExportCols()
+  const p = exportExcel()
+  p.set('cols', exportCols.value.join(','))
   const qs = p.toString()
   window.open(`/api/export/contracts.xlsx${qs ? `?${qs}` : ''}`, '_blank')
+  exportDlgVisible.value = false
 }
 
 // ---------- 新增/编辑 ----------
@@ -532,7 +590,7 @@ onMounted(async () => {
           <span>
             {{ isTree ? `框架树视图（共 ${viewRows.length} 行显示 / ${rows.length} 行数据）` : `合同台账（共 ${total} 条，含当前筛选）` }}
           </span>
-          <el-button type="primary" plain :disabled="!rows.length && !total" @click="exportExcel">导出 Excel（当前筛选）</el-button>
+          <el-button type="primary" plain :disabled="!rows.length && !total" @click="openExportDialog">导出 Excel（当前筛选）</el-button>
         </div>
       </template>
       <el-table v-loading="loading" :data="viewRows" border stripe :row-class-name="isTree ? rowClass : undefined" @row-dblclick="view">
@@ -709,6 +767,31 @@ onMounted(async () => {
       </template>
     </el-dialog>
 
+    <!-- 导出设置（MVP2 需求③） -->
+    <el-dialog v-model="exportDlgVisible" title="导出 Excel · 选择导出项（重要列默认勾选）" width="760px">
+      <div class="mb"><b>📌 重要列（默认勾选）</b></div>
+      <el-checkbox-group v-model="exportCols" class="colwrap mb" @change="exportRemember && rememberExportCols()">
+        <el-checkbox v-for="c in impExportCols" :key="c.key" :value="c.key" border>{{ c.label }}</el-checkbox>
+      </el-checkbox-group>
+      <div class="mb"><b>🗂 次要列（默认不勾）</b></div>
+      <el-checkbox-group v-model="exportCols" class="colwrap mb" @change="exportRemember && rememberExportCols()">
+        <el-checkbox v-for="c in optExportCols" :key="c.key" :value="c.key" border>{{ c.label }}</el-checkbox>
+      </el-checkbox-group>
+      <div style="display: flex; justify-content: space-between; align-items: center">
+        <div>
+          <el-button size="small" @click="setAllExportCols">全选</el-button>
+          <el-button size="small" @click="clearExportCols">清空</el-button>
+          <el-button size="small" type="warning" plain @click="resetExportCols">恢复默认</el-button>
+          <el-switch v-model="exportRemember" size="small" style="margin-left: 12px" active-text="记住本次选择" />
+        </div>
+        <span class="totalbar">将导出 <b>{{ exportCols.length }}</b> 列</span>
+      </div>
+      <template #footer>
+        <el-button @click="exportDlgVisible = false">取消</el-button>
+        <el-button type="primary" @click="doExport">导出（当前筛选）</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 状态流转（T6，AC-04） -->
     <el-dialog v-model="statusDlgVisible" :title="`状态流转 · ${statusRow.contract_no ?? ''}`" width="460px">
       <el-form label-width="80px">
@@ -868,6 +951,7 @@ onMounted(async () => {
 .mb { margin-bottom: 12px; }
 .mt { margin-top: 12px; }
 .mr-4 { margin-right: 4px; }
+.colwrap :deep(.el-checkbox) { margin-right: 8px; margin-bottom: 6px; }
 .gray { color: #909399; font-size: 13px; }
 .totalbar { font-size: 13px; color: #606266; }
 .totalbar b { font-size: 16px; color: #f56c6c; margin-left: 6px; }

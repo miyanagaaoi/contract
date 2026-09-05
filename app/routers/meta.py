@@ -11,6 +11,9 @@ router = APIRouter(prefix="/api/meta", tags=["meta"])
 
 @router.get("")
 def meta(db: Session = Depends(get_db)):
+    from .export import export_column_meta  # 避免模块级环依赖
+
+    export = export_column_meta()
     return {
         "contract_types": CONTRACT_TYPES,
         "statuses": STATUSES,
@@ -18,4 +21,6 @@ def meta(db: Session = Depends(get_db)):
         "currencies": CURRENCIES,
         "default_tags": DEFAULT_TAGS,
         "item_types": get_item_types(db),
+        "export_default_cols": export["default_cols"],
+        "export_columns": export["columns"],
     }
