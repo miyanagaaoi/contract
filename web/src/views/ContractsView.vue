@@ -629,12 +629,12 @@ onMounted(async () => {
           <el-input v-model="query.keyword" placeholder="编号/名称/甲乙方" clearable style="width: 220px" @keyup.enter="page = 1; load()" />
         </el-form-item>
         <el-form-item label="类型">
-          <el-select v-model="query.type" clearable placeholder="全部" style="width: 120px">
+          <el-select v-model="query.type" filterable clearable placeholder="输入或选择类型" style="width: 140px">
             <el-option v-for="t in meta.contract_types" :key="t" :label="t" :value="t" />
           </el-select>
         </el-form-item>
         <el-form-item label="状态">
-          <el-select v-model="query.status" clearable placeholder="全部" style="width: 150px">
+          <el-select v-model="query.status" filterable clearable placeholder="输入或选择状态" style="width: 160px">
             <el-option v-for="s in meta.statuses" :key="s" :label="s" :value="s" />
           </el-select>
         </el-form-item>
@@ -648,7 +648,7 @@ onMounted(async () => {
           <el-input v-model="query.owner" clearable placeholder="经办人" style="width: 100px" @keyup.enter="page = 1; load()" />
         </el-form-item>
         <el-form-item label="标签">
-          <el-select v-model="query.tags" multiple collapse-tags collapse-tags-tooltip clearable placeholder="包含全部所选" style="width: 200px">
+          <el-select v-model="query.tags" multiple filterable collapse-tags collapse-tags-tooltip clearable placeholder="输入筛选/选择标签" style="width: 220px">
             <el-option v-for="t in tagOptions" :key="t.id" :label="t.name" :value="String(t.id)" />
           </el-select>
         </el-form-item>
@@ -749,12 +749,12 @@ onMounted(async () => {
           </el-form-item></el-col>
           <el-col :span="12"><el-form-item label="合同名称" required><el-input v-model="form.name" /></el-form-item></el-col>
           <el-col :span="6"><el-form-item label="类型" required>
-            <el-select v-model="form.type" style="width: 100%">
+            <el-select v-model="form.type" filterable style="width: 100%">
               <el-option v-for="t in meta.contract_types" :key="t" :label="t" :value="t" />
             </el-select>
           </el-form-item></el-col>
           <el-col :span="6"><el-form-item label="我方公司">
-            <el-select v-model="form.subject_code" style="width: 100%">
+            <el-select v-model="form.subject_code" filterable style="width: 100%">
               <el-option v-for="s in meta.subjects" :key="s.code" :label="`${s.name} (${s.code})`" :value="s.code" />
             </el-select>
           </el-form-item></el-col>
@@ -774,7 +774,7 @@ onMounted(async () => {
           </el-table-column>
           <el-table-column label="类型" width="110">
             <template #default="{ row }">
-              <el-select v-model="row.item_type" size="small" style="width: 100%">
+              <el-select v-model="row.item_type" filterable size="small" style="width: 100%">
                 <el-option v-for="t in meta.item_types" :key="t" :label="t" :value="t" />
               </el-select>
             </template>
@@ -824,7 +824,7 @@ onMounted(async () => {
             </el-form-item>
           </el-col>
           <el-col :span="8"><el-form-item label="累计已付"><el-input-number v-model="form.paid_amount" :min="0" :precision="2" :controls="false" style="width: 100%" /></el-form-item></el-col>
-          <el-col :span="8"><el-form-item label="状态"><el-select v-model="form.status" style="width: 100%"><el-option v-for="s in meta.statuses" :key="s" :label="s" :value="s" /></el-select></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="状态"><el-select v-model="form.status" filterable style="width: 100%"><el-option v-for="s in meta.statuses" :key="s" :label="s" :value="s" /></el-select></el-form-item></el-col>
         </el-row>
         <el-divider content-position="left">质保金（BR5 · 到期日自动计算并提醒）</el-divider>
         <el-row :gutter="12">
@@ -922,7 +922,7 @@ onMounted(async () => {
       <el-form label-width="80px">
         <el-form-item label="当前状态"><el-tag>{{ statusRow.status }}</el-tag></el-form-item>
         <el-form-item label="新状态">
-          <el-select v-model="newStatus" style="width: 100%">
+          <el-select v-model="newStatus" filterable style="width: 100%">
             <el-option v-for="s in meta.statuses" :key="s" :label="s" :value="s" />
           </el-select>
         </el-form-item>
