@@ -92,7 +92,8 @@ def main():
 
         # ---------- AC-05 多标签挂载 + 组合搜索 ----------
         _, c = req("PUT", f"/contracts/{cid_a}", {"tags": ["采购", "项目A"]})
-        assert set(c["tags"]) == {"采购", "项目A"}
+        # MVP3：类型会附加"类型名"自动标签，故此处断言手工标签存在（子集）
+        assert {"采购", "项目A"}.issubset(set(c["tags"])), c["tags"]
         _, tags = req("GET", "/tags")
         by_name = {t["name"]: t for t in tags}
         tag_ids = f"{by_name['采购']['id']},{by_name['项目A']['id']}"

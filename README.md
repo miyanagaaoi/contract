@@ -2,7 +2,7 @@
 
 > 内网版合同台账与履约跟踪系统：采购 / 财务 / 项目管理 3~4 人使用。
 > 开发方法：SDD（Specification-Driven Development，规格驱动开发）。
-> 当前阶段：**MVP2 调整已完成（行项/导入/导出配置/框架标签/框架树，见 06 记录），P0 回归全绿**；待演示评审（P2）后进入正式版（P3）。
+> 当前阶段：**MVP3 完成（合同自动编号/类型与主体字典/类型标签/系统设置页，见 07 记录），P0 回归全绿**；待演示评审（P2）后进入正式版（P3）。
 
 ## 文档导航
 
@@ -15,6 +15,7 @@
 | [04-tech-route.md](docs/04-tech-route.md) | **技术路线推介**：选型论证、部署两方案、演进路线 | 决策人 |
 | [05-prototype-acceptance.md](docs/05-prototype-acceptance.md) | **原型验收报告**：AC-01~AC-11 全绿、复现命令、演示建议 | 全体 |
 | [06-mvp2-adjustments.md](docs/06-mvp2-adjustments.md) | **MVP2 调整记录**：行项/导入/导出配置/框架标签/框架树的口径、实现与验收要点 | 全体 |
+| [07-mvp3-adjustments.md](docs/07-mvp3-adjustments.md) | **MVP3 迭代记录**：自动编号/类型与主体字典/类型标签/系统设置页 | 全体 |
 
 ## 关键决策记录（本轮已确认）
 

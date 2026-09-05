@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRouter } from 'vue-router'
 import {
   attachmentUrl,
   canPreview,
@@ -16,6 +17,7 @@ import {
   getMeta,
   importContracts,
   importTemplateUrl,
+  previewNumber,
   renameTag,
   restoreContract,
   saveItemTypes,
@@ -25,6 +27,8 @@ import {
   type Dict,
 } from '@/api'
 
+const router = useRouter()
+
 // ---------- 状态 ----------
 const rows = ref<Dict[]>([])
 const total = ref(0)
@@ -32,7 +36,7 @@ const page = ref(1)
 const pageSize = ref(20)
 const loading = ref(false)
 
-const meta = ref<Dict>({ contract_types: [], statuses: [], arrival_statuses: [] })
+const meta = ref<Dict>({ contract_types: [], statuses: [], arrival_statuses: [], subjects: [] })
 const frameworks = ref<Dict[]>([])
 const tagOptions = ref<Dict[]>([])
 
@@ -206,7 +210,7 @@ const form = reactive<Dict>({
   contract_no: '', name: '', type: '采购', party_a: '', party_b: '',
   sign_date: '', amount: 0, paid_amount: 0, status: '内部审批中',
   owner_name: '', remark: '', is_framework: false, parent_id: null, tags: [],
-  items: [] as Dict[],
+  items: [] as Dict[], subject_code: '',
   has_warranty: false, warranty_amount: null, warranty_rate: null,
   warranty_start: '', warranty_months: null,
 })
@@ -220,7 +224,7 @@ function resetForm() {
     contract_no: '', name: '', type: '采购', party_a: '', party_b: '',
     sign_date: '', amount: 0, paid_amount: 0, status: '内部审批中',
     owner_name: '', remark: '', is_framework: false, parent_id: null, tags: [],
-    items: [] as Dict[],
+    items: [] as Dict[], subject_code: '',
     has_warranty: false, warranty_amount: null, warranty_rate: null,
     warranty_start: '', warranty_months: null,
   })
@@ -242,6 +246,36 @@ function addItemRow() {
 function removeItemRow(i: number) {
   form.items.splice(i, 1)
 }
+
+// ---------- 自动编号预览（MVP3：类型码+主体码+年+月+6位序号，年度递增） ----------
+const previewNo = ref('')
+let noReq = 0
+
+function defaultSubjectCode(): string {
+  return String(meta.value.subjects?.[0]?.code ?? 'ZC')
+}
+
+async function refreshNumber() {
+  const reqId = ++noReq
+  if (editingId.value) {
+    previewNo.value = ''
+    return
+  }
+  const typeV = String(form.type || '')
+  const subV = String(form.subject_code || '')
+  if (!typeV || !subV) {
+    previewNo.value = ''
+    return
+  }
+  try {
+    const r = await previewNumber(typeV, subV, form.sign_date || undefined)
+    if (reqId === noReq && !editingId.value) previewNo.value = r.contract_no ?? ''
+  } catch {
+    if (reqId === noReq) previewNo.value = ''
+  }
+}
+
+watch(() => [form.type, form.subject_code, form.sign_date], refreshNumber)
 
 // 行项类型 = 系统级可配置列表（MVP2 需求① 补充）
 const typesDlgVisible = ref(false)
@@ -283,7 +317,11 @@ async function saveTypes() {
 function openNew() {
   editingId.value = null
   resetForm()
+  form.subject_code = defaultSubjectCode()
+  form.type = String(meta.value.contract_type_defs?.find((t: Dict) => t.enabled && t.code !== 'OTH')?.label ?? meta.value.contract_types?.[0] ?? '采购/支出')
+  previewNo.value = ''
   dialogVisible.value = true
+  refreshNumber()
 }
 
 function openEdit(row: Dict) {
@@ -296,6 +334,7 @@ function openEdit(row: Dict) {
     status: row.status, owner_name: row.owner_name ?? '',
     remark: row.remark ?? '', is_framework: row.is_framework,
     parent_id: row.parent_id ?? null, tags: [...(row.tags ?? [])],
+    subject_code: row.subject_code ?? defaultSubjectCode(),
     items: (row.items ?? []).map((it: Dict) => ({
       item_type: it.item_type ?? '采购', name: it.name ?? '', spec: it.spec ?? '',
       qty: it.qty ?? null, unit_price: it.unit_price ?? null, remark: it.remark ?? '',
@@ -307,12 +346,25 @@ function openEdit(row: Dict) {
     warranty_months: row.warranty_months ?? null,
   })
   if (!form.items.length) form.items.push(emptyRow())
+  previewNo.value = ''
   dialogVisible.value = true
 }
 
 async function save() {
-  if (!form.contract_no || !form.name) {
-    ElMessage.warning('合同编号与合同名称为必填')
+  if (!form.contract_no && !editingId.value && !previewNo.value) {
+    ElMessage.warning('合同编号生成失败：请确认已选择类型与我方公司')
+    return
+  }
+  if (!form.contract_no && editingId.value) {
+    ElMessage.warning('合同编号为空')
+    return
+  }
+  if (!form.name) {
+    ElMessage.warning('合同名称必填')
+    return
+  }
+  if (!form.subject_code) {
+    ElMessage.warning('请选择我方公司（主体）')
     return
   }
   const items = (form.items || [])
@@ -329,13 +381,15 @@ async function save() {
   saving.value = true
   try {
     const payload: Dict = {
-      contract_no: form.contract_no, name: form.name, type: form.type,
+      contract_no: editingId.value ? form.contract_no : previewNo.value,
+      name: form.name, type: form.type,
       party_a: form.party_a, party_b: form.party_b,
       sign_date: form.sign_date || null,
       paid_amount: form.paid_amount, status: form.status,
       owner_name: form.owner_name || '', remark: form.remark || '',
       is_framework: form.is_framework, parent_id: form.parent_id,
       tags: form.tags, items,
+      subject_code: form.subject_code || null,
       has_warranty: form.has_warranty,
       warranty_amount: form.warranty_amount, warranty_rate: form.warranty_rate,
       warranty_start: form.warranty_start || null, warranty_months: form.warranty_months,
@@ -608,9 +662,8 @@ onMounted(async () => {
         </el-form-item>
         <el-form-item style="float: right">
           <el-checkbox v-model="query.include_deleted" label="显示已停用" @change="page = 1; load()" />
-          <el-button @click="tagDialogVisible = true">标签管理</el-button>
-          <el-button @click="openTypes()">系统字典</el-button>
           <el-button @click="openImportDialog()">导入</el-button>
+          <el-button @click="router.push('/settings')">系统设置</el-button>
           <el-button type="success" @click="openNew()">＋ 新增合同</el-button>
         </el-form-item>
       </el-form>
@@ -690,13 +743,28 @@ onMounted(async () => {
       <el-form :model="form" label-width="90px">
         <el-divider content-position="left">基本信息</el-divider>
         <el-row :gutter="12">
-          <el-col :span="12"><el-form-item label="合同编号" required><el-input v-model="form.contract_no" placeholder="如 CG-2025-001" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="合同编号">
+            <el-input :model-value="editingId ? form.contract_no : previewNo" readonly
+                      :placeholder="editingId ? '' : '自动生成中…'" />
+          </el-form-item></el-col>
           <el-col :span="12"><el-form-item label="合同名称" required><el-input v-model="form.name" /></el-form-item></el-col>
-          <el-col :span="8"><el-form-item label="类型"><el-select v-model="form.type" style="width: 100%"><el-option v-for="t in meta.contract_types" :key="t" :label="t" :value="t" /></el-select></el-form-item></el-col>
-          <el-col :span="8"><el-form-item label="签订日期"><el-date-picker v-model="form.sign_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item></el-col>
-          <el-col :span="8"><el-form-item label="经办人"><el-input v-model="form.owner_name" /></el-form-item></el-col>
+          <el-col :span="6"><el-form-item label="类型" required>
+            <el-select v-model="form.type" style="width: 100%">
+              <el-option v-for="t in meta.contract_types" :key="t" :label="t" :value="t" />
+            </el-select>
+          </el-form-item></el-col>
+          <el-col :span="6"><el-form-item label="我方公司">
+            <el-select v-model="form.subject_code" style="width: 100%">
+              <el-option v-for="s in meta.subjects" :key="s.code" :label="`${s.name} (${s.code})`" :value="s.code" />
+            </el-select>
+          </el-form-item></el-col>
+          <el-col :span="6"><el-form-item label="签订日期"><el-date-picker v-model="form.sign_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item></el-col>
+          <el-col :span="6"><el-form-item label="经办人"><el-input v-model="form.owner_name" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="甲方"><el-input v-model="form.party_a" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="乙方"><el-input v-model="form.party_b" /></el-form-item></el-col>
+          <el-col :span="24" v-if="!editingId">
+            <el-form-item label="编号规则"><span class="gray">{{ meta.numbering_hint }}；选择类型/主体/签订日期后自动生成</span></el-form-item>
+          </el-col>
         </el-row>
 
         <el-divider content-position="left">标的物行项（可增删行 · 总价=数量×单价 · 金额自动汇总）</el-divider>

@@ -113,9 +113,27 @@ export async function fetchDashboard(): Promise<Dict> {
   return data
 }
 
-// ---------- 系统设置/字典（MVP2：行项类型系统级可配置） ----------
+// ---------- 系统设置/字典（MVP2：行项类型；MVP3：合同类型/主体） ----------
 export async function saveItemTypes(values: string[]): Promise<Dict> {
   const { data } = await http.put('/settings/item-types', { values })
+  return data
+}
+
+export async function saveContractTypes(contractTypes: Dict[]): Promise<Dict> {
+  const { data } = await http.put('/settings/contract-types', { contract_types: contractTypes })
+  return data
+}
+
+export async function saveSubjects(subjects: Dict[]): Promise<Dict> {
+  const { data } = await http.put('/settings/subjects', { subjects })
+  return data
+}
+
+// ---------- 自动编号预览（MVP3） ----------
+export async function previewNumber(typeValue: string, subject: string, signDate?: string): Promise<Dict> {
+  const { data } = await http.get('/contracts/next-no', {
+    params: { type: typeValue, subject, sign_date: signDate || undefined },
+  })
   return data
 }
 

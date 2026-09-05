@@ -17,6 +17,9 @@ const activeMenu = ref(route.path)
         <el-menu-item index="/contracts">
           <el-icon><Files /></el-icon><span>合同台账</span>
         </el-menu-item>
+        <el-menu-item index="/settings">
+          <el-icon><Setting /></el-icon><span>系统设置</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>
