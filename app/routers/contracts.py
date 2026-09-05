@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import func, or_
@@ -22,6 +22,7 @@ from ..models import (
     RESTORE_DAYS,
     STATUSES,
     Contract,
+    ContractItem,
     Tag,
     compute_warranty_end,
     contract_tag,
@@ -175,9 +176,88 @@ def _fmt(c: Contract, db: Session | None = None) -> dict:
         "deleted_at": c.deleted_at.isoformat() if c.deleted_at else None,
         "deleted_reason": c.deleted_reason,
         "tags": [t.name for t in c.tags],
+        "items": [
+            {"seq": it.seq, "item_type": it.item_type, "name": it.name, "spec": it.spec,
+             "qty": float(it.qty) if it.qty is not None else None,
+             "unit_price": float(it.unit_price) if it.unit_price is not None else None,
+             "total": float(it.total) if it.total is not None else None,
+             "remark": it.remark}
+            for it in (c.items or [])
+        ],
         "created_at": c.created_at.isoformat() if c.created_at else None,
         "updated_at": c.updated_at.isoformat() if c.updated_at else None,
     }
+
+
+def _summary_text(items: list) -> str:
+    """由行项生成"标的物"摘要：名称(规格)×数量 用分号连接。"""
+    parts = []
+    for it in items:
+        name = it.name or "未命名项"
+        if it.spec:
+            name = f"{name}({it.spec})"
+        qty = it.qty
+        q = f"{qty:f}".rstrip("0").rstrip(".") if qty == int(qty) else f"{qty:f}".rstrip("0").rstrip(".")
+        parts.append(f"{name}×{q}")
+    return "；".join(parts)
+
+
+def _apply_items(db: Session, contract: Contract, rows_raw) -> None:
+    """行项明细整体替换（MVP2 需求①）。
+
+    规则：
+    - 行项非空 → 金额=Σ行项总价（自动覆盖）、"标的物"=行项摘要（自动）；
+    - 行项为空 [] → 清空行项，金额/标的物不动（允许无行项合同手工维护金额）。
+    """
+    if rows_raw is None:
+        return
+    rows = [r for r in rows_raw if isinstance(r, dict)]
+    new_items: list[ContractItem] = []
+    for i, r in enumerate(rows, start=1):
+        name = str(r.get("name") or "").strip()
+        spec = str(r.get("spec") or "").strip()
+        qty_raw = str(r.get("qty") or "").strip()
+        price_raw = str(r.get("unit_price") or "").strip()
+        if not name and not spec and not qty_raw and not price_raw and not (r.get("remark") or "").strip():
+            continue  # 全空行忽略
+        if not name:
+            raise HTTPException(status_code=422, detail=f"行项第 {i} 行缺少名称")
+        try:
+            qty = Decimal(qty_raw or "0")
+            price = Decimal(price_raw or "0")
+        except InvalidOperation:
+            raise HTTPException(status_code=422, detail=f"行项第 {i} 行数量/单价不是数字")
+        if qty < 0 or price < 0:
+            raise HTTPException(status_code=422, detail=f"行项第 {i} 行数量/单价不能为负")
+        total = (qty * price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        new_items.append(ContractItem(
+            seq=i,
+            item_type=str(r.get("item_type") or "").strip() or "采购",
+            name=name, spec=spec, qty=qty, unit_price=price, total=total,
+            remark=(str(r.get("remark") or "")).strip() or None,
+        ))
+
+    def _sig(it: ContractItem) -> tuple:
+        return (it.seq, it.item_type, it.name, it.spec, str(it.qty), str(it.unit_price), str(it.total), it.remark)
+
+    old_sig = [_sig(x) for x in (contract.items or [])]
+    new_sig = [_sig(x) for x in new_items]
+    if old_sig == new_sig:
+        return
+    _log(db, contract, "_items", str(len(old_sig)), str(len(new_sig)), source="manual")
+    contract.items = new_items
+    db.flush()
+    if new_items:
+        total_sum = (sum((x.total or 0) for x in new_items)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if contract.amount != total_sum:
+            _log(db, contract, "amount", contract.amount, total_sum, source="auto")
+            contract.amount = total_sum
+        summary = _summary_text(new_items)
+        if contract.subject_matter != summary:
+            _log(db, contract, "subject_matter", contract.subject_matter, summary, source="auto")
+            contract.subject_matter = summary
+    db.commit()
+    db.refresh(contract)
 
 
 def _sync_tags(db: Session, contract: Contract, tag_names: list) -> None:
@@ -229,6 +309,7 @@ def create_contract(payload: dict = Body(...), db: Session = Depends(get_db)):
     db.add(c)
     db.flush()
     _apply_updates(db, c, payload, note="新增合同")
+    _apply_items(db, c, payload.get("items"))
     if "tags" in payload:
         _sync_tags(db, c, payload.get("tags") or [])
     return _fmt(c, db)
@@ -256,7 +337,9 @@ def _filtered_query(
     if keyword:
         like = f"%{keyword}%"
         q = q.filter(or_(Contract.contract_no.like(like), Contract.name.like(like),
-                         Contract.party_a.like(like), Contract.party_b.like(like)))
+                         Contract.party_a.like(like), Contract.party_b.like(like),
+                         Contract.items.any(or_(ContractItem.name.like(like),
+                                                ContractItem.spec.like(like)))))
     if owner:
         q = q.filter(Contract.owner_name.like(f"%{owner}%"))
     if status:
@@ -338,6 +421,7 @@ def update_contract(contract_id: int, payload: dict = Body(...), db: Session = D
     if note:
         _log(db, c, "备注", None, note)
         db.commit()
+    _apply_items(db, c, payload.get("items"))
     if "tags" in payload:
         _sync_tags(db, c, payload.get("tags") or [])
     return _fmt(c, db)

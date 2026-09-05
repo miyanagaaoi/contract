@@ -48,6 +48,12 @@ DEFAULT_CURRENCY = "CNY"
 # 预置标签（BR7）
 DEFAULT_TAGS = ["采购", "销售", "项目A", "项目B"]
 
+# 行项类型（MVP2 需求①；系统级可配置，见 KVSetting['item_types']，此为默认值）
+DEFAULT_ITEM_TYPES = ["采购", "销售", "服务", "其他"]
+
+# 框架合同自动标签（MVP2 需求④）
+FRAMEWORK_TAG = "框架合同"
+
 # 删除保留天数（BR10/Q7：软删除后 30 天内可恢复）
 RESTORE_DAYS = 30
 
@@ -128,6 +134,10 @@ class Contract(Base):
     tags: Mapped[list[Tag]] = relationship(secondary=contract_tag, back_populates="contracts")
     attachments: Mapped[list[Attachment]] = relationship(back_populates="contract")
     logs: Mapped[list[ChangeLog]] = relationship(back_populates="contract")
+    items: Mapped[list[ContractItem]] = relationship(
+        back_populates="contract", order_by="ContractItem.seq",
+        cascade="all, delete-orphan", lazy="selectin",
+    )                                                                                          # 行项明细（MVP2 需求①）
 
     @property
     def payment_ratio(self) -> Decimal | None:
@@ -147,6 +157,35 @@ class Tag(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
     contracts: Mapped[list[Contract]] = relationship(secondary=contract_tag, back_populates="tags")
+
+
+class ContractItem(Base):
+    """合同行项明细（MVP2 需求①）：序号|类型|名称|规格型号|数量|单价|总价|备注。"""
+
+    __tablename__ = "contract_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    contract_id: Mapped[int] = mapped_column(ForeignKey("contracts.id", ondelete="CASCADE"), index=True)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    item_type: Mapped[str] = mapped_column(String(32), nullable=False, default=DEFAULT_ITEM_TYPES[0])
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    spec: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    qty: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, default=0)          # 数量(支持小数)
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False, default=0)   # 单价
+    total: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)        # 总价=数量×单价
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+    contract: Mapped[Contract] = relationship(back_populates="items")
+
+
+class KVSetting(Base):
+    """系统级字典/配置（MVP2：行项类型等可配置列表，无账号下的全局设置）。"""
+
+    __tablename__ = "kv_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False, default="")   # JSON 文本
 
 
 class Attachment(Base):

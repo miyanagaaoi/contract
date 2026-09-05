@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   attachmentUrl,
@@ -16,6 +16,7 @@ import {
   getMeta,
   renameTag,
   restoreContract,
+  saveItemTypes,
   softDeleteContract,
   updateContract,
   uploadAttachment,
@@ -97,20 +98,80 @@ const saving = ref(false)
 const editingId = ref<number | null>(null)
 const form = reactive<Dict>({
   contract_no: '', name: '', type: '采购', party_a: '', party_b: '',
-  sign_date: '', subject_matter: '', amount: 0, paid_amount: 0, status: '内部审批中',
+  sign_date: '', amount: 0, paid_amount: 0, status: '内部审批中',
   owner_name: '', remark: '', is_framework: false, parent_id: null, tags: [],
+  items: [] as Dict[],
   has_warranty: false, warranty_amount: null, warranty_rate: null,
   warranty_start: '', warranty_months: null,
 })
 
+function emptyRow(): Dict {
+  return { item_type: meta.value.item_types?.[0] ?? '采购', name: '', spec: '', qty: null, unit_price: null, remark: '' }
+}
+
 function resetForm() {
   Object.assign(form, {
     contract_no: '', name: '', type: '采购', party_a: '', party_b: '',
-    sign_date: '', subject_matter: '', amount: 0, paid_amount: 0, status: '内部审批中',
+    sign_date: '', amount: 0, paid_amount: 0, status: '内部审批中',
     owner_name: '', remark: '', is_framework: false, parent_id: null, tags: [],
+    items: [] as Dict[],
     has_warranty: false, warranty_amount: null, warranty_rate: null,
     warranty_start: '', warranty_months: null,
   })
+}
+
+// 行项（MVP2 需求①）联动计算
+const hasItems = computed(() => (form.items?.length ?? 0) > 0)
+
+function rowTotal(r: Dict): number {
+  return Number(((Number(r.qty) || 0) * (Number(r.unit_price) || 0)).toFixed(2))
+}
+
+const itemsTotal = computed(() => (form.items || []).reduce((s: number, r: Dict) => s + rowTotal(r), 0))
+
+function addItemRow() {
+  form.items.push(emptyRow())
+}
+
+function removeItemRow(i: number) {
+  form.items.splice(i, 1)
+}
+
+// 行项类型 = 系统级可配置列表（MVP2 需求① 补充）
+const typesDlgVisible = ref(false)
+const typesEdit = ref<string[]>([])
+const typeNew = ref('')
+
+function openTypes() {
+  typesEdit.value = [...(meta.value.item_types ?? [])]
+  typeNew.value = ''
+  typesDlgVisible.value = true
+}
+
+function addType() {
+  const v = typeNew.value.trim()
+  if (!v) return
+  if (!typesEdit.value.includes(v)) typesEdit.value.push(v)
+  typeNew.value = ''
+}
+
+function removeType(i: number) {
+  typesEdit.value.splice(i, 1)
+}
+
+async function saveTypes() {
+  if (!typesEdit.value.length) {
+    ElMessage.warning('至少保留一个类型')
+    return
+  }
+  try {
+    await saveItemTypes(typesEdit.value)
+    meta.value = await getMeta()
+    ElMessage.success('行项类型已更新')
+    typesDlgVisible.value = false
+  } catch (e) {
+    ElMessage.error(apiError(e))
+  }
 }
 
 function openNew() {
@@ -124,17 +185,22 @@ function openEdit(row: Dict) {
   Object.assign(form, {
     contract_no: row.contract_no, name: row.name, type: row.type,
     party_a: row.party_a, party_b: row.party_b,
-    sign_date: row.sign_date ?? '', subject_matter: row.subject_matter ?? '',
+    sign_date: row.sign_date ?? '',
     amount: row.amount ?? 0, paid_amount: row.paid_amount ?? 0,
     status: row.status, owner_name: row.owner_name ?? '',
     remark: row.remark ?? '', is_framework: row.is_framework,
     parent_id: row.parent_id ?? null, tags: [...(row.tags ?? [])],
+    items: (row.items ?? []).map((it: Dict) => ({
+      item_type: it.item_type ?? '采购', name: it.name ?? '', spec: it.spec ?? '',
+      qty: it.qty ?? null, unit_price: it.unit_price ?? null, remark: it.remark ?? '',
+    })),
     has_warranty: row.has_warranty ?? false,
     warranty_amount: row.warranty_amount ?? null,
     warranty_rate: row.warranty_rate ?? null,
     warranty_start: row.warranty_start ?? '',
     warranty_months: row.warranty_months ?? null,
   })
+  if (!form.items.length) form.items.push(emptyRow())
   dialogVisible.value = true
 }
 
@@ -143,9 +209,32 @@ async function save() {
     ElMessage.warning('合同编号与合同名称为必填')
     return
   }
+  const items = (form.items || [])
+    .map((r: Dict, i: number) => ({
+      seq: i + 1,
+      item_type: r.item_type || '采购',
+      name: (r.name || '').trim(),
+      spec: (r.spec || '').trim(),
+      qty: Number(r.qty) || 0,
+      unit_price: Number(r.unit_price) || 0,
+      remark: (r.remark || '').trim(),
+    }))
+    .filter((r: Dict) => r.name || r.spec || r.qty || r.unit_price || r.remark)
   saving.value = true
   try {
-    const payload = { ...form, sign_date: form.sign_date || null }
+    const payload: Dict = {
+      contract_no: form.contract_no, name: form.name, type: form.type,
+      party_a: form.party_a, party_b: form.party_b,
+      sign_date: form.sign_date || null,
+      paid_amount: form.paid_amount, status: form.status,
+      owner_name: form.owner_name || '', remark: form.remark || '',
+      is_framework: form.is_framework, parent_id: form.parent_id,
+      tags: form.tags, items,
+      has_warranty: form.has_warranty,
+      warranty_amount: form.warranty_amount, warranty_rate: form.warranty_rate,
+      warranty_start: form.warranty_start || null, warranty_months: form.warranty_months,
+    }
+    payload.amount = items.length ? itemsTotal.value : form.amount // 有行项=Σ合计；无行项可手填
     if (editingId.value) await updateContract(editingId.value, payload)
     else await createContract(payload)
     ElMessage.success(editingId.value ? '已保存' : '已新增合同')
@@ -328,7 +417,7 @@ const FIELD_LABELS: Record<string, string> = {
   expected_arrival_date: '预计到货', has_warranty: '有质保金', warranty_amount: '质保金金额',
   warranty_rate: '质保金比例', warranty_start: '质保生效', warranty_months: '质保期限',
   warranty_end: '质保到期', warranty_released: '质保已释放', warranty_release_date: '释放日期',
-  warranty_note: '质保备注', deleted: '删除', _tags: '标签', _summary: '概要',
+  warranty_note: '质保备注', deleted: '删除', _tags: '标签', _items: '行项明细', _summary: '概要',
 }
 
 function fLabel(f: string): string {
@@ -378,6 +467,7 @@ onMounted(async () => {
         <el-form-item style="float: right">
           <el-checkbox v-model="query.include_deleted" label="显示已停用" @change="page = 1; load()" />
           <el-button @click="tagDialogVisible = true">标签管理</el-button>
+          <el-button @click="openTypes()">系统字典</el-button>
           <el-button type="success" @click="openNew()">＋ 新增合同</el-button>
         </el-form-item>
       </el-form>
@@ -441,7 +531,7 @@ onMounted(async () => {
     </el-card>
 
     <!-- 新增/编辑弹窗 -->
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑合同' : '新增合同'" width="720px" destroy-on-close>
+    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑合同' : '新增合同'" width="1080px" destroy-on-close>
       <el-form :model="form" label-width="90px">
         <el-divider content-position="left">基本信息</el-divider>
         <el-row :gutter="12">
@@ -452,11 +542,64 @@ onMounted(async () => {
           <el-col :span="8"><el-form-item label="经办人"><el-input v-model="form.owner_name" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="甲方"><el-input v-model="form.party_a" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="乙方"><el-input v-model="form.party_b" /></el-form-item></el-col>
-          <el-col :span="24"><el-form-item label="标的物"><el-input v-model="form.subject_matter" type="textarea" :rows="2" /></el-form-item></el-col>
         </el-row>
+
+        <el-divider content-position="left">标的物行项（可增删行 · 总价=数量×单价 · 金额自动汇总）</el-divider>
+        <el-table :data="form.items" size="small" border>
+          <el-table-column label="序号" width="50">
+            <template #default="{ $index }">{{ $index + 1 }}</template>
+          </el-table-column>
+          <el-table-column label="类型" width="110">
+            <template #default="{ row }">
+              <el-select v-model="row.item_type" size="small" style="width: 100%">
+                <el-option v-for="t in meta.item_types" :key="t" :label="t" :value="t" />
+              </el-select>
+            </template>
+          </el-table-column>
+          <el-table-column label="名称" min-width="150">
+            <template #default="{ row }"><el-input v-model="row.name" size="small" placeholder="行项名称" /></template>
+          </el-table-column>
+          <el-table-column label="规格型号" min-width="110">
+            <template #default="{ row }"><el-input v-model="row.spec" size="small" placeholder="如 X-2000" /></template>
+          </el-table-column>
+          <el-table-column label="数量" width="110">
+            <template #default="{ row }"><el-input-number v-model="row.qty" :min="0" :precision="3" :controls="false" size="small" style="width: 100%" /></template>
+          </el-table-column>
+          <el-table-column label="单价" width="120">
+            <template #default="{ row }"><el-input-number v-model="row.unit_price" :min="0" :precision="4" :controls="false" size="small" style="width: 100%" /></template>
+          </el-table-column>
+          <el-table-column label="总价" width="120" align="right">
+            <template #default="{ row }"><span>{{ fmtMoney(rowTotal(row)) }}</span></template>
+          </el-table-column>
+          <el-table-column label="备注" min-width="140">
+            <template #default="{ row }"><el-input v-model="row.remark" size="small" placeholder="备注" /></template>
+          </el-table-column>
+          <el-table-column label="操作" width="64" align="center">
+            <template #default="{ $index }">
+              <el-button link type="danger" size="small" @click="removeItemRow($index)">删</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="mt" style="display: flex; justify-content: space-between; align-items: center">
+          <div>
+            <el-button size="small" @click="addItemRow()">＋ 增加一行</el-button>
+            <span class="gray" style="margin-left: 8px">行项为空时金额可手填（框架/预估合同）</span>
+          </div>
+          <div class="totalbar">
+            <span>行项合计（{{ form.items.length }} 行）</span>
+            <b>￥{{ fmtMoney(itemsTotal) }}</b>
+          </div>
+        </div>
+
         <el-divider content-position="left">金额与付款（比例 = 已付 ÷ 金额）</el-divider>
         <el-row :gutter="12">
-          <el-col :span="8"><el-form-item label="合同金额"><el-input-number v-model="form.amount" :min="0" :precision="2" :controls="false" style="width: 100%" /></el-form-item></el-col>
+          <el-col :span="8">
+            <el-form-item label="合同金额">
+              <el-input-number v-model="form.amount" :min="0" :precision="2" :controls="false"
+                               :disabled="hasItems" :placeholder="hasItems ? '行项合计' : '0.00'" style="width: 100%" />
+              <span v-if="hasItems" class="gray" style="line-height:1">＝行项合计</span>
+            </el-form-item>
+          </el-col>
           <el-col :span="8"><el-form-item label="累计已付"><el-input-number v-model="form.paid_amount" :min="0" :precision="2" :controls="false" style="width: 100%" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="状态"><el-select v-model="form.status" style="width: 100%"><el-option v-for="s in meta.statuses" :key="s" :label="s" :value="s" /></el-select></el-form-item></el-col>
         </el-row>
@@ -518,6 +661,31 @@ onMounted(async () => {
       <template #footer>
         <el-button @click="statusDlgVisible = false">取消</el-button>
         <el-button type="primary" @click="saveStatus">确认流转</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 系统字典：行项类型（MVP2 · 系统级可配置） -->
+    <el-dialog v-model="typesDlgVisible" title="系统字典 · 行项类型（新增/编辑合同时下拉选用）" width="520px">
+      <div class="mb" style="display: flex; gap: 8px">
+        <el-input v-model="typeNew" placeholder="新增类型，回车确认" @keyup.enter="addType" />
+        <el-button type="primary" @click="addType">新增</el-button>
+      </div>
+      <el-table :data="typesEdit" size="small" border>
+        <el-table-column label="类型名称" min-width="200">
+          <template #default="{ row, $index }">
+            <el-input v-model="typesEdit[$index]" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="100">
+          <template #default="{ $index }">
+            <el-button link type="danger" @click="removeType($index)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <p class="gray" style="margin-bottom:0">修改后立即生效并影响下拉选项；已有行项的类型名不受影响。</p>
+      <template #footer>
+        <el-button @click="typesDlgVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveTypes">保存</el-button>
       </template>
     </el-dialog>
 
@@ -637,4 +805,6 @@ onMounted(async () => {
 .mt { margin-top: 12px; }
 .mr-4 { margin-right: 4px; }
 .gray { color: #909399; font-size: 13px; }
+.totalbar { font-size: 13px; color: #606266; }
+.totalbar b { font-size: 16px; color: #f56c6c; margin-left: 6px; }
 </style>

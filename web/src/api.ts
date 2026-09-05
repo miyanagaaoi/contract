@@ -112,3 +112,9 @@ export async function fetchDashboard(): Promise<Dict> {
   const { data } = await http.get('/dashboard')
   return data
 }
+
+// ---------- 系统设置/字典（MVP2：行项类型系统级可配置） ----------
+export async function saveItemTypes(values: string[]): Promise<Dict> {
+  const { data } = await http.put('/settings/item-types', { values })
+  return data
+}
