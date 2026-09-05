@@ -70,6 +70,8 @@ def _norm(value, field: str):
     """把前端传入值按字段类型归一化，便于比较与入库。"""
     if value is None:
         return None
+    if isinstance(value, str) and not value.strip():
+        return None  # 空字符串按 null 处理（修复：空日期/空值导致 500）
     if field in _BOOL_FIELDS:
         return bool(value)
     if field in _INT_FIELDS:
