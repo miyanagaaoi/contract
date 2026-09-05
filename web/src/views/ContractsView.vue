@@ -44,6 +44,51 @@ const query = reactive<Dict>({
   include_deleted: false,
 })
 
+// ---------- 框架树视图（MVP2 需求⑤：树=展示层，筛选/导出仍按平铺语义） ----------
+const viewMode = ref<'flat' | 'tree'>('flat')
+const collapsedIds = ref<number[]>([])
+const isTree = computed(() => viewMode.value === 'tree')
+
+const viewRows = computed<Dict[]>(() => {
+  const all = rows.value
+  if (viewMode.value !== 'tree') return all
+  const out: Dict[] = []
+  let skip = false
+  for (const r of all) {
+    if (r.tree === 'f') {
+      skip = collapsedIds.value.includes(r.id)
+      out.push(r)
+    } else if (r.tree === 'c') {
+      if (!skip) out.push(r)
+    } else {
+      out.push(r)
+    }
+  }
+  return out
+})
+
+function toggleFw(id: number) {
+  const i = collapsedIds.value.indexOf(id)
+  if (i >= 0) collapsedIds.value.splice(i, 1)
+  else collapsedIds.value.push(id)
+}
+
+function switchView(mode: 'flat' | 'tree') {
+  viewMode.value = mode
+  page.value = 1
+  load()
+}
+
+function onViewModeChange(v: unknown) {
+  switchView(v === 'tree' ? 'tree' : 'flat')
+}
+
+function rowClass({ row }: { row: Dict }): string {
+  if (row.tree === 'c') return 'tree-child-row'
+  if (row.tree === 'f') return 'tree-fw-row'
+  return ''
+}
+
 // ---------- 列表 ----------
 async function load() {
   loading.value = true
@@ -59,6 +104,7 @@ async function load() {
       params.sign_to = query.date_range[1]
     }
     if (query.include_deleted) params.include_deleted = true
+    if (viewMode.value === 'tree') params.tree = true
     const res = await fetchContracts(params)
     rows.value = res.items
     total.value = res.total
@@ -448,6 +494,12 @@ onMounted(async () => {
             <el-option v-for="s in meta.statuses" :key="s" :label="s" :value="s" />
           </el-select>
         </el-form-item>
+        <el-form-item label="视图">
+          <el-radio-group :model-value="viewMode" @change="onViewModeChange">
+            <el-radio-button value="flat">平铺</el-radio-button>
+            <el-radio-button value="tree">框架树</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
         <el-form-item label="经办人">
           <el-input v-model="query.owner" clearable placeholder="经办人" style="width: 100px" @keyup.enter="page = 1; load()" />
         </el-form-item>
@@ -477,11 +529,21 @@ onMounted(async () => {
     <el-card shadow="never">
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center">
-          <span>合同台账（共 {{ total }} 条，含当前筛选）</span>
+          <span>
+            {{ isTree ? `框架树视图（共 ${viewRows.length} 行显示 / ${rows.length} 行数据）` : `合同台账（共 ${total} 条，含当前筛选）` }}
+          </span>
           <el-button type="primary" plain :disabled="!rows.length && !total" @click="exportExcel">导出 Excel（当前筛选）</el-button>
         </div>
       </template>
-      <el-table v-loading="loading" :data="rows" border stripe @row-dblclick="view">
+      <el-table v-loading="loading" :data="viewRows" border stripe :row-class-name="isTree ? rowClass : undefined" @row-dblclick="view">
+        <el-table-column v-if="isTree" width="44" align="center">
+          <template #default="{ row }">
+            <span v-if="row.tree === 'f'" class="fw-icon" @click.stop="toggleFw(row.id)">
+              {{ collapsedIds.includes(row.id) ? '▸' : '▾' }}
+            </span>
+            <span v-else-if="row.tree === 'c'" class="child-icon">↳</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="contract_no" label="合同编号" width="130" />
         <el-table-column prop="name" label="合同名称" min-width="180" show-overflow-tooltip />
         <el-table-column prop="type" label="类型" width="70" />
@@ -521,6 +583,7 @@ onMounted(async () => {
         </el-table-column>
       </el-table>
       <el-pagination
+        v-if="!isTree"
         v-model:current-page="page"
         v-model:page-size="pageSize"
         :total="total"
@@ -528,6 +591,7 @@ onMounted(async () => {
         class="mt"
         @current-change="load"
       />
+      <el-alert v-else type="info" :closable="false" class="mt" title="框架树为展示视图：搜索/筛选/导出仍按平铺结果处理；子合同行自动附带【框架合同】标识。" />
     </el-card>
 
     <!-- 新增/编辑弹窗 -->
@@ -807,4 +871,8 @@ onMounted(async () => {
 .gray { color: #909399; font-size: 13px; }
 .totalbar { font-size: 13px; color: #606266; }
 .totalbar b { font-size: 16px; color: #f56c6c; margin-left: 6px; }
+.fw-icon { cursor: pointer; color: #409eff; font-size: 14px; }
+.child-icon { color: #c0c4cc; }
+:deep(.tree-child-row td) { background: #fafbfd; }
+:deep(.tree-fw-row td) { font-weight: 600; background: #ecf5ff; }
 </style>

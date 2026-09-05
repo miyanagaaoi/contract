@@ -13,6 +13,7 @@ from fastapi import FastAPI
 
 from .config import APP_NAME, APP_VERSION, ensure_dirs
 from .database import Base, SessionLocal, engine
+from .db_migrate import ensure_schema_upgrades
 from .init_db import seed_dicts
 from .routers import attachments, contracts, dashboard, export, health, meta, settings, tags
 
@@ -24,6 +25,7 @@ async def lifespan(_app: FastAPI):
     """启动时确保建表与字典种子存在（幂等），演示数据用 python -m app.init_db --demo 追加。"""
     ensure_dirs()
     Base.metadata.create_all(bind=engine)
+    ensure_schema_upgrades()
     with SessionLocal() as db:
         seed_dicts(db)
     yield

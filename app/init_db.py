@@ -141,6 +141,9 @@ def main() -> None:
 
     ensure_dirs()
     Base.metadata.create_all(bind=engine)  # T2：建表（原型阶段；正式版切 Alembic 迁移）
+    from .db_migrate import ensure_schema_upgrades
+
+    ensure_schema_upgrades()
     with SessionLocal() as db:
         result = seed_dicts(db)
         print(f"[init_db] 字典种子完成: {result}")

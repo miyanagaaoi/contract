@@ -23,6 +23,7 @@ from sqlalchemy import (
     Table,
     Text,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -79,12 +80,13 @@ def compute_warranty_end(start: date, months: int) -> date:
 
 
 # ---------- 关联表：合同 <-> 标签（多对多） ----------
-
+# auto=True 表示"框架合同"自动附加的关联（MVP2 需求④）；手动添加为 False。
 contract_tag = Table(
     "contract_tag",
     Base.metadata,
     Column("contract_id", ForeignKey("contracts.id", ondelete="CASCADE"), primary_key=True),
     Column("tag_id", ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
+    Column("auto", Boolean, nullable=False, default=False, server_default=text("0")),
 )
 
 

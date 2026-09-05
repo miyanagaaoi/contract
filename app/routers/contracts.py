@@ -14,11 +14,12 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import (
+    FRAMEWORK_TAG,
     RESTORE_DAYS,
     STATUSES,
     Contract,
@@ -291,6 +292,62 @@ def _get_contract(db: Session, contract_id: int) -> Contract:
     return c
 
 
+# ---------- MVP2 需求④：框架合同标签自动同步 ----------
+
+def _ensure_framework_tag(db: Session, contract: Contract) -> None:
+    """给合同附加【框架合同】标签并标记 auto（无则创建标签）。"""
+    tag = db.query(Tag).filter(Tag.name == FRAMEWORK_TAG).first()
+    if tag is None:
+        tag = Tag(name=FRAMEWORK_TAG, color="#409eff")
+        db.add(tag)
+        db.flush()
+    if all(t.id != tag.id for t in contract.tags):
+        contract.tags.append(tag)
+        db.flush()
+    db.execute(contract_tag.update().where(and_(
+        contract_tag.c.contract_id == contract.id,
+        contract_tag.c.tag_id == tag.id,
+    )).values(auto=True))
+    db.commit()
+
+
+def _remove_framework_tag_auto(db: Session, contract: Contract) -> None:
+    """移除合同上【自动附加】的框架标签（手动添加的 auto=False 保留）。"""
+    sub = db.query(Tag.id).filter(Tag.name == FRAMEWORK_TAG)
+    db.execute(contract_tag.delete().where(and_(
+        contract_tag.c.contract_id == contract.id,
+        contract_tag.c.tag_id.in_(sub),
+        contract_tag.c.auto == True,  # noqa: E712
+    )))
+    db.commit()
+    db.expire_all()
+
+
+def _assert_parent_allowed(db: Session, is_framework: bool, parent_id) -> None:
+    """在改动落库前校验绑定关系（BR6/MVP2）：框架不能挂框架；只能挂到框架下。"""
+    if parent_id is None:
+        return
+    if is_framework:
+        raise HTTPException(status_code=422, detail="框架合同不能再挂到其他框架下")
+    parent = db.get(Contract, parent_id)
+    if parent is None or parent.deleted:
+        raise HTTPException(status_code=422, detail="所属框架不存在或已停用")
+    if not parent.is_framework:
+        raise HTTPException(status_code=422, detail="只能挂到框架合同（is_framework=是）下")
+
+
+def _finalize_framework(db: Session, contract: Contract) -> None:
+    """在字段/手工标签落库后统一处理框架标签（确保顺序：tags 已替换完再调用）。"""
+    is_fw = bool(contract.is_framework) and contract.parent_id is None
+    if is_fw:
+        _ensure_framework_tag(db, contract)
+    else:
+        _remove_framework_tag_auto(db, contract)
+        if contract.parent_id is not None and not contract.is_framework:
+            # 子合同继承【框架合同】标识
+            _ensure_framework_tag(db, contract)
+
+
 @router.post("")
 def create_contract(payload: dict = Body(...), db: Session = Depends(get_db)):
     # BR1/BR2：编号与名称必填且唯一
@@ -303,6 +360,7 @@ def create_contract(payload: dict = Body(...), db: Session = Depends(get_db)):
     exists = db.query(Contract).filter(Contract.contract_no == contract_no).first()
     if exists:
         raise HTTPException(status_code=409, detail="合同编号已存在")
+    _assert_parent_allowed(db, bool(payload.get("is_framework")), payload.get("parent_id"))
     from ..models import DEFAULT_STATUS
 
     c = Contract(contract_no=contract_no, name=name, status=DEFAULT_STATUS)
@@ -312,6 +370,7 @@ def create_contract(payload: dict = Body(...), db: Session = Depends(get_db)):
     _apply_items(db, c, payload.get("items"))
     if "tags" in payload:
         _sync_tags(db, c, payload.get("tags") or [])
+    _finalize_framework(db, c)
     return _fmt(c, db)
 
 
@@ -378,11 +437,51 @@ def list_contracts(
     tags: str | None = Query(None, description="逗号分隔的标签ID，取交集(包含全部所选, BR8)"),
     sign_from: str | None = Query(None, alias="sign_from", description="签订日期起 YYYY-MM-DD"),
     sign_to: str | None = Query(None, alias="sign_to", description="签订日期止 YYYY-MM-DD"),
+    tree: bool = Query(False, description="框架树视图：忽略分页，输出 框架行+子行+独立合同 扁平列表"),
     db: Session = Depends(get_db),
 ):
     q = _filtered_query(db, include_deleted=include_deleted, keyword=keyword, owner=owner,
                         status=status, contract_type=contract_type, is_framework=is_framework,
                         sign_from=sign_from, sign_to=sign_to, tags=tags)
+    if tree:
+        from collections import defaultdict
+
+        matched = q.order_by(Contract.id.asc()).all()
+        fw_ids = {c.id for c in matched if c.is_framework}
+        for c in matched:
+            if c.parent_id:
+                fw_ids.add(c.parent_id)
+        fws = (db.query(Contract)
+               .filter(Contract.deleted == False,  # noqa: E712
+                       Contract.id.in_(fw_ids or {-1}))
+               .order_by(Contract.id).all())
+        fids = [f.id for f in fws]
+        children: dict[int, list[Contract]] = defaultdict(list)
+        if fids:
+            for ch in (db.query(Contract)
+                       .filter(Contract.deleted == False,  # noqa: E712
+                               Contract.parent_id.in_(fids))
+                       .order_by(Contract.id).all()):
+                children[ch.parent_id].append(ch)
+        out: list[dict] = []
+        shown: set[int] = set()
+        for f in fws:
+            row = _fmt(f, db)
+            row["tree"] = "f"  # 框架行
+            row["children_count"] = len(children.get(f.id, []))
+            out.append(row)
+            shown.add(f.id)
+            for ch in children.get(f.id, []):
+                r = _fmt(ch, db)
+                r["tree"] = "c"  # 子行
+                out.append(r)
+                shown.add(ch.id)
+        stand = [c for c in matched if c.parent_id is None and not c.is_framework and c.id not in shown]
+        for c in sorted(stand, key=lambda x: x.id, reverse=True):
+            r = _fmt(c, db)
+            r["tree"] = "s"  # 独立合同
+            out.append(r)
+        return {"items": out, "total": len(fws) + len(stand), "tree": True, "page": 1, "page_size": len(out)}
     total = q.count()
     items = q.order_by(Contract.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     return {"items": [_fmt(c, db) for c in items], "total": total, "page": page, "page_size": page_size}
@@ -414,6 +513,16 @@ def update_contract(contract_id: int, payload: dict = Body(...), db: Session = D
         dup = db.query(Contract).filter(Contract.contract_no == new_no, Contract.id != contract_id).first()
         if dup:
             raise HTTPException(status_code=409, detail="合同编号已存在")
+    if "parent_id" in payload:
+        _assert_parent_allowed(db, bool(payload.get("is_framework", c.is_framework)), payload["parent_id"])
+    elif bool(payload.get("is_framework", c.is_framework)) and c.parent_id is not None:
+        raise HTTPException(status_code=422, detail="请先解除与上级框架的绑定，再标记为框架合同")
+    if payload.get("is_framework") is False and c.is_framework:
+        has_children = db.query(Contract.id).filter(
+            Contract.parent_id == c.id, Contract.deleted == False  # noqa: E712
+        ).first()
+        if has_children:
+            raise HTTPException(status_code=422, detail="框架下仍有子合同，请先解除子合同")
     if payload.get("status") is not None and payload["status"] not in STATUSES:
         raise HTTPException(status_code=422, detail=f"无效状态: {payload['status']}")
     _apply_updates(db, c, payload)
@@ -424,6 +533,7 @@ def update_contract(contract_id: int, payload: dict = Body(...), db: Session = D
     _apply_items(db, c, payload.get("items"))
     if "tags" in payload:
         _sync_tags(db, c, payload.get("tags") or [])
+    _finalize_framework(db, c)
     return _fmt(c, db)
 
 
