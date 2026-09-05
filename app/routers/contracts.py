@@ -18,6 +18,7 @@ from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..dicts import get_enabled_subjects, type_code_of, type_label_of
 from ..models import (
     FRAMEWORK_TAG,
     RESTORE_DAYS,
@@ -28,13 +29,14 @@ from ..models import (
     compute_warranty_end,
     contract_tag,
 )
+from ..numbering import next_number
 
 router = APIRouter(prefix="/api/contracts", tags=["contracts"])
 
 # 参与变更历史跟踪的字段（BR12；值变化即记录 时间/旧值/新值）
 TRACKED_FIELDS = [
     "contract_no", "name", "type", "party_a", "party_b", "sign_date", "effective_date",
-    "subject_matter", "amount", "currency", "paid_amount", "has_warranty",
+    "subject_matter", "amount", "currency", "subject_code", "paid_amount", "has_warranty",
     "warranty_amount", "warranty_rate", "warranty_start", "warranty_months",
     "warranty_end", "warranty_released", "warranty_release_date", "warranty_note",
     "is_framework", "parent_id", "arrival_status", "expected_arrival_date",
@@ -50,7 +52,7 @@ _DATE_FIELDS = {
 }
 # 允许显式置空（传 null）的字段；其余必填字段传 null 时忽略
 _NULLABLE_FIELDS = {
-    "sign_date", "effective_date", "parent_id", "expected_arrival_date",
+    "sign_date", "effective_date", "parent_id", "expected_arrival_date", "subject_code",
     "warranty_amount", "warranty_rate", "warranty_start", "warranty_months",
     "warranty_end", "warranty_release_date", "warranty_note", "owner_name", "remark",
 }
@@ -155,6 +157,7 @@ def _fmt(c: Contract, db: Session | None = None) -> dict:
         "subject_matter": c.subject_matter,
         "amount": float(c.amount) if c.amount is not None else None,
         "currency": c.currency,
+        "subject_code": c.subject_code,
         "paid_amount": float(c.paid_amount) if c.paid_amount is not None else None,
         "payment_ratio": float(ratio) if ratio is not None else None,
         "has_warranty": c.has_warranty,
@@ -285,6 +288,19 @@ def _sync_tags(db: Session, contract: Contract, tag_names: list) -> None:
     db.commit()
 
 
+def subject_code_normalize(value: str, subjects: list[dict]) -> str:
+    """主体值（码或名称）→ 标准主体码；缺省取第一个可用主体。"""
+    v = (value or "").strip()
+    if not v:
+        if not subjects:
+            raise HTTPException(status_code=422, detail="请先在系统设置中配置我方公司")
+        return subjects[0]["code"]
+    hit = next((s for s in subjects if v.upper() == s["code"] or v == s["name"]), None)
+    if hit is None:
+        raise HTTPException(status_code=422, detail=f"未知主体：{v}")
+    return hit["code"]
+
+
 def _get_contract(db: Session, contract_id: int) -> Contract:
     c = db.get(Contract, contract_id)
     if c is None:
@@ -292,13 +308,13 @@ def _get_contract(db: Session, contract_id: int) -> Contract:
     return c
 
 
-# ---------- MVP2 需求④：框架合同标签自动同步 ----------
+# ---------- 自动标签（框架 MVP2 ④ / 类型 MVP3）：auto=True 可区分"自动附加" ----------
 
-def _ensure_framework_tag(db: Session, contract: Contract) -> None:
-    """给合同附加【框架合同】标签并标记 auto（无则创建标签）。"""
-    tag = db.query(Tag).filter(Tag.name == FRAMEWORK_TAG).first()
+def _ensure_auto_tag(db: Session, contract: Contract, tag_name: str, color: str | None = None) -> None:
+    """给合同附加自动标签并标记 auto（字典无则创建）。"""
+    tag = db.query(Tag).filter(Tag.name == tag_name).first()
     if tag is None:
-        tag = Tag(name=FRAMEWORK_TAG, color="#409eff")
+        tag = Tag(name=tag_name, color=color)
         db.add(tag)
         db.flush()
     if all(t.id != tag.id for t in contract.tags):
@@ -311,9 +327,9 @@ def _ensure_framework_tag(db: Session, contract: Contract) -> None:
     db.commit()
 
 
-def _remove_framework_tag_auto(db: Session, contract: Contract) -> None:
-    """移除合同上【自动附加】的框架标签（手动添加的 auto=False 保留）。"""
-    sub = db.query(Tag.id).filter(Tag.name == FRAMEWORK_TAG)
+def _remove_auto_tag(db: Session, contract: Contract, tag_name: str) -> None:
+    """移除合同上【自动附加】的指定标签（手动添加的 auto=False 保留）。"""
+    sub = db.query(Tag.id).filter(Tag.name == tag_name)
     db.execute(contract_tag.delete().where(and_(
         contract_tag.c.contract_id == contract.id,
         contract_tag.c.tag_id.in_(sub),
@@ -321,6 +337,28 @@ def _remove_framework_tag_auto(db: Session, contract: Contract) -> None:
     )))
     db.commit()
     db.expire_all()
+
+
+def _sync_type_tag(db: Session, contract: Contract, old_type_label: str) -> None:
+    """合同类型 → 自动"类型名"标签（MVP3）：类型变化时移除旧自动标签、附加新类型名标签。"""
+    new_label = contract.type or ""
+    if old_type_label and old_type_label != new_label:
+        _remove_auto_tag(db, contract, old_type_label)
+    code = type_code_of(db, new_label)
+    if code and code != "OTH":
+        _ensure_auto_tag(db, contract, type_label_of(db, code), color="#67c23a")
+
+
+def _finalize_framework(db: Session, contract: Contract) -> None:
+    """在字段/手工标签落库后统一处理框架标签（确保顺序：tags 已替换完再调用）。"""
+    is_fw = bool(contract.is_framework) and contract.parent_id is None
+    if is_fw:
+        _ensure_auto_tag(db, contract, FRAMEWORK_TAG, color="#409eff")
+    else:
+        _remove_auto_tag(db, contract, FRAMEWORK_TAG)
+        if contract.parent_id is not None and not contract.is_framework:
+            # 子合同继承【框架合同】标识
+            _ensure_auto_tag(db, contract, FRAMEWORK_TAG, color="#409eff")
 
 
 def _assert_parent_allowed(db: Session, is_framework: bool, parent_id) -> None:
@@ -336,30 +374,66 @@ def _assert_parent_allowed(db: Session, is_framework: bool, parent_id) -> None:
         raise HTTPException(status_code=422, detail="只能挂到框架合同（is_framework=是）下")
 
 
-def _finalize_framework(db: Session, contract: Contract) -> None:
-    """在字段/手工标签落库后统一处理框架标签（确保顺序：tags 已替换完再调用）。"""
-    is_fw = bool(contract.is_framework) and contract.parent_id is None
-    if is_fw:
-        _ensure_framework_tag(db, contract)
-    else:
-        _remove_framework_tag_auto(db, contract)
-        if contract.parent_id is not None and not contract.is_framework:
-            # 子合同继承【框架合同】标识
-            _ensure_framework_tag(db, contract)
+@router.get("/next-no", tags=["contracts"])
+def preview_number(
+    type_label_or_code: str = Query("", alias="type", description="合同类型 label 或 code"),
+    subject: str = Query("", description="主体码(如 ZC)或主体名称"),
+    sign_date: str | None = Query(None, description="签订日期 YYYY-MM-DD(缺省=今天)"),
+    db: Session = Depends(get_db),
+):
+    """自动编号预览（不占号）。"""
+    from datetime import date
+
+    code = type_code_of(db, type_label_or_code)
+    if not code or code == "OTH":
+        raise HTTPException(status_code=422, detail="该类型暂不支持自动编号")
+    subjects = get_enabled_subjects(db)
+    sub = next((s for s in subjects if subject.upper() == s["code"] or subject == s["name"]), None)
+    if sub is None:
+        raise HTTPException(status_code=422, detail="请选择有效主体（我方公司）")
+    ref = None
+    if sign_date:
+        try:
+            ref = date.fromisoformat(sign_date[:10])
+        except ValueError:
+            ref = None
+    no = next_number(db, code, sub["code"], ref)
+    return {"contract_no": no, "type_code": code, "subject_code": sub["code"], "preview": True}
 
 
 @router.post("")
 def create_contract(payload: dict = Body(...), db: Session = Depends(get_db)):
-    # BR1/BR2：编号与名称必填且唯一
+    payload = dict(payload)
+    # MVP3：类型规范化（旧标签/代码 → 标准类型 label）
+    tcode = type_code_of(db, payload.get("type") or "")
+    if tcode:
+        payload["type"] = type_label_of(db, tcode)
+    # BR1：编号必填且唯一；未填编号时按规则自动生成
     contract_no = (payload.get("contract_no") or "").strip()
     name = (payload.get("name") or "").strip()
-    if not contract_no:
-        raise HTTPException(status_code=422, detail="合同编号必填")
     if not name:
         raise HTTPException(status_code=422, detail="合同名称必填")
+    if not contract_no:
+        if not tcode or tcode == "OTH":
+            raise HTTPException(status_code=422, detail="该类型暂不支持自动编号，请选择其他类型")
+        subjects = get_enabled_subjects(db)
+        sc = subject_code_normalize(payload.get("subject_code") or "", subjects)
+        from datetime import date
+
+        ref = None
+        if payload.get("sign_date"):
+            try:
+                ref = date.fromisoformat(str(payload["sign_date"])[:10])
+            except ValueError:
+                ref = None
+        contract_no = next_number(db, tcode, sc, ref)
+        payload["contract_no"] = contract_no
+        payload["subject_code"] = sc
+    if not contract_no:
+        raise HTTPException(status_code=422, detail="合同编号不能为空")
     exists = db.query(Contract).filter(Contract.contract_no == contract_no).first()
     if exists:
-        raise HTTPException(status_code=409, detail="合同编号已存在")
+        raise HTTPException(status_code=409, detail="合同编号已存在（自动编号被占用，请重新生成）")
     _assert_parent_allowed(db, bool(payload.get("is_framework")), payload.get("parent_id"))
     from ..models import DEFAULT_STATUS
 
@@ -371,6 +445,7 @@ def create_contract(payload: dict = Body(...), db: Session = Depends(get_db)):
     if "tags" in payload:
         _sync_tags(db, c, payload.get("tags") or [])
     _finalize_framework(db, c)
+    _sync_type_tag(db, c, "")
     return _fmt(c, db)
 
 
@@ -525,6 +600,15 @@ def update_contract(contract_id: int, payload: dict = Body(...), db: Session = D
             raise HTTPException(status_code=422, detail="框架下仍有子合同，请先解除子合同")
     if payload.get("status") is not None and payload["status"] not in STATUSES:
         raise HTTPException(status_code=422, detail=f"无效状态: {payload['status']}")
+    # MVP3：类型规范化（保存时旧标签/代码统一为当前字典的标准类型名）
+    old_type_label = c.type or ""
+    if payload.get("type"):
+        tcode = type_code_of(db, payload["type"])
+        if tcode:
+            payload["type"] = type_label_of(db, tcode)
+    if payload.get("subject_code") is not None:
+        payload["subject_code"] = subject_code_normalize(
+            payload["subject_code"], get_enabled_subjects(db))
     _apply_updates(db, c, payload)
     note = (payload.get("note") or "").strip()
     if note:
@@ -534,6 +618,7 @@ def update_contract(contract_id: int, payload: dict = Body(...), db: Session = D
     if "tags" in payload:
         _sync_tags(db, c, payload.get("tags") or [])
     _finalize_framework(db, c)
+    _sync_type_tag(db, c, old_type_label)
     return _fmt(c, db)
 
 

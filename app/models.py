@@ -104,6 +104,7 @@ class Contract(Base):
     subject_matter: Mapped[str] = mapped_column(Text, nullable=False, default="")            # 标的物
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)       # 合同金额
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default=DEFAULT_CURRENCY)
+    subject_code: Mapped[str | None] = mapped_column(String(8), nullable=True)               # 我方主体码 ZC/YX(MVP3 编号用)
     paid_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)  # 累计已付（BR3）
     has_warranty: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)       # BR5
     warranty_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)   # 质保金金额

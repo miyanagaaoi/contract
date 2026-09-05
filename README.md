@@ -49,6 +49,15 @@ python -m venv .venv                 # 首次
 .venv\Scripts\python -m pip install -r requirements.txt   # 首次
 .venv\Scripts\python -m app.init_db --demo   # 建表 + 字典种子 + 演示数据
 .venv\Scripts\python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+
+# 1. 打开 PowerShell，切换到项目目录
+cd C:\path\to\my_project
+
+# 2. 激活虚拟环境
+.\app\.venv\Scripts\activate
+
+# 3. 启动服务
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 #   → API 文档 http://127.0.0.1:8000/docs  健康检查 /api/health
 
 # 2) 前端（Vue3 + Vite + Element Plus）
