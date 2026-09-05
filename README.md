@@ -16,6 +16,7 @@
 | [05-prototype-acceptance.md](docs/05-prototype-acceptance.md) | **原型验收报告**：AC-01~AC-11 全绿、复现命令、演示建议 | 全体 |
 | [06-mvp2-adjustments.md](docs/06-mvp2-adjustments.md) | **MVP2 调整记录**：行项/导入/导出配置/框架标签/框架树的口径、实现与验收要点 | 全体 |
 | [07-mvp3-adjustments.md](docs/07-mvp3-adjustments.md) | **MVP3 迭代记录**：自动编号/类型与主体字典/类型标签/系统设置页 | 全体 |
+| [08-deployment.md](docs/08-deployment.md) | **正式版部署手册**：Linux Docker / Windows NSSM、PostgreSQL 切换、备份恢复演练 | 运维、决策人 |
 
 ## 关键决策记录（本轮已确认）
 
@@ -33,13 +34,16 @@
 12. **付款**：仅维护"累计已付"单一字段，付款比例自动计算。
 13. **版本纪律**：每完成一个功能（对应验收场景全绿）保存一次 Git 版本（见 `03-development-plan.md` §3.1）。
 14. **业务口径**：Q1~Q8 全部按默认值确认并冻结 V1.0（付款比例=已付/合同金额、质保到期取当月最后一天、增加"已终止"状态、软删除+30 天内可恢复等，明细见 `01-requirements.md` §9）。
+15. **术语澄清（prompt0.3）**："交付版本" = 正式版交付（即当前 P3）；"便签管理" = 标签管理（已并入系统设置页）。
 
-## 下一步（建议顺序）
+## 当前阶段与下一步
 
-1. （已完成）需求规格 **V1.0 冻结**：Q1~Q8 按默认值确认（见 `01-requirements.md` §9 决策记录）；
-2. 建议做一次 30~60 分钟规格评审（按 `00-sdd-process.md` 4.1），与采购/财务/项目管理对齐口径理解；
-3. 按 `03-development-plan.md` P1 开始原型开发（T1 Git 初始化 → T2 数据模型 → …）；
-4. 原型完成后按 `01-requirements.md` §8 标准组织三类用户演示，形成 Go/No-Go 决策。
+1. ✅ 需求规格 V1.0 冻结（Q1~Q8）；
+2. ✅ P1 原型 MVP（AC-01~AC-11，12 checks 全绿，见 05）；
+3. ✅ MVP2 五项调整（行项/导入/导出配置/框架标签/框架树，见 06）+ P0 回归全绿；
+4. ✅ MVP3（自动编号/类型与主体字典/类型标签/系统设置页，见 07）+ P0 回归全绿；
+5. ✅ P3 正式版准备启动：自动化测试（pytest 9 passed）、env 配置、备份脚本、部署手册与模板（见 08）；
+6. ▶ 下一步建议：① 内网服务器上按 `docs/08` 落地试运行；② 三类用户 UAT 与演示评审（P2/Go 决策）；③ 之后可选项：验收报告文档化、每季度备份恢复演练、新迭代（见 backlog：甲方乙方单位字典、附件 OCR、审批流等）。
 
 ## 开发快速开始（原型阶段）
 
@@ -77,21 +81,27 @@ npm run dev -- --host 0.0.0.0        # → http://localhost:5173
 
 ```
 D:\dsh\hetong\
-├── README.md
-├── prompt.txt              (空，需求来源占位)
+├── README.md / .env.example / setup.bat / start-all.bat
+├── prompt*.txt            (需求补充文件/占位)
 ├── docs\
-│   ├── 00-sdd-process.md
-│   ├── 01-requirements.md
-│   ├── 02-system-design.md
-│   ├── 03-development-plan.md
-│   └── 04-tech-route.md
-├── app\                    (后端 FastAPI；.venv/data/uploads 不入库)
-│   ├── main.py  config.py  database.py  models.py  init_db.py
-│   ├── routers\ (health/meta/tags/dashboard/contracts/attachments/export)
-│   └── tests\smoke_p0.py    (P0 验收冒烟 AC-01~AC-11)
+│   ├── 00-sdd-process.md  01-requirements.md  02-system-design.md
+│   ├── 03-development-plan.md  04-tech-route.md
+│   └── 05-prototype-acceptance.md  06-mvp2-adjustments.md
+│       07-mvp3-adjustments.md  08-deployment.md
+├── app\                    (后端 FastAPI；.venv/data/uploads/backups 不入库)
+│   ├── main.py  config.py  database.py  models.py  dicts.py  numbering.py
+│   ├── db_migrate.py  init_db.py  tools\build_import_template.py
+│   ├── routers\ (health/meta/tags/settings/dashboard/contracts/attachments/export/imports)
+│   ├── tests\ (smoke_p0.py P0 冒烟 · test_unit.py pytest 单测)
+│   └── requirements.txt  requirements-dev.txt  requirements-pg.txt
+├── scripts\backup.ps1     (每日备份: SQLite+uploads, 30天保留)
+├── deploy\                (Dockerfile / docker-compose.yml / nginx.conf)
+├── import_template\       (导入模板样例.xlsx)
+├── preview-mvp2.html      (MVP2 概念预览，可留存参考)
 └── web\                    (前端 Vue3 + Vite + Element Plus)
     ├── package.json  vite.config.ts  index.html
-    └── src\main.ts  App.vue  router\  views\
+    └── src\main.ts  App.vue  router\  api.ts  views\ (含 SettingsView)
 ```
 
 > 代码随规格演进：完成的功能对应一次 Git 提交，规格文档变更同步提交。
+> 生产部署见 `docs/08-deployment.md`；备份见 `scripts/backup.ps1`。

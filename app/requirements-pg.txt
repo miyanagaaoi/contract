@@ -1,0 +1,2 @@
+# PostgreSQL 数据库驱动（可选：切换到 PG 时安装）
+psycopg2-binary>=2.9

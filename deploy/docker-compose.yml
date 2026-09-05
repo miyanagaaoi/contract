@@ -1,0 +1,47 @@
+# CTMS 内网部署示例（Linux + Docker Compose）
+# 用法：
+#   cd deploy && docker compose up -d --build
+# 说明：nginx 托管前端静态(web/dist)，/api 反代到 app；数据目录已映射为卷。
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    environment:
+      # 默认 SQLite；需要 PostgreSQL 时取消下行并启用 db 服务
+      # CTMS_DB_URL: postgresql+psycopg2://ctms:CHANGE_ME@db:5432/ctms
+      CTMS_UPLOAD_DIR: /data/uploads
+      CTMS_LOG_DIR: /data/logs
+    volumes:
+      - ctms_data:/data
+    expose:
+      - "8000"
+
+  # 可选：PostgreSQL（若启用需先在镜像安装 psycopg2：见 app/requirements-pg.txt）
+  # db:
+  #   image: postgres:16
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_DB: ctms
+  #     POSTGRES_USER: ctms
+  #     POSTGRES_PASSWORD: CHANGE_ME
+  #   volumes:
+  #     - pgdata:/var/lib/postgresql/data
+
+  web:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ../web/dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+
+volumes:
+  ctms_data:
+  # pgdata:
