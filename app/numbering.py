@@ -39,9 +39,14 @@ def peek_seq(db: Session, type_code: str, subject_code: str, ref_date: date | No
     return max_seq
 
 
+def format_number(type_code: str, subject_code: str, year: int, month: int, seq: int) -> str:
+    """按规则拼编号：类型码+主体码+年份(4)+月份(2)+6位序号。"""
+    return f"{type_code.upper()}{subject_code.upper()}{year}{month:02d}{seq:06d}"
+
+
 def next_number(db: Session, type_code: str, subject_code: str, ref_date: date | None) -> str:
     type_code = type_code.upper()
     subject_code = subject_code.upper()
     ref = ref_date or date.today()
     seq = peek_seq(db, type_code, subject_code, ref) + 1
-    return f"{type_code}{subject_code}{ref.year}{ref.month:02d}{seq:06d}"
+    return format_number(type_code, subject_code, ref.year, ref.month, seq)
