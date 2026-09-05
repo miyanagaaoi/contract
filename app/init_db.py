@@ -148,8 +148,13 @@ def main() -> None:
         result = seed_dicts(db)
         print(f"[init_db] 字典种子完成: {result}")
         if args.demo:
-            demo = seed_demo(db)
-            print(f"[init_db] 演示数据完成: {demo}")
+            from .models import Contract
+
+            if db.query(Contract).count() == 0:
+                demo = seed_demo(db)
+                print(f"[init_db] 演示数据完成: {demo}")
+            else:
+                print("[init_db] 已存在合同数据，跳过演示数据（避免重复；如需重置请删除 app/data/ctms.db 后重跑）")
     print("[init_db] 完成")
 
 

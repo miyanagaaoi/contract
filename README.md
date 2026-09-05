@@ -43,28 +43,30 @@
 
 ## 开发快速开始（原型阶段）
 
+### 方式一：双击脚本（推荐）
+
+| 脚本 | 用途 |
+|---|---|
+| `setup.bat` | 首次初始化：创建 venv、安装前后端依赖、建库并写入演示数据（可重复执行） |
+| `start-all.bat` | 一键启动：后端 `:8000` + 前端 `:5173`（`--host 0.0.0.0`，局域网可访问），随后自动打开浏览器 |
+
+说明：若某端口已被占用（如已有实例在跑），脚本会跳过并直接复用；停止 = 关闭弹出的两个命令行窗口。
+
+### 方式二：命令行（开发调试）
+
 ```bash
-# 1) 后端（FastAPI + SQLite）
-cd app
-python -m venv .venv                 # 首次
-.venv\Scripts\python -m pip install -r requirements.txt   # 首次
-.venv\Scripts\python -m app.init_db --demo   # 建表 + 字典种子 + 演示数据
-.venv\Scripts\python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+# 1) 首次（任选）
+app\.venv\Scripts\python -m pip install -r app\requirements.txt   # 依赖
+app\.venv\Scripts\python -m app.init_db --demo                    # 建库+演示数据（幂等）
 
-# 1. 打开 PowerShell，切换到项目目录
-cd C:\path\to\my_project
-
-# 2. 激活虚拟环境
-.\app\.venv\Scripts\activate
-
-# 3. 启动服务
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+# 2) 后端（FastAPI + SQLite）
+app\.venv\Scripts\python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 #   → API 文档 http://127.0.0.1:8000/docs  健康检查 /api/health
 
-# 2) 前端（Vue3 + Vite + Element Plus）
+# 3) 前端（Vue3 + Vite + Element Plus，/api 已代理到 8000）
 cd web
 npm install                          # 首次
-npm run dev                          # → http://127.0.0.1:5173（/api 已代理到 8000）
+npm run dev -- --host 0.0.0.0        # → http://localhost:5173
 ```
 
 - 代码位置：`app/`（后端）、`web/`（前端）；数据文件 `app/data/ctms.db`、附件 `app/uploads/`（均已 gitignore）；
