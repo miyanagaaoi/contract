@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CTMS · MVP 调整快速预览（V0.2 概念稿）</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background: #f0f2f5; color: #303133; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 20px 16px 60px; }
+  header { background: #fff; border-bottom: 1px solid #e4e7ed; padding: 18px 16px; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 6px 0 0; color: #909399; font-size: 13px; }
+  .tag { display: inline-block; background: #ecf5ff; color: #409eff; border: 1px solid #b3d8ff; border-radius: 4px; padding: 0 8px; font-size: 12px; line-height: 20px; margin-right: 6px; }
+  .tag.orange { background: #fdf6ec; color: #e6a23c; border-color: #f3d19e; }
+  nav.tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+  nav.tabs button { border: 1px solid #dcdfe6; background: #fff; border-radius: 6px; padding: 8px 14px; cursor: pointer; font-size: 14px; }
+  nav.tabs button.active { background: #409eff; color: #fff; border-color: #409eff; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .card { background: #fff; border: 1px solid #ebeef5; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { margin: 0 0 4px; font-size: 17px; }
+  .card .desc { color: #606266; font-size: 13px; margin-bottom: 12px; line-height: 1.7; }
+  .change { display: inline-block; background: #fef0f0; color: #f56c6c; font-size: 12px; padding: 2px 8px; border-radius: 10px; margin-left: 8px; vertical-align: middle; }
+  table.mock { border-collapse: collapse; width: 100%; font-size: 13px; }
+  table.mock th, table.mock td { border: 1px solid #e4e7ed; padding: 6px 8px; text-align: left; }
+  table.mock th { background: #f5f7fa; }
+  table.mock input, table.mock select { width: 100%; border: 1px solid #dcdfe6; border-radius: 4px; padding: 4px 6px; font-size: 13px; }
+  input[readonly] { background: #f5f7fa; color: #909399; }
+  .btn { display: inline-block; border: 1px solid #409eff; color: #409eff; background: #fff; border-radius: 4px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  .btn.primary { background: #409eff; color: #fff; }
+  .btn.green { border-color: #67c23a; color: #67c23a; }
+  .btn.warn { border-color: #e6a23c; color: #e6a23c; }
+  .btn.small { padding: 3px 8px; font-size: 12px; }
+  .btn.danger { border-color: #f56c6c; color: #f56c6c; }
+  .btn.gray { border-color: #909399; color: #606266; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
+  .row label { color: #606266; font-size: 13px; width: 84px; text-align: right; }
+  .row input, .row select { border: 1px solid #dcdfe6; border-radius: 4px; padding: 5px 8px; }
+  .foot { margin-top: 10px; display: flex; justify-content: space-between; align-items: center; }
+  .total { font-size: 13px; color: #606266; }
+  .total b { color: #f56c6c; font-size: 16px; margin: 0 4px; }
+  .chips span { display: inline-block; margin: 3px 6px 3px 0; }
+  ul.rules { margin: 6px 0 0; padding-left: 18px; color: #606266; font-size: 13px; line-height: 1.9; }
+  .mockok { color: #67c23a; font-size: 13px; }
+  .mockerr { color: #f56c6c; font-size: 13px; }
+  .tree-child td { background: #fafbfd; }
+  .mono { font-family: Consolas, monospace; }
+  .note { background: #fdf6ec; border: 1px dashed #e6a23c; color: #b88230; font-size: 12px; padding: 8px 10px; border-radius: 6px; margin-top: 10px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<header>
+  <h1>合同管理与跟踪系统 · MVP 调整（V0.2）快速预览 <span class="change">概念稿 · 未实现</span></h1>
+  <p>展示 5 项调整建议交互形态，用于确认修改路线。点击下方标签切换场景。</p>
+</header>
+<div class="wrap">
+  <nav class="tabs" id="tabs">
+    <button data-p="p1" class="active">1 · 行项标的物</button>
+    <button data-p="p2">2 · 模板导入</button>
+    <button data-p="p3">3 · 导出配置</button>
+    <button data-p="p4">4 · 框架标签</button>
+    <button data-p="p5">5 · 框架树</button>
+  </nav>
+
+  <!-- ================= P1 行项标的物 ================= -->
+  <section class="panel active" id="p1">
+    <div class="card">
+      <h2>新增/编辑合同 · 标的物改为“可增删的行项明细”</h2>
+      <div class="desc">
+        明细列：<b>序号 | 类型 | 名称 | 规格型号 | 数量 | 单价 | 总价 | 备注</b>；总价=数量×单价自动计算，
+        底部自动合计；<b>合同金额 = 明细合计（自动带出，只读）</b>，避免两边不一致。数量支持小数（如吨/米）。
+      </div>
+      <div class="row">
+        <label>合同编号</label><input value="CG-2026-008" readonly style="width:150px">
+        <label>合同名称</label><input value="新建项目设备采购" style="width:200px">
+        <label>经办人</label><input value="张三" style="width:100px">
+        <label>签订日期</label><input type="date" value="2026-09-08">
+      </div>
+      <table class="mock" id="itemTable">
+        <thead>
+          <tr><th style="width:52px">序号</th><th style="width:92px">类型</th><th>名称</th><th style="width:150px">规格型号</th>
+              <th style="width:90px">数量</th><th style="width:110px">单价</th><th style="width:110px">总价</th><th style="width:150px">备注</th><th style="width:60px">操作</th></tr>
+        </thead>
+        <tbody></tbody>
+        <tfoot>
+          <tr><td colspan="4" style="text-align:right">合计</td><td id="sumQty" style="font-weight:700">—</td>
+              <td></td><td id="sumAmt" style="font-weight:700;color:#f56c6c">—</td><td colspan="2"></td></tr>
+        </tfoot>
+      </table>
+      <div class="foot">
+        <div><button class="btn small primary" id="addRow">＋ 增加一行</button>
+             <span class="total" style="margin-left:8px">合同金额自动=明细合计</span></div>
+        <div class="row" style="margin:0"><label style="width:auto">合同金额</label>
+             <input id="contractAmt" readonly value="0.00" style="width:140px;font-weight:700"></div>
+      </div>
+      <div class="note">注：已录入且无行项的旧合同，金额保持原值不受影响；“行项为空”允许（框架/预估总额合同），此时金额可手填。</div>
+    </div>
+  </section>
+
+  <!-- ================= P2 导入 ================= -->
+  <section class="panel" id="p2">
+    <div class="card">
+      <h2>合同台账 · “导入”入口（按系统模板）</h2>
+      <div class="desc">
+        工具栏增加<b>导入</b>按钮：先下载系统模板（Excel：Sheet「合同」主档 + Sheet「行项」明细），
+        填好后回传；系统逐行校验，<b>编号重复/必填缺失/日期或数字格式错误 → 该合同标错跳过</b>，其余入库，
+        给出成功/失败明细并可下载错误报告。
+      </div>
+      <div class="row" style="justify-content:flex-start">
+        <button class="btn" id="dlTpl">⬇ 下载系统导入模板(.xlsx)</button>
+        <button class="btn primary" id="pickFile">选择文件导入…</button>
+        <button class="btn green" id="runImport">开始导入</button>
+        <span class="mono" id="fileHint" style="color:#909399;font-size:12px">未选择文件</span>
+      </div>
+      <div id="importResult" style="display:none">
+        <p class="mockok">✔ 导入完成：共解析 125 条合同（含 86 条行项明细）</p>
+        <p><span class="mockok">成功 120</span> · <span class="mockerr">失败 5</span>（跳过，不影响已入库数据）
+           <button class="btn small warn" style="margin-left:8px">下载错误报告</button></p>
+        <table class="mock">
+          <thead><tr><th>Excel 行</th><th>合同编号</th><th>失败原因</th></tr></thead>
+          <tbody>
+            <tr><td>3</td><td class="mono">CG-2026-010</td><td class="mockerr">合同编号与库内重复（AC-02 同规则）</td></tr>
+            <tr><td>17</td><td class="mono">CG-2026-024</td><td class="mockerr">签订日期格式错误（应为 2026-09-08）</td></tr>
+            <tr><td>18</td><td class="mono">CG-2026-025</td><td class="mockerr">行项数量“十台”不是数字</td></tr>
+            <tr><td>66</td><td class="mono">XS-2026-101</td><td class="mockerr">合同名称为空</td></tr>
+            <tr><td>120</td><td class="mono">CG-2026-150</td><td class="mockerr">行项所在合同编号在主档中不存在</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">范围建议：仅“新建导入”（不更新/不覆盖已有合同）；标签列以逗号分隔，不存在的标签自动创建。更新/合并留二期。</div>
+    </div>
+  </section>
+
+  <!-- ================= P3 导出配置 ================= -->
+  <section class="panel" id="p3">
+    <div class="card">
+      <h2>导出 Excel · 可配置导出项</h2>
+      <div class="desc">
+        点“导出 Excel（当前筛选）”先弹出<b>导出设置</b>：<b>重要列预先打钩（默认导出）</b>，次要列默认不打勾；
+        支持 全选 / 清空 / 恢复默认，并<b>记住本次选择</b>（浏览器本地）。
+      </div>
+      <div class="row"><label style="width:auto">📌 重要（默认勾选）</label></div>
+      <div class="chips" id="impChips"></div>
+      <div class="row" style="margin-top:10px"><label style="width:auto">🗂 次要（默认不勾）</label></div>
+      <div class="chips" id="optChips"></div>
+      <div class="foot">
+        <div>
+          <button class="btn small" id="selAll">全选</button>
+          <button class="btn small gray" id="selNone">清空</button>
+          <button class="btn small warn" id="selDefault">恢复默认</button>
+          <label style="margin-left:12px;font-size:13px"><input type="checkbox" id="remember" checked> 记住本次选择</label>
+        </div>
+        <div class="total">将导出 <b id="exportCount">0</b> 列</div>
+      </div>
+      <div class="note">导出仍与当前筛选一致（AC-11）；列顺序固定按上表分组顺序。自定义列顺序/保存多套方案可放二期。</div>
+    </div>
+  </section>
+
+  <!-- ================= P4 框架标签 ================= -->
+  <section class="panel" id="p4">
+    <div class="card">
+      <h2>框架合同标签 · 自动附带与子合同同步</h2>
+      <div class="desc">勾选“框架合同”保存后自动附加标签【框架合同】；绑定到框架的子合同自动同步该标签。下方为交互示意：</div>
+      <div class="row" style="align-items:flex-start">
+        <div style="flex:1">
+          <div class="card" style="margin:0">
+            <b>F-2025-001</b> · 2025 年度 X 设备采购框架合同 <span class="tag" style="background:#409eff;color:#fff;border-color:#409eff">框架合同(自动)</span>
+            <span class="tag">采购</span><span class="tag">项目A</span>
+            <div style="color:#909399;font-size:12px;margin-top:4px">勾选“框架合同”时自动附加；取消勾选自动移除（手动加过则保留）</div>
+          </div>
+        </div>
+        <div style="flex:1">
+          <div class="card" style="margin:0">
+            <b>CG-2025-001</b> · CG 项目一期设备采购（子合同）
+            <span class="tag" id="inheritedTag" style="display:none;background:#b88230;color:#fff;border-color:#b88230">框架合同(继承)</span>
+            <span class="tag">采购</span><span class="tag">项目A</span>
+            <div style="color:#909399;font-size:12px;margin-top:4px">绑定到框架时自动附加【框架合同】标签</div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:12px"><button class="btn small primary" id="toggleInherit">演示：绑定 / 解绑 子合同</button>
+        <span id="inheritState" style="margin-left:10px;font-size:13px;color:#606266">当前：未绑定框架</span></div>
+      <div class="note">规则建议（待确认粒度）：子合同只同步“框架合同”标识；父框架的项目类标签不整批复制（避免标签语义混乱）。若你需要“框架全部标签下发给子合同”，请选该项。</div>
+    </div>
+  </section>
+
+  <!-- ================= P5 框架树 ================= -->
+  <section class="panel" id="p5">
+    <div class="card">
+      <h2>合同台账 · 平铺 ⇄ 框架树 视图</h2>
+      <div class="desc">
+        列表顶部加视图切换：<b>平铺</b>（现状）/<b>框架树</b>。树视图里框架合同可<b>展开/折叠</b>，子合同挂在框架行下方缩进显示；
+        未挂框架的合同平级显示。筛选/导出仍按平铺结果处理（树只影响展示，保证与 AC-11 一致）。
+      </div>
+      <div class="row">
+        <button class="btn small gray" id="viewFlat">视图：平铺</button>
+        <button class="btn small primary" id="viewTree">视图：框架树（当前）</button>
+        <button class="btn small" id="treeToggle">折叠 / 展开框架</button>
+      </div>
+      <table class="mock" style="margin-top:8px">
+        <thead><tr><th style="width:60px"></th><th style="width:130px">合同编号</th><th>合同名称</th>
+                <th style="width:90px">类型</th><th style="width:110px">金额</th><th style="width:100px">状态</th><th style="width:90px">经办人</th></tr></thead>
+        <tbody>
+          <tr class="tree-f" data-f="1"><td><span id="expIcon" style="cursor:pointer;color:#409eff">▾</span></td>
+            <td class="mono">F-2025-001</td><td><span class="tag" style="background:#409eff;color:#fff;border-color:#409eff">框架合同</span> 2025 年度 X 设备采购框架合同</td>
+            <td>采购</td><td>500,000.00</td><td>已签订</td><td>张三</td></tr>
+          <tbody id="treeChildren" style="display:table-row-group">
+          <tr class="tree-child"><td style="padding-left:24px">↳</td><td class="mono">CG-2025-001</td><td>CG 项目一期设备采购</td><td>采购</td><td>120,000.00</td><td>付款中</td><td>张三</td></tr>
+          <tr class="tree-child"><td style="padding-left:24px">↳</td><td class="mono">CG-2025-003</td><td>项目B 配套耗材采购</td><td>采购</td><td>80,000.00</td><td>内部审批中</td><td>王五</td></tr>
+          </tbody>
+          <tr><td></td><td class="mono">XS-2025-002</td><td>XX 设备销售（客户 M）</td><td>销售</td><td>30,000.00</td><td>到货</td><td>李四</td></tr>
+        </tbody>
+      </table>
+      <div class="note">树视图为展示层：搜索命中子合同时其所属框架一起展示；当结果过多时提示“结果较多，建议用平铺+筛选”。</div>
+    </div>
+  </section>
+
+  <div class="card">
+    <div class="desc" style="margin:0">本页为静态交互示意（无真实数据），用于确认 UI/交互方向。确认后按“路线”逐功能实现，每功能一次 Git 提交。</div>
+  </div>
+</div>
+
+<script>
+// 标签页切换
+document.getElementById('tabs').addEventListener('click', e => {
+  const btn = e.target.closest('button'); if (!btn) return;
+  document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active'); document.getElementById(btn.dataset.p).classList.add('active');
+});
+
+// ---------- P1 行项明细 ----------
+const TYPES = ['采购','销售','服务','其他'];
+const fmt = n => (isNaN(n) ? 0 : n).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+let seq = 0;
+const ROWS = [
+  {type:'采购', name:'X 系列设备', spec:'X-2000', qty:10, price:12000, remark:'含安装调试'},
+  {type:'采购', name:'配套耗材', spec:'HC-02', qty:2, price:5000, remark:''},
+];
+function reflow(){ [...document.querySelectorAll('#itemTable tbody tr')].forEach((tr,i)=>tr.querySelector('.seq').textContent = i+1); }
+function calc(){
+  let q=0, a=0; [...document.querySelectorAll('#itemTable tbody tr')].forEach(tr=>{
+    q += +tr.querySelector('.q').value || 0;
+    const p = +tr.querySelector('.p').value || 0, n = +tr.querySelector('.q').value || 0;
+    const t = tr.querySelector('.t'); t.value = fmt(n*p); a += n*p;
+  });
+  document.getElementById('sumQty').textContent = q;
+  document.getElementById('sumAmt').textContent = fmt(a);
+  document.getElementById('contractAmt').value = fmt(a);
+}
+function addRow(d){ const tr = document.createElement('tr');
+  tr.innerHTML = `<td class="seq">${seq+1}</td>` +
+    `<td><select class="ty">${TYPES.map(x=>`<option>${x}</option>`).join('')}</select></td>` +
+    `<td><input class="nm" placeholder="行项名称" value="${d?d.name:''}"></td>` +
+    `<td><input class="sp" placeholder="规格型号" value="${d?d.spec:''}"></td>` +
+    `<td><input class="q" type="number" step="0.001" min="0" value="${d?d.qty:''}" placeholder="0"></td>` +
+    `<td><input class="p" type="number" step="0.0001" min="0" value="${d?d.price:''}" placeholder="0.00"></td>` +
+    `<td><input class="t" readonly placeholder="自动"></td>` +
+    `<td><input class="rm" placeholder="备注" value="${d?d.remark:''}"></td>` +
+    `<td><button class="btn small danger">删</button></td>`;
+  tr.querySelector('button').onclick = ()=>{ tr.remove(); reflow(); calc(); };
+  tr.addEventListener('input', calc);
+  document.querySelector('#itemTable tbody').appendChild(tr);
+  seq++; reflow(); calc();
+}
+ROWS.forEach(addRow);
+document.getElementById('addRow').onclick = ()=>addRow(null);
+
+// ---------- P2 导入 ----------
+document.getElementById('pickFile').onclick = ()=> document.getElementById('fileHint').textContent = '已选择：2026年8月合同导入_模板.xlsx';
+document.getElementById('runImport').onclick = ()=>{
+  const fh = document.getElementById('fileHint').textContent;
+  if (fh.includes('未选择')) { alert('请先“选择文件导入…”（示意：点击该按钮后再点“开始导入”）'); return; }
+  document.getElementById('importResult').style.display = 'block';
+};
+
+// ---------- P3 导出配置 ----------
+const IMPORTANT = [['合同编号',1],['合同名称',1],['类型',1],['甲方',1],['乙方',1],['签订日期',1],['标的物(行项摘要)',1],['合同金额',1],['累计已付',1],['付款比例',1],['状态',1],['经办人',1],['标签',1],['质保到期日',1]];
+const OPTIONAL  = [['币种',0],['到货状态',0],['预计到货日期',0],['是否框架',0],['所属框架编号',0],['质保金金额',0],['质保金比例',0],['质保生效日期',0],['质保期限(月)',0],['备注',0],['创建时间',0],['更新时间',0]];
+function buildChips(list, el, checked){
+  el.innerHTML = ''; list.forEach((it,i)=>{
+    const lb = document.createElement('label'); lb.style.cssText = 'display:inline-flex;align-items:center;border:1px solid #dcdfe6;border-radius:14px;padding:3px 10px;font-size:12px;margin:3px;cursor:pointer';
+    lb.innerHTML = `<input type="checkbox" ${it[1]||checked?'checked':''} style="margin-right:4px">${it[0]}`;
+    lb.querySelector('input').onchange = countExport;
+    el.appendChild(lb);
+  });
+}
+buildChips(IMPORTANT, document.getElementById('impChips'));
+buildChips(OPTIONAL, document.getElementById('optChips'), false);
+function countExport(){
+  let n=0; document.querySelectorAll('#impChips input,#optChips input').forEach(x=>{ if(x.checked) n++; });
+  document.getElementById('exportCount').textContent = n;
+}
+countExport();
+document.getElementById('selAll').onclick = ()=>{ document.querySelectorAll('#impChips input,#optChips input').forEach(x=>x.checked=true); countExport(); };
+document.getElementById('selNone').onclick = ()=>{ document.querySelectorAll('#impChips input,#optChips input').forEach(x=>x.checked=false); countExport(); };
+document.getElementById('selDefault').onclick = ()=>{ buildChips(IMPORTANT, document.getElementById('impChips')); buildChips(OPTIONAL, document.getElementById('optChips'), false); };
+
+// ---------- P4 框架标签 ----------
+let bound = false;
+document.getElementById('toggleInherit').onclick = ()=>{
+  bound = !bound;
+  document.getElementById('inheritedTag').style.display = bound ? 'inline-block' : 'none';
+  document.getElementById('inheritState').textContent = bound ? '已绑定到 F-2025-001（自动附加【框架合同】标签）' : '未绑定框架（继承标签已移除）';
+};
+
+// ---------- P5 框架树 ----------
+let expanded = true;
+function renderTree(){ document.getElementById('treeChildren').style.display = expanded ? 'table-row-group' : 'none';
+  document.getElementById('expIcon').textContent = expanded ? '▾' : '▸'; }
+document.getElementById('treeToggle').onclick = ()=>{ expanded=!expanded; renderTree(); };
+renderTree();
+</script>
+</body>
+</html>
