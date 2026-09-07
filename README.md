@@ -17,6 +17,7 @@
 | [06-mvp2-adjustments.md](docs/06-mvp2-adjustments.md) | **MVP2 调整记录**：行项/导入/导出配置/框架标签/框架树的口径、实现与验收要点 | 全体 |
 | [07-mvp3-adjustments.md](docs/07-mvp3-adjustments.md) | **MVP3 迭代记录**：自动编号/类型与主体字典/类型标签/系统设置页 | 全体 |
 | [08-deployment.md](docs/08-deployment.md) | **正式版部署手册**：Linux Docker / Windows NSSM、PostgreSQL 切换、备份恢复演练 | 运维、决策人 |
+| [09-baota-deploy.md](docs/09-baota-deploy.md) | **宝塔面板部署步骤**：环境/代码/前端构建/Supervisor/Nginx 反代/HTTPS/计划任务备份/升级 | 运维、决策人 |
 
 ## 关键决策记录（本轮已确认）
 
