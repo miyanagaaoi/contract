@@ -1,0 +1,16 @@
+# CTMS 单容器快速运行（先构建/导入镜像 ctms:1.0.0）
+services:
+  ctms:
+    image: ctms:1.0.0
+    container_name: ctms
+    restart: unless-stopped
+    ports:
+      - "8080:8000"     # 访问 http://<服务器IP>:8080；如宝塔已占 8080 可改其他端口
+    volumes:
+      - ctms_data:/data # 持久化 SQLite + 附件 + 日志（删容器数据不丢）
+    # 可选：连接外部 PostgreSQL 时取消注释并替换连接串
+    # environment:
+    #   CTMS_DB_URL: postgresql+psycopg2://ctms:CHANGE_ME@host:5432/ctms
+
+volumes:
+  ctms_data:
