@@ -4,17 +4,19 @@
 > → 拷到服务器 → `docker load` → 一条命令启动。数据（SQLite+附件+日志）持久化在 `/data` 卷，
 > 删容器/升级不丢数据。
 
-## 1. 生成镜像文件（在“任意装有 Docker 的机器”上，如你的电脑或服务器）
+## 0. 不需要本地 Docker 的办法：GitHub Actions 出包
+
+仓库已带 `.github/workflows/docker-image.yml`：在 GitHub 网页 → **Actions** → 选择
+"Build CTMS single-container image" → **Run workflow**；跑完后在本次运行页底部
+**Artifacts** 下载 `ctms-image-1.0.0.tar.gz` → 解压得 `ctms-image-1.0.0.tar` → 服务器
+`docker load -i` 即可。本机无需安装 Docker。
+
+## 1. 生成镜像文件（在有 Docker 的机器上构建）
 
 ```bash
 cd 项目根目录
-# 方式 A：脚本
 scripts\export-docker.bat          # Windows
-# bash scripts/export-docker.sh     # Linux（如无此文件可手动执行下面两行）
-
-# 方式 B：手动
-docker build -t ctms:1.0.0 -f deploy/Dockerfile.single .
-docker save -o ctms-image-1.0.0.tar ctms:1.0.0
+bash scripts/export-docker.sh      # Linux/macOS/服务器
 ```
 
 - 产物：`ctms-image-1.0.0.tar`（约几百 MB，取决于基础镜像）；

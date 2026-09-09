@@ -1,0 +1,39 @@
+name: Build CTMS single-container image
+
+# 用法：
+#   1) GitHub 仓库 → Actions → 本工作流 → Run workflow（可选手动触发/推 tag）
+#   2) 跑完后在本次运行页底部 Artifacts 下载 ctms-image-1.0.0.tar.gz
+#   3) 服务器：tar -xzf …tar.gz && docker load -i ctms-image-1.0.0.tar && docker run ...
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-and-export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        run: |
+          docker build -t ctms:1.0.0 -f deploy/Dockerfile.single .
+
+      - name: Export single tar
+        run: |
+          docker save -o ctms-image-1.0.0.tar ctms:1.0.0
+          gzip -k ctms-image-1.0.0.tar
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctms-image-1.0.0
+          path: |
+            ctms-image-1.0.0.tar
+            ctms-image-1.0.0.tar.gz
+          retention-days: 14
