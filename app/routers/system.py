@@ -4,20 +4,34 @@
 - T-V2-03 组织架构（org-units）
 - T-V2-04 角色管理（roles + permissions 元数据）
 - T-V2-05 账号管理（users + 重置密码 + 停启用）
-
-后续（同一 router 扩展）：系统参数、编号规则、操作日志、变更历史、数据备份、关于。
+- T-V2-12 系统管理整合（系统参数 / 编号规则 / 操作日志 / 变更历史 / 备份 / 关于）
 
 接口清单见 `12-erp-system-design.md` §6.1；权限点见 `app/permissions.py`。
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi.responses import FileResponse
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from ..config import APP_NAME, APP_VERSION, AUTH_ENABLED, DB_FILE, DB_URL, is_sqlite
 from ..database import get_db
-from ..models_auth import User
-from ..permissions import DATA_SCOPES, perm_tree
-from ..services import audit_service, org_service, role_service, user_service
+from ..dicts import (
+    NUMBER_RULE_LABELS,
+    SYS_PARAM_META,
+    get_number_rules,
+    get_sys_params,
+    set_number_rules,
+    set_sys_params,
+)
+from ..models import Attachment, ChangeLog, Contract, Tag
+from ..models_auth import OperationLog, User
+from ..models_master import Customer, Product, Supplier
+from ..permissions import DATA_SCOPES, PERM_CODES, perm_tree
+from ..services import audit_service, backup_service, numbering_service, org_service, role_service, user_service
 from ..services.permission_service import require_perm
 
 router = APIRouter(prefix="/api/system", tags=["system"])
@@ -281,3 +295,250 @@ def reset_user_password(user_id: int, request: Request, payload: dict = Body(...
                       detail="管理员重置密码", request=request)
     db.commit()
     return {"ok": True}
+
+
+# ==================== 系统参数（T-V2-12 / AC-V2-38） ====================
+
+@router.get("/params")
+def get_params(_user: User = Depends(require_perm("system.param.view")),
+               db: Session = Depends(get_db)):
+    """系统参数当前值 + 元数据（中文名/类型/取值范围）。"""
+    return {"params": get_sys_params(db), "meta": SYS_PARAM_META}
+
+
+@router.put("/params")
+def update_params(request: Request, payload: dict = Body(...),
+                  user: User = Depends(require_perm("system.param.edit")),
+                  db: Session = Depends(get_db)):
+    """只接受已知参数键（未知键忽略、非法值 422），改完即生效。"""
+    values = payload.get("params") if isinstance(payload.get("params"), dict) else payload
+    updated = _run(set_sys_params, db, values)
+    audit_service.log(db, user, module="system", action="edit", object_type="sys_params",
+                      detail=f"修改系统参数：{', '.join(sorted((values or {}).keys()))}",
+                      request=request)
+    db.commit()
+    return {"params": updated, "meta": SYS_PARAM_META}
+
+
+# ==================== 编号规则（T-V2-12） ====================
+
+@router.get("/number-rules")
+def get_rules(_user: User = Depends(require_perm("system.number.view")),
+              db: Session = Depends(get_db)):
+    """编号规则 + 下一个可用编号预览（未实现编号的类别跳过预览）。"""
+    rules = get_number_rules(db)
+    previews: dict[str, str | None] = {}
+    for kind in rules:
+        try:
+            previews[kind] = numbering_service.next_doc_no(db, kind)
+        except ValueError:
+            previews[kind] = None      # 该类单据尚未实现（M2 起自动出现）
+    return {
+        "rules": rules,
+        "labels": NUMBER_RULE_LABELS,
+        "previews": previews,
+        "reset_labels": {"month": "按月重置", "never": "不重置"},
+    }
+
+
+@router.put("/number-rules")
+def update_rules(request: Request, payload: dict = Body(...),
+                 user: User = Depends(require_perm("system.param.edit")),
+                 db: Session = Depends(get_db)):
+    """调整前缀与序号长度（reset 策略固定：单据按月、主数据不重置）。"""
+    values = payload.get("rules") if isinstance(payload.get("rules"), dict) else payload
+    rules = _run(set_number_rules, db, values)
+    audit_service.log(db, user, module="system", action="edit", object_type="number_rules",
+                      detail=f"修改编号规则：{', '.join(sorted((values or {}).keys()))}",
+                      request=request)
+    db.commit()
+    return {"rules": rules, "labels": NUMBER_RULE_LABELS}
+
+
+# ==================== 操作日志（T-V2-12 / AC-V2-36） ====================
+
+def _parse_day(value: str | None, *, end: bool = False) -> datetime | None:
+    if not value:
+        return None
+    try:
+        day = datetime.strptime(str(value)[:10], "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=422, detail="日期格式应为 YYYY-MM-DD")
+    return day.replace(hour=23, minute=59, second=59) if end else day
+
+
+@router.get("/logs")
+def list_logs(keyword: str | None = Query(None, description="对象单号/操作人/详情模糊"),
+              module: str | None = Query(None),
+              action: str | None = Query(None),
+              user_id: int | None = Query(None),
+              result: str | None = Query(None, description="success / fail"),
+              date_from: str | None = Query(None), date_to: str | None = Query(None),
+              page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
+              _user: User = Depends(require_perm("system.log.view")),
+              db: Session = Depends(get_db)):
+    """操作日志：支持"动作 + 时间范围"筛选（AC-V2-36）。"""
+    query = db.query(OperationLog)
+    if module:
+        query = query.filter(OperationLog.module == module)
+    if action:
+        query = query.filter(OperationLog.action == action)
+    if user_id:
+        query = query.filter(OperationLog.user_id == user_id)
+    if result:
+        query = query.filter(OperationLog.result == result)
+    start, end = _parse_day(date_from), _parse_day(date_to, end=True)
+    if start is not None:
+        query = query.filter(OperationLog.created_at >= start)
+    if end is not None:
+        query = query.filter(OperationLog.created_at <= end)
+    if keyword and keyword.strip():
+        like = f"%{keyword.strip()}%"
+        query = query.filter(or_(OperationLog.object_no.like(like),
+                                 OperationLog.username.like(like),
+                                 OperationLog.real_name.like(like),
+                                 OperationLog.detail.like(like)))
+
+    total = int(query.count() or 0)
+    rows = (query.order_by(OperationLog.id.desc())
+            .offset((page - 1) * page_size).limit(page_size).all())
+    modules = [r[0] for r in db.query(OperationLog.module).distinct().all() if r[0]]
+    actions = [r[0] for r in db.query(OperationLog.action).distinct().all() if r[0]]
+    return {
+        "items": [{
+            "id": r.id, "username": r.username, "real_name": r.real_name,
+            "module": r.module, "action": r.action, "object_type": r.object_type,
+            "object_id": r.object_id, "object_no": r.object_no, "result": r.result,
+            "detail": r.detail, "ip": r.ip,
+            "created_at": r.created_at.isoformat(sep=" ", timespec="seconds") if r.created_at else None,
+        } for r in rows],
+        "total": total, "page": page, "page_size": page_size,
+        "modules": sorted(modules), "actions": sorted(actions),
+    }
+
+
+# ==================== 变更历史（T-V2-12 / AC-V2-37） ====================
+
+@router.get("/changelogs")
+def list_changelogs(keyword: str | None = Query(None, description="合同编号/名称/字段/操作人模糊"),
+                    field_name: str | None = Query(None),
+                    source: str | None = Query(None, description="manual / auto"),
+                    contract_id: int | None = Query(None),
+                    date_from: str | None = Query(None), date_to: str | None = Query(None),
+                    page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
+                    _user: User = Depends(require_perm("system.changelog.view")),
+                    db: Session = Depends(get_db)):
+    """全局变更历史（带操作人；V1.0 历史记录操作人为空，前端显示"—"）。"""
+    query = db.query(ChangeLog, Contract).outerjoin(Contract, ChangeLog.contract_id == Contract.id)
+    if contract_id:
+        query = query.filter(ChangeLog.contract_id == contract_id)
+    if field_name:
+        query = query.filter(ChangeLog.field_name == field_name)
+    if source:
+        query = query.filter(ChangeLog.source == source)
+    start, end = _parse_day(date_from), _parse_day(date_to, end=True)
+    if start is not None:
+        query = query.filter(ChangeLog.created_at >= start)
+    if end is not None:
+        query = query.filter(ChangeLog.created_at <= end)
+    if keyword and keyword.strip():
+        like = f"%{keyword.strip()}%"
+        query = query.filter(or_(Contract.contract_no.like(like), Contract.name.like(like),
+                                 ChangeLog.field_name.like(like), ChangeLog.note.like(like),
+                                 ChangeLog.operator_name.like(like),
+                                 ChangeLog.new_value.like(like)))
+
+    total = int(query.count() or 0)
+    rows = (query.order_by(ChangeLog.id.desc())
+            .offset((page - 1) * page_size).limit(page_size).all())
+    fields = [r[0] for r in db.query(ChangeLog.field_name).distinct().all() if r[0]]
+    return {
+        "items": [{
+            "id": log.id,
+            "contract_id": log.contract_id,
+            "contract_no": contract.contract_no if contract else None,
+            "contract_name": contract.name if contract else None,
+            "field_name": log.field_name,
+            "old_value": log.old_value,
+            "new_value": log.new_value,
+            "note": log.note,
+            "source": log.source,
+            "operator_name": log.operator_name,
+            "created_at": log.created_at.isoformat(sep=" ", timespec="seconds") if log.created_at else None,
+        } for log, contract in rows],
+        "total": total, "page": page, "page_size": page_size,
+        "fields": sorted(fields),
+    }
+
+
+# ==================== 备份（T-V2-12 / AC-V2-39） ====================
+
+@router.get("/backup")
+def list_backups(_user: User = Depends(require_perm("system.backup.download"))):
+    return {"items": backup_service.list_backups()}
+
+
+@router.post("/backup")
+def create_backup(request: Request,
+                  user: User = Depends(require_perm("system.backup.create")),
+                  db: Session = Depends(get_db)):
+    """生成备份（SQLite 在线一致性快照 + 附件目录打包），并写操作日志。"""
+    info = _run(backup_service.create_backup)
+    audit_service.log(db, user, module="system", action="backup", object_type="backup",
+                      object_no=info["name"],
+                      detail=f"生成备份 {info['name']}（{info['size_bytes']} 字节）",
+                      request=request)
+    db.commit()
+    return info
+
+
+@router.get("/backup/{name}")
+def download_backup(name: str,
+                    _user: User = Depends(require_perm("system.backup.download"))):
+    path = _run(backup_service.resolve_backup, name)
+    return FileResponse(path, filename=path.name, media_type="application/zip")
+
+
+@router.delete("/backup/{name}")
+def delete_backup(name: str, request: Request,
+                  user: User = Depends(require_perm("system.backup.create")),
+                  db: Session = Depends(get_db)):
+    _run(backup_service.delete_backup, name)
+    audit_service.log(db, user, module="system", action="delete", object_type="backup",
+                      object_no=name, detail=f"删除备份 {name}", request=request)
+    db.commit()
+    return {"ok": True}
+
+
+# ==================== 关于（T-V2-12） ====================
+
+@router.get("/about")
+def about(_user: User = Depends(require_perm("system.about.view")),
+          db: Session = Depends(get_db)):
+    """应用与数据概览（排障用：版本、库位置、数据量、权限点数量）。"""
+    counts = {
+        "contracts": int(db.query(func.count(Contract.id)).scalar() or 0),
+        "contracts_deleted": int(db.query(func.count(Contract.id))
+                                 .filter(Contract.deleted == True).scalar() or 0),  # noqa: E712
+        "tags": int(db.query(func.count(Tag.id)).scalar() or 0),
+        "attachments": int(db.query(func.count(Attachment.id)).scalar() or 0),
+        "change_logs": int(db.query(func.count(ChangeLog.id)).scalar() or 0),
+        "operation_logs": int(db.query(func.count(OperationLog.id)).scalar() or 0),
+        "users": int(db.query(func.count(User.id)).scalar() or 0),
+        "customers": int(db.query(func.count(Customer.id)).scalar() or 0),
+        "suppliers": int(db.query(func.count(Supplier.id)).scalar() or 0),
+        "products": int(db.query(func.count(Product.id)).scalar() or 0),
+    }
+    return {
+        "app": APP_NAME,
+        "version": APP_VERSION,
+        "server_time": datetime.now().isoformat(sep=" ", timespec="seconds"),
+        "auth_enabled": AUTH_ENABLED,
+        "database": {
+            "kind": "sqlite" if is_sqlite() else "other",
+            "file": str(DB_FILE) if is_sqlite() else DB_URL.split("@")[-1],
+        },
+        "counts": counts,
+        "permission_count": len(PERM_CODES),
+        "backups": backup_service.list_backups()[:5],
+    }

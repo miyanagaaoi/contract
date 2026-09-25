@@ -221,6 +221,24 @@ _SYS_PARAM_TYPES: dict[str, type] = {
     "pwd_min_length": int,
 }
 
+# 参数元数据（系统管理页展示：中文名/类型/说明；T-V2-12）
+SYS_PARAM_META: list[dict] = [
+    {"key": "warranty_window_days", "label": "质保到期提醒窗口（天）", "type": "int",
+     "note": "首页看板提前多少天提醒质保到期", "min": 1, "max": 365},
+    {"key": "allow_negative_stock", "label": "允许负库存", "type": "bool",
+     "note": "关闭时出库过账校验可用库存（建议保持关闭）"},
+    {"key": "allow_self_approve", "label": "允许创建人自审", "type": "bool",
+     "note": "关闭时单据创建人不能审核自己录入的单据"},
+    {"key": "default_qty_decimals", "label": "数量默认小数位", "type": "int",
+     "note": "新建物料时的数量精度默认值", "min": 0, "max": 4},
+    {"key": "default_price_decimals", "label": "单价小数位", "type": "int",
+     "note": "单价展示精度", "min": 0, "max": 4},
+    {"key": "money_decimals", "label": "金额小数位", "type": "int",
+     "note": "金额展示精度", "min": 0, "max": 2},
+    {"key": "pwd_min_length", "label": "密码最小长度", "type": "int",
+     "note": "改密与重置密码时的最小长度（≥6）", "min": 6, "max": 64},
+]
+
 # 单据与主数据编号规则（reset=month → 前缀+YYYYMM+序号；never → 前缀+序号）
 DEFAULT_NUMBER_RULES: dict = {
     "purchase_request": {"prefix": "PR", "reset": "month", "seq_len": 6},
@@ -327,7 +345,8 @@ def set_number_rules(db: Session, values: dict) -> dict:
             continue
         if "prefix" in raw:
             prefix = str(raw["prefix"] or "").strip().upper()
-            if prefix and not prefix.isalpha():
+            # 仅允许 A~Z（中文/数字/符号会被 isalpha() 放过，需显式限定 ASCII）
+            if prefix and not (prefix.isascii() and prefix.isalpha()):
                 raise ValueError(f"{NUMBER_RULE_LABELS.get(kind, kind)} 前缀只能是大写字母")
             if len(prefix) > 4:
                 raise ValueError(f"{NUMBER_RULE_LABELS.get(kind, kind)} 前缀最多 4 位")
