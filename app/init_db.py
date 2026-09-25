@@ -186,11 +186,39 @@ def seed_auth(db: Session) -> dict:
     }
 
 
+def sync_builtin_roles(db: Session) -> dict:
+    """把**内置角色**的权限与数据范围重置为 `ROLE_PRESETS`（预设升级用）。
+
+    ⚠️ 会覆盖管理员对这些内置角色的手工调整；自定义角色不受影响。
+    适用场景：`permissions.py` 中预设发生变更后（如新增权限点）同步到已部署的库。
+    """
+    from .models_auth import Role, RolePermission
+    from .permissions import ROLE_PRESETS, expand_perms
+
+    synced: list[str] = []
+    for preset in ROLE_PRESETS:
+        role = db.query(Role).filter(Role.code == preset["code"]).first()
+        if role is None:
+            continue
+        wanted = set(expand_perms(preset["perms"]))
+        if set(role.perm_codes) == wanted and role.data_scope == preset["data_scope"]:
+            continue
+        db.query(RolePermission).filter(RolePermission.role_id == role.id).delete()
+        for code in sorted(wanted):
+            db.add(RolePermission(role_id=role.id, perm_code=code))
+        role.data_scope = preset["data_scope"]
+        synced.append(role.code)
+    db.commit()
+    return {"roles_synced": len(synced), "codes": synced}
+
+
 def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="初始化数据库")
     parser.add_argument("--demo", action="store_true", help="追加演示数据")
+    parser.add_argument("--sync-roles", action="store_true",
+                        help="把内置角色权限重置为代码预设（预设升级用，会覆盖手工调整）")
     args = parser.parse_args()
 
     ensure_dirs()
@@ -206,6 +234,8 @@ def main() -> None:
         print(f"[init_db] 字典种子完成: {result}")
         auth = seed_auth(db)
         print(f"[init_db] 权限种子完成: {auth}")
+        if args.sync_roles:
+            print(f"[init_db] 内置角色权限同步: {sync_builtin_roles(db)}")
         if args.demo:
             from .models import Contract
 

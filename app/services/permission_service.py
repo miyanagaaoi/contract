@@ -48,7 +48,17 @@ def get_current_user(
     cred: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: Session = Depends(get_db),
 ) -> User:
-    """解析登录态。未登录 / 令牌无效 / 账号停用 → 401。"""
+    """解析登录态。未登录 / 令牌无效 / 账号停用 → 401。
+
+    成功后把当前用户写入 `db.info["user"]`，供审计层（变更历史/操作日志）
+    在同一请求内取用，避免逐层透传用户参数。
+    """
+    user = _resolve_user(cred, db)
+    db.info["user"] = user
+    return user
+
+
+def _resolve_user(cred: HTTPAuthorizationCredentials | None, db: Session) -> User:
     if not AUTH_ENABLED:
         return _fallback_user(db)
     if cred is None or not cred.credentials:

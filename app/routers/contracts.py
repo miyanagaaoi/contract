@@ -1,19 +1,27 @@
-"""合同台账 API（T3，对应 AC-01/02/10/15）。
+"""合同台账 API（T3，对应 AC-01/02/10/15；V2.0 接入权限与数据范围）。
 
-- POST /api/contracts            新增（编号唯一校验 AC-02）
-- GET  /api/contracts            分页列表（基础筛选；完整组合筛选在 T5）
-- GET  /api/contracts/{id}       详情（含子合同汇总/变更历史由 T6 细化）
-- PUT  /api/contracts/{id}       修改（关键字段自动写 ChangeLog）
-- DELETE /api/contracts/{id}     软删除（必填原因，AC-10）
-- PUT  /api/contracts/{id}/restore  恢复（30 天内，AC-15）
-- GET  /api/contracts/{id}/logs  变更历史
+接口与权限点（见 `12-erp-system-design.md` §6.1）：
+- GET  /api/contracts/next-no           contract.create（编号预览，供新增表单）
+- POST /api/contracts                   contract.create
+- GET  /api/contracts                   contract.view（受数据范围过滤）
+- GET  /api/contracts/{id}              contract.view
+- PUT  /api/contracts/{id}              contract.edit
+- DELETE /api/contracts/{id}            contract.delete（软删除 + 必填原因）
+- PUT  /api/contracts/{id}/restore      contract.delete（30 天内可恢复）
+- GET  /api/contracts/{id}/logs         contract.log.view
+
+V2.0 变更：
+- 每个端点显式声明按钮权限（**服务端强制**，前端隐藏不算边界，AC-V2-41）；
+- 列表查询按登录用户的数据范围过滤（本人/本部门/本部门及下级/全部）；
+- 新建合同时记录 `org_id`（归属组织快照）与 `created_by`（创建人）；
+- 变更历史记录操作人（`operator_id` / `operator_name`），修订 01 BR12。
 """
 from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
@@ -29,7 +37,10 @@ from ..models import (
     compute_warranty_end,
     contract_tag,
 )
+from ..models_auth import User
 from ..numbering import next_number
+from ..services import audit_service
+from ..services.permission_service import apply_data_scope, require_perm
 
 router = APIRouter(prefix="/api/contracts", tags=["contracts"])
 
@@ -41,9 +52,11 @@ TRACKED_FIELDS = [
     "warranty_end", "warranty_released", "warranty_release_date", "warranty_note",
     "is_framework", "parent_id", "arrival_status", "expected_arrival_date",
     "status", "owner_name", "remark",
+    # ---- V2.0：往来单位档案（D6/D10）----
+    "customer_id", "supplier_id",
 ]
 
-_INT_FIELDS = {"warranty_months"}
+_INT_FIELDS = {"warranty_months", "customer_id", "supplier_id"}
 _BOOL_FIELDS = {"has_warranty", "warranty_released", "is_framework"}
 _DECIMAL_FIELDS = {"amount", "paid_amount", "warranty_amount", "warranty_rate"}
 _DATE_FIELDS = {
@@ -55,18 +68,24 @@ _NULLABLE_FIELDS = {
     "sign_date", "effective_date", "parent_id", "expected_arrival_date", "subject_code",
     "warranty_amount", "warranty_rate", "warranty_start", "warranty_months",
     "warranty_end", "warranty_release_date", "warranty_note", "owner_name", "remark",
+    "customer_id", "supplier_id",
 }
 
 
 def _log(db: Session, contract: Contract, field: str, old, new, note: str | None = None,
          source: str = "manual") -> None:
+    """写变更历史：V2.0 起自动带上当前操作人（由 `get_current_user` 写入 `db.info`）。"""
     from ..models import ChangeLog
 
+    user = (db.info or {}).get("user")
     db.add(ChangeLog(
         contract_id=contract.id, field_name=field,
         old_value=None if old is None else str(old),
         new_value=None if new is None else str(new),
         note=note, source=source,
+        operator_id=getattr(user, "id", None),
+        operator_name=getattr(user, "real_name", None),
+        object_type="contract", object_id=contract.id,
     ))
 
 
@@ -158,6 +177,10 @@ def _fmt(c: Contract, db: Session | None = None) -> dict:
         "amount": float(c.amount) if c.amount is not None else None,
         "currency": c.currency,
         "subject_code": c.subject_code,
+        "customer_id": c.customer_id,
+        "supplier_id": c.supplier_id,
+        "org_id": c.org_id,
+        "created_by": c.created_by,
         "paid_amount": float(c.paid_amount) if c.paid_amount is not None else None,
         "payment_ratio": float(ratio) if ratio is not None else None,
         "has_warranty": c.has_warranty,
@@ -259,7 +282,6 @@ def _apply_items(db: Session, contract: Contract, rows_raw) -> None:
         summary = _summary_text(new_items)
         if contract.subject_matter != summary:
             _log(db, contract, "subject_matter", contract.subject_matter, summary, source="auto")
-            contract.subject_matter = summary
     db.commit()
     db.refresh(contract)
 
@@ -379,6 +401,7 @@ def preview_number(
     type_label_or_code: str = Query("", alias="type", description="合同类型 label 或 code"),
     subject: str = Query("", description="主体码(如 ZC)或主体名称"),
     sign_date: str | None = Query(None, description="签订日期 YYYY-MM-DD(缺省=今天)"),
+    _user: User = Depends(require_perm("contract.create")),
     db: Session = Depends(get_db),
 ):
     """自动编号预览（不占号）。"""
@@ -402,7 +425,9 @@ def preview_number(
 
 
 @router.post("")
-def create_contract(payload: dict = Body(...), db: Session = Depends(get_db)):
+def create_contract(request: Request, payload: dict = Body(...),
+                    user: User = Depends(require_perm("contract.create")),
+                    db: Session = Depends(get_db)):
     payload = dict(payload)
     # MVP3：类型规范化（旧标签/代码 → 标准类型 label）
     tcode = type_code_of(db, payload.get("type") or "")
@@ -437,7 +462,9 @@ def create_contract(payload: dict = Body(...), db: Session = Depends(get_db)):
     _assert_parent_allowed(db, bool(payload.get("is_framework")), payload.get("parent_id"))
     from ..models import DEFAULT_STATUS
 
-    c = Contract(contract_no=contract_no, name=name, status=DEFAULT_STATUS)
+    # V2.0：记录归属组织（数据范围快照）与创建人（审计）
+    c = Contract(contract_no=contract_no, name=name, status=DEFAULT_STATUS,
+                 org_id=getattr(user, "org_id", None), created_by=getattr(user, "id", None))
     db.add(c)
     db.flush()
     _apply_updates(db, c, payload, note="新增合同")
@@ -446,6 +473,10 @@ def create_contract(payload: dict = Body(...), db: Session = Depends(get_db)):
         _sync_tags(db, c, payload.get("tags") or [])
     _finalize_framework(db, c)
     _sync_type_tag(db, c, "")
+    audit_service.log(db, user, module="contract", action="create",
+                      object_type="contract", object_id=c.id, object_no=c.contract_no,
+                      detail=f"新增合同：{c.name}", request=request)
+    db.commit()
     return _fmt(c, db)
 
 
@@ -461,11 +492,17 @@ def _filtered_query(
     sign_from: str | None = None,
     sign_to: str | None = None,
     tags: str | None = None,
+    user: User | None = None,
 ):
-    """列表与导出共用的筛选查询（单一数据源，R7）。"""
+    """列表与导出共用的筛选查询（单一数据源，R7）。
+
+    `user` 非空时按数据范围过滤（V2.0，BR-V2-08）。
+    """
     from datetime import date
 
     q = db.query(Contract)
+    if user is not None:
+        q = apply_data_scope(q, Contract, user, db)
     if not include_deleted:
         q = q.filter(Contract.deleted == False)  # noqa: E712
     if keyword:
@@ -513,11 +550,12 @@ def list_contracts(
     sign_from: str | None = Query(None, alias="sign_from", description="签订日期起 YYYY-MM-DD"),
     sign_to: str | None = Query(None, alias="sign_to", description="签订日期止 YYYY-MM-DD"),
     tree: bool = Query(False, description="框架树视图：忽略分页，输出 框架行+子行+独立合同 扁平列表"),
+    user: User = Depends(require_perm("contract.view")),
     db: Session = Depends(get_db),
 ):
     q = _filtered_query(db, include_deleted=include_deleted, keyword=keyword, owner=owner,
                         status=status, contract_type=contract_type, is_framework=is_framework,
-                        sign_from=sign_from, sign_to=sign_to, tags=tags)
+                        sign_from=sign_from, sign_to=sign_to, tags=tags, user=user)
     if tree:
         from collections import defaultdict
 
@@ -563,7 +601,9 @@ def list_contracts(
 
 
 @router.get("/{contract_id}")
-def get_contract(contract_id: int, db: Session = Depends(get_db)):
+def get_contract(contract_id: int,
+                 user: User = Depends(require_perm("contract.view")),
+                 db: Session = Depends(get_db)):
     c = _get_contract(db, contract_id)
     data = _fmt(c, db)
     if c.is_framework:
@@ -579,7 +619,9 @@ def get_contract(contract_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{contract_id}")
-def update_contract(contract_id: int, payload: dict = Body(...), db: Session = Depends(get_db)):
+def update_contract(contract_id: int, request: Request, payload: dict = Body(...),
+                    user: User = Depends(require_perm("contract.edit")),
+                    db: Session = Depends(get_db)):
     c = _get_contract(db, contract_id)
     if c.deleted:
         raise HTTPException(status_code=400, detail="合同已停用，请先恢复")
@@ -619,11 +661,17 @@ def update_contract(contract_id: int, payload: dict = Body(...), db: Session = D
         _sync_tags(db, c, payload.get("tags") or [])
     _finalize_framework(db, c)
     _sync_type_tag(db, c, old_type_label)
+    audit_service.log(db, user, module="contract", action="edit",
+                      object_type="contract", object_id=c.id, object_no=c.contract_no,
+                      request=request)
+    db.commit()
     return _fmt(c, db)
 
 
 @router.delete("/{contract_id}")
-def delete_contract(contract_id: int, reason: str = Query(..., min_length=1, description="停用原因（必填，BR10）"),
+def delete_contract(contract_id: int, request: Request,
+                    reason: str = Query(..., min_length=1, description="停用原因（必填，BR10）"),
+                    user: User = Depends(require_perm("contract.delete")),
                     db: Session = Depends(get_db)):
     c = _get_contract(db, contract_id)
     if c.deleted:
@@ -632,12 +680,17 @@ def delete_contract(contract_id: int, reason: str = Query(..., min_length=1, des
     c.deleted_at = datetime.now()
     c.deleted_reason = reason
     _log(db, c, "deleted", False, True, note=reason)
+    audit_service.log(db, user, module="contract", action="disable",
+                      object_type="contract", object_id=c.id, object_no=c.contract_no,
+                      detail=reason, request=request)
     db.commit()
     return {"ok": True, "id": c.id}
 
 
 @router.put("/{contract_id}/restore")
-def restore_contract(contract_id: int, db: Session = Depends(get_db)):
+def restore_contract(contract_id: int, request: Request,
+                     user: User = Depends(require_perm("contract.delete")),
+                     db: Session = Depends(get_db)):
     """恢复停用合同；超过 30 天保留期不可恢复（BR10/Q7，AC-15）。"""
     c = _get_contract(db, contract_id)
     if not c.deleted:
@@ -648,12 +701,17 @@ def restore_contract(contract_id: int, db: Session = Depends(get_db)):
     c.deleted_at = None
     c.deleted_reason = None
     _log(db, c, "deleted", True, False, note="恢复")
+    audit_service.log(db, user, module="contract", action="restore",
+                      object_type="contract", object_id=c.id, object_no=c.contract_no,
+                      request=request)
     db.commit()
     return {"ok": True, "id": c.id}
 
 
 @router.get("/{contract_id}/logs")
-def contract_logs(contract_id: int, db: Session = Depends(get_db)):
+def contract_logs(contract_id: int,
+                  _user: User = Depends(require_perm("contract.log.view")),
+                  db: Session = Depends(get_db)):
     from ..models import ChangeLog
 
     _get_contract(db, contract_id)
@@ -661,6 +719,7 @@ def contract_logs(contract_id: int, db: Session = Depends(get_db)):
     return [
         {"id": lg.id, "field_name": lg.field_name, "old_value": lg.old_value,
          "new_value": lg.new_value, "note": lg.note, "source": lg.source,
+         "operator_id": lg.operator_id, "operator_name": lg.operator_name,
          "created_at": lg.created_at.isoformat() if lg.created_at else None}
         for lg in logs
     ]

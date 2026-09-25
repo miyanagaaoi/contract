@@ -1,9 +1,15 @@
-"""ORM 数据模型（对应 02-system-design.md 第 3 节 ER，V1.0 规格）。
+"""ORM 数据模型（V1.0 合同域 + V2.0 权限归属/操作人增补）。
 
 - Contract: 合同（含框架合同自引用 parent_id，一对多）
 - Tag / contract_tag: 标签字典与多对多关联
 - Attachment: 附件元数据（文件存磁盘）
-- ChangeLog: 变更历史（不记录操作人，仅时间与前后值）
+- ChangeLog: 变更历史（**V2.0 起记录操作人**，修订 01 BR12）
+
+V2.0 说明（见 `12-erp-system-design.md` §4.5）：
+- 新增列一律不加外键约束——SQLite 的 `ALTER TABLE ADD COLUMN` 无法加 FK，
+  模型定义必须与 `db_migrate._ADD_COLUMNS` 保持一致；
+- `ChangeLog.contract_id` 仍为 NOT NULL（迁移无法改约束）；
+  `object_type`/`object_id` 为 M2 的单据变更历史预留，届时需重建该表以放开约束。
 """
 from __future__ import annotations
 
@@ -105,6 +111,9 @@ class Contract(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)       # 合同金额
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default=DEFAULT_CURRENCY)
     subject_code: Mapped[str | None] = mapped_column(String(8), nullable=True)               # 我方主体码 ZC/YX(MVP3 编号用)
+    # ---- V2.0：往来单位档案化（D6/D10：PUR→乙方引供应商；SAL→甲方引客户）----
+    customer_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)      # 客户档案 id
+    supplier_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)      # 供应商档案 id
     paid_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)  # 累计已付（BR3）
     has_warranty: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)       # BR5
     warranty_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)   # 质保金金额
@@ -123,6 +132,9 @@ class Contract(Base):
     expected_arrival_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default=DEFAULT_STATUS, index=True)  # BR4
     owner_name: Mapped[str | None] = mapped_column(String(64), nullable=True)                 # 经办人(BR9)
+    # ---- V2.0：数据范围与审计 ----
+    org_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)            # 归属组织节点（数据范围）
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)        # 创建人账号 id
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)  # 软删除（BR10/Q7）
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -183,7 +195,7 @@ class ContractItem(Base):
 
 
 class KVSetting(Base):
-    """系统级字典/配置（MVP2：行项类型等可配置列表，无账号下的全局设置）。"""
+    """系统级字典/配置（MVP2：行项类型等可配置列表；V2.0：系统参数与编号规则）。"""
 
     __tablename__ = "kv_settings"
 
@@ -202,12 +214,18 @@ class Attachment(Base):
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # ---- V2.0：单据附件预留（M2 启用，届时 contract_id 需放开为可空）----
+    object_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    object_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     contract: Mapped[Contract] = relationship(back_populates="attachments")
 
 
 class ChangeLog(Base):
-    """变更历史：记录 时间/字段/旧值/新值/备注；无操作人（01 BR12）。"""
+    """变更历史：记录 时间/字段/旧值/新值/备注 + **操作人**（V2.0 修订 01 BR12）。
+
+    V1.0 期间产生的历史记录 `operator_*` 为空，前端显示"—"。
+    """
 
     __tablename__ = "change_logs"
 
@@ -218,6 +236,11 @@ class ChangeLog(Base):
     new_value: Mapped[str | None] = mapped_column(Text, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")        # manual/auto
+    # ---- V2.0：操作人与对象标识 ----
+    operator_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    operator_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    object_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    object_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
     contract: Mapped[Contract] = relationship(back_populates="logs")
