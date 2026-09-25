@@ -38,8 +38,9 @@ from ..models import (
     contract_tag,
 )
 from ..models_auth import User
+from ..models_master import Customer, Supplier
 from ..numbering import next_number
-from ..services import audit_service
+from ..services import audit_service, migrate_service
 from ..services.permission_service import apply_data_scope, require_perm
 
 router = APIRouter(prefix="/api/contracts", tags=["contracts"])
@@ -113,6 +114,37 @@ def _norm(value, field: str):
     return value
 
 
+def _apply_party_refs(db: Session, payload: dict) -> None:
+    """往来单位档案化（T-V2-13 / AC-V2-33）。
+
+    - `customer_id` 对应甲方（销售合同）、`supplier_id` 对应乙方（采购合同）；
+    - 传了 id 但档案不存在 → 422（防止脏引用）；
+    - 未显式提供对应文本时用**档案名回填文本快照**；其他类型合同可继续用纯文本（AC-V2-34）。
+    """
+    if payload.get("customer_id"):
+        try:
+            customer_id = int(payload["customer_id"])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="客户档案 id 非法")
+        customer = db.get(Customer, customer_id)
+        if customer is None:
+            raise HTTPException(status_code=422, detail="客户档案不存在")
+        payload["customer_id"] = customer.id
+        if not str(payload.get("party_a") or "").strip():
+            payload["party_a"] = customer.name
+    if payload.get("supplier_id"):
+        try:
+            supplier_id = int(payload["supplier_id"])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="供应商档案 id 非法")
+        supplier = db.get(Supplier, supplier_id)
+        if supplier is None:
+            raise HTTPException(status_code=422, detail="供应商档案不存在")
+        payload["supplier_id"] = supplier.id
+        if not str(payload.get("party_b") or "").strip():
+            payload["party_b"] = supplier.name
+
+
 def _apply_updates(db: Session, contract: Contract, payload: dict, note: str | None = None) -> list[str]:
     """应用变更并写变更历史，返回发生变更的字段列表。"""
     changed: list[str] = []
@@ -164,6 +196,9 @@ def _fmt(c: Contract, db: Session | None = None) -> dict:
         parent = db.get(Contract, c.parent_id) if db else None
         parent_no = parent.contract_no if parent else None
     ratio = c.payment_ratio
+    # V2.0：往来单位档案名称（T-V2-13，列表/详情显示档案名；未绑定时回落到文本快照）
+    customer = db.get(Customer, c.customer_id) if (db is not None and c.customer_id) else None
+    supplier = db.get(Supplier, c.supplier_id) if (db is not None and c.supplier_id) else None
     return {
         "id": c.id,
         "contract_no": c.contract_no,
@@ -178,7 +213,11 @@ def _fmt(c: Contract, db: Session | None = None) -> dict:
         "currency": c.currency,
         "subject_code": c.subject_code,
         "customer_id": c.customer_id,
+        "customer_name": customer.name if customer else None,
+        "customer_code": customer.code if customer else None,
         "supplier_id": c.supplier_id,
+        "supplier_name": supplier.name if supplier else None,
+        "supplier_code": supplier.code if supplier else None,
         "org_id": c.org_id,
         "created_by": c.created_by,
         "paid_amount": float(c.paid_amount) if c.paid_amount is not None else None,
@@ -460,6 +499,7 @@ def create_contract(request: Request, payload: dict = Body(...),
     if exists:
         raise HTTPException(status_code=409, detail="合同编号已存在（自动编号被占用，请重新生成）")
     _assert_parent_allowed(db, bool(payload.get("is_framework")), payload.get("parent_id"))
+    _apply_party_refs(db, payload)
     from ..models import DEFAULT_STATUS
 
     # V2.0：记录归属组织（数据范围快照）与创建人（审计）
@@ -600,6 +640,71 @@ def list_contracts(
     return {"items": [_fmt(c, db) for c in items], "total": total, "page": page, "page_size": page_size}
 
 
+# ==================== 历史甲乙方档案迁移（T-V2-14 / AC-V2-34、35） ====================
+# 注意：以下静态路径必须定义在 `/{contract_id}` 之前，否则会被路径参数捕获。
+
+def _migrate_call(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.post("/migrate-parties", tags=["contracts"])
+def migrate_parties(request: Request,
+                    user: User = Depends(require_perm("contract.edit")),
+                    db: Session = Depends(get_db)):
+    """一次性扫描历史合同的甲乙方文本，生成"待认领"迁移草案（幂等，可重复执行）。"""
+    result = _migrate_call(migrate_service.scan_party_drafts, db)
+    audit_service.log(db, user, module="contract", action="migrate_scan",
+                      object_type="party_draft",
+                      detail=f"扫描历史甲乙方文本：新增草案 {result['created']} 条，"
+                             f"刷新 {result['refreshed']} 条，待认领 {result['pending']} 条",
+                      request=request)
+    db.commit()
+    return result
+
+
+@router.get("/party-drafts", tags=["contracts"])
+def party_drafts(status: str = Query("pending", description="pending / claimed / ignored / all"),
+                 _user: User = Depends(require_perm("contract.edit")),
+                 db: Session = Depends(get_db)):
+    """迁移草案列表（认领页数据，含同名档案候选）。"""
+    return migrate_service.list_party_drafts(db, status)
+
+
+@router.post("/party-drafts/{draft_id}/claim", tags=["contracts"])
+def claim_party_draft(draft_id: int, request: Request, payload: dict = Body(default={}),
+                      user: User = Depends(require_perm("contract.edit")),
+                      db: Session = Depends(get_db)):
+    """认领草案：新建档案（同名直接绑定）或绑定已有档案，并批量绑定历史合同。"""
+    draft = _migrate_call(migrate_service.get_draft, db, draft_id)
+    result = _migrate_call(migrate_service.claim_party_draft, db, draft, payload or {}, user)
+    audit_service.log(db, user, module="contract", action="migrate_claim",
+                      object_type="party_draft", object_id=draft_id,
+                      object_no=result["archive"]["code"],
+                      detail=f"认领草案「{result['draft']['raw_name']}」→ {result['archive']['name']}，"
+                             f"绑定合同 {result['bound']} 张",
+                      request=request)
+    db.commit()
+    return result
+
+
+@router.post("/party-drafts/{draft_id}/ignore", tags=["contracts"])
+def ignore_party_draft(draft_id: int, request: Request, payload: dict = Body(default={}),
+                       user: User = Depends(require_perm("contract.edit")),
+                       db: Session = Depends(get_db)):
+    """忽略草案（视为无需建档的历史文本，保留合同文本兜底）。"""
+    draft = _migrate_call(migrate_service.get_draft, db, draft_id)
+    data = _migrate_call(migrate_service.ignore_party_draft, db, draft,
+                         (payload or {}).get("reason"))
+    audit_service.log(db, user, module="contract", action="migrate_ignore",
+                      object_type="party_draft", object_id=draft_id,
+                      detail=f"忽略迁移草案「{draft.raw_name}」", request=request)
+    db.commit()
+    return data
+
+
 @router.get("/{contract_id}")
 def get_contract(contract_id: int,
                  user: User = Depends(require_perm("contract.view")),
@@ -651,6 +756,7 @@ def update_contract(contract_id: int, request: Request, payload: dict = Body(...
     if payload.get("subject_code") is not None:
         payload["subject_code"] = subject_code_normalize(
             payload["subject_code"], get_enabled_subjects(db))
+    _apply_party_refs(db, payload)
     _apply_updates(db, c, payload)
     note = (payload.get("note") or "").strip()
     if note:

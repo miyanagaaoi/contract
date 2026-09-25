@@ -266,21 +266,43 @@ class TestChangeLogOperator:
         assert "contract.log.view" in resp.json()["detail"]
 
 
-# ===================== 档案字段（T-V2-13 前置） =====================
+# ===================== 档案字段（T-V2-13 档案化） =====================
 
 class TestPartyFields:
     def test_contract_accepts_party_ids(self, client, env):
-        """采购合同可绑定供应商档案 id（T-V2-13 档案化改造的前置字段）。"""
+        """采购合同可绑定供应商档案 id（T-V2-13）。
+
+        V2.0 起 `supplier_id`/`customer_id` 必须是**真实存在的档案**（AC-V2-33），
+        不再接受任意数字（脏引用会被 422 拒绝）。
+        """
         uid = env.user("buyer")
         headers = env.headers(uid)
-        created = env.contract(headers, name=f"档案合同_{uuid.uuid4().hex[:6]}")
-        assert created["customer_id"] is None
-        assert created["supplier_id"] is None
+        created = client.post("/api/master/suppliers", headers=env.admin_h,
+                              json={"name": f"权限测试供应商_{uuid.uuid4().hex[:6]}"})
+        assert created.status_code == 200, created.text
+        supplier_id = created.json()["id"]
 
-        resp = client.put(f"{API}/{created['id']}", headers=headers,
-                          json={"supplier_id": 12345, "customer_id": None})
-        assert resp.status_code == 200
-        assert resp.json()["supplier_id"] == 12345
+        try:
+            contract = env.contract(headers, name=f"档案合同_{uuid.uuid4().hex[:6]}")
+            assert contract["customer_id"] is None
+            assert contract["supplier_id"] is None
 
-        logs = client.get(f"{API}/{created['id']}/logs", headers=env.admin_h).json()
-        assert any(lg["field_name"] == "supplier_id" for lg in logs)
+            resp = client.put(f"{API}/{contract['id']}", headers=headers,
+                              json={"supplier_id": supplier_id, "customer_id": None})
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["supplier_id"] == supplier_id
+            assert resp.json()["supplier_name"] == created.json()["name"]
+
+            logs = client.get(f"{API}/{contract['id']}/logs", headers=env.admin_h).json()
+            assert any(lg["field_name"] == "supplier_id" for lg in logs)
+
+            # 脏引用被拒绝
+            bad = client.put(f"{API}/{contract['id']}", headers=headers,
+                             json={"supplier_id": 99999999})
+            assert bad.status_code == 422
+            assert "供应商档案不存在" in bad.json()["detail"]
+        finally:
+            with SessionLocal() as db:
+                from app.models_master import Supplier
+                db.query(Supplier).filter(Supplier.id == supplier_id).delete()
+                db.commit()
