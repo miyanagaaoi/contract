@@ -13,8 +13,9 @@ function fmtDate(v: unknown): string {
   <DocListPage title="入库单" api="/api/stock/in-orders"
                subtitle="审核即过账（写入库存流水）；入库类型：采购入库 / 退货入库 / 其他入库"
                perm-prefix="stock.in" kind-label="入库单"
-               form-route="stock-in-form" list-route="stock-in-orders"
+               form-route="stock-in-form" edit-route="stock-in-edit" list-route="stock-in-orders"
                show-warehouse show-supplier
+               export-path="/api/stock/in-orders/export.xlsx"
                :extra-cols="['received']">
     <template #detail-head="{ detail }">
       <el-descriptions-item label="入库类型">{{ detail.in_type || '—' }}</el-descriptions-item>

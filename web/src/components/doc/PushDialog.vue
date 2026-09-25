@@ -1,13 +1,13 @@
 <script setup lang="ts">
 /**
- * 单据下推弹窗（V2.0）：采购申请单 → 采购单 / 采购单 → 入库单。
+ * 单据下推弹窗（V2.0）：采购/销售申请单 → 订单 / 采购单 → 入库单 / 销售订单 → 出库单。
  *
- * - 默认全选并按**剩余可下推量**（`qty - ordered_qty` / `qty - received_qty`）预填，可勾行、改量；
- * - 采购申请单下推需选**供应商**（后端强制），入库单下推需选**仓库**；
- * - 单价：申请 → 采购单可改（后端支持 `unit_price`）；采购单 → 入库单沿用采购单价（只读）。
+ * - 默认全选并按**剩余可下推量**（`qty - 已下推量`）预填，可勾行、改量；
+ * - 申请单下推需选**往来单位**（采购选供应商、销售选客户，后端强制），订单下推需选**仓库**；
+ * - 单价：申请 → 订单可改（后端支持 `unit_price`）；订单 → 出入库单沿用订单单价（只读）；
  * - 下推成功后返回新建的下游单据，由父页面提示并跳转。
  */
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import { fetchDoc, fetchMasterOptions, pushDoc, type Dict } from '@/api'
@@ -16,11 +16,27 @@ import type { DocItem, DocRecord, PushRow } from '@/types/doc'
 const props = withDefaults(defineProps<{
   /** 源单据接口前缀 */
   api: string
-  /** 下推目标：order=采购单，stock=入库单 */
+  /** 下推目标：order=上下游订单，stock=出入库单 */
   destType: 'order' | 'stock'
   /** 生成的下游单据名称（提示语用） */
   destLabel: string
-}>(), {})
+  /** 往来单位类型：采购=supplier，销售=customer */
+  partyKind?: 'supplier' | 'customer'
+  /** 剩余量取值字段（申请→订单用 ordered_qty，订单→入库 received_qty，订单→出库 shipped_qty） */
+  usedField?: 'ordered_qty' | 'received_qty' | 'shipped_qty'
+  /** 出入库单类型字段（in_type / out_type） */
+  stockTypeField?: 'in_type' | 'out_type'
+  /** 出入库单类型可选项 */
+  stockTypeOptions?: string[]
+  /** 仓库选择项的提示语（入库仓库 / 出库仓库） */
+  warehouseLabel?: string
+}>(), {
+  partyKind: 'supplier',
+  usedField: undefined,
+  stockTypeField: 'in_type',
+  stockTypeOptions: () => ['采购入库', '退货入库', '其他入库'],
+  warehouseLabel: '',
+})
 
 const emit = defineEmits<{ done: [doc: DocRecord] }>()
 
@@ -29,25 +45,34 @@ const loading = ref(false)
 const source = ref<DocRecord | null>(null)
 const rows = ref<Record<string, any>[]>([])
 const selected = ref<Record<string, any>[]>([])
-const supplierId = ref<number | null>(null)
+const partyId = ref<number | null>(null)
 const warehouseId = ref<number | null>(null)
-const inType = ref('采购入库')
+const stockType = ref('')
 const docDate = ref(new Date().toISOString().slice(0, 10))
 const tableRef = ref()
 
-const suppliers = ref<Dict[]>([])
+const parties = ref<Dict[]>([])
 const warehouses = ref<Dict[]>([])
-const IN_TYPES = ['采购入库', '退货入库', '其他入库']
 
-/** 已下推数量：申请→采购单看 ordered_qty，采购单→入库单看 received_qty */
+/** 已下推数量字段：申请→订单看 ordered_qty，订单→入库看 received_qty，订单→出库看 shipped_qty */
+const usedField = computed<keyof DocItem>(() => {
+  if (props.usedField) return props.usedField as keyof DocItem
+  return props.destType === 'order' ? 'ordered_qty' : 'received_qty'
+})
+
+const usedLabel = computed(() => {
+  if (usedField.value === 'ordered_qty') return '已下单'
+  if (usedField.value === 'received_qty') return '已入库'
+  return '已出库'
+})
+
+const partyLabel = computed(() => (props.partyKind === 'customer' ? '客户' : '供应商'))
+const stockTypeLabel = computed(() => (props.stockTypeField === 'out_type' ? '出库类型' : '入库类型'))
+const warehouseLabel = computed(() => props.warehouseLabel
+  || (props.stockTypeField === 'out_type' ? '出库仓库' : '入库仓库'))
+
 function usedQty(row: Record<string, any>): number {
-  const field = props.destType === 'order' ? 'ordered_qty' : 'received_qty'
-  return Number(row[field] || 0)
-}
-
-/** 已下推列标题 */
-function usedLabel(): string {
-  return props.destType === 'order' ? '已下单' : '已入库'
+  return Number(row[usedField.value] || 0)
 }
 
 function fmtQty(v: unknown, decimals = 2): string {
@@ -66,7 +91,7 @@ function decimalsOf(row: Record<string, any>): number {
 async function loadOptions() {
   try {
     if (props.destType === 'order') {
-      suppliers.value = await fetchMasterOptions('supplier')
+      parties.value = await fetchMasterOptions(props.partyKind === 'customer' ? 'customer' : 'supplier')
     } else {
       warehouses.value = await fetchMasterOptions('warehouse')
     }
@@ -79,16 +104,21 @@ async function loadOptions() {
 async function open(doc: DocRecord) {
   source.value = doc
   docDate.value = new Date().toISOString().slice(0, 10)
-  supplierId.value = doc.suggest_supplier_id ?? doc.supplier_id ?? null
-  warehouseId.value = doc.receipt_warehouse_id ?? null
+  partyId.value = (props.partyKind === 'customer'
+    ? doc.customer_id
+    : (doc.suggest_supplier_id ?? doc.supplier_id)) ?? null
+  warehouseId.value = (doc.ship_warehouse_id ?? doc.receipt_warehouse_id) ?? null
+  stockType.value = props.stockTypeOptions[0] || ''
   loading.value = true
   visible.value = true
   try {
     // 列表行不含行项，且行项 id 可能在编辑后变化，必须按详情取最新数据
     const fresh = await fetchDoc(props.api, doc.id)
     source.value = fresh
-    supplierId.value = fresh.suggest_supplier_id ?? fresh.supplier_id ?? supplierId.value
-    warehouseId.value = fresh.receipt_warehouse_id ?? warehouseId.value
+    partyId.value = (props.partyKind === 'customer'
+      ? fresh.customer_id
+      : (fresh.suggest_supplier_id ?? fresh.supplier_id ?? partyId.value)) ?? partyId.value
+    warehouseId.value = (fresh.ship_warehouse_id ?? fresh.receipt_warehouse_id ?? warehouseId.value) ?? null
     buildRows(fresh)
     await loadOptions()
     setTimeout(() => {
@@ -114,9 +144,11 @@ function buildRows(doc: DocRecord) {
     qty: it.qty,
     ordered_qty: it.ordered_qty,
     received_qty: it.received_qty,
+    shipped_qty: it.shipped_qty,
     unit_price: it.unit_price,
     push_qty: Math.max(0, Math.round((Number(it.qty || 0)
-      - Number((props.destType === 'order' ? it.ordered_qty : it.received_qty) || 0)) * 1000) / 1000),
+      - Number((usedField.value === 'ordered_qty' ? it.ordered_qty
+        : usedField.value === 'received_qty' ? it.received_qty : it.shipped_qty) || 0)) * 1000) / 1000),
   }))
 }
 
@@ -137,12 +169,12 @@ async function submit() {
       return
     }
   }
-  if (props.destType === 'order' && !supplierId.value) {
-    ElMessage.warning('请选择供应商')
+  if (props.destType === 'order' && !partyId.value) {
+    ElMessage.warning(`请选择${partyLabel.value}`)
     return
   }
   if (props.destType === 'stock' && !warehouseId.value) {
-    ElMessage.warning('请选择入库仓库')
+    ElMessage.warning(`请选择${warehouseLabel.value}`)
     return
   }
 
@@ -154,10 +186,12 @@ async function submit() {
       ...(props.destType === 'order' ? { unit_price: Number(r.unit_price || 0) } : {}),
     })),
   }
-  if (props.destType === 'order') payload.supplier_id = supplierId.value
-  else {
+  if (props.destType === 'order') {
+    // 销售申请下推销售订单按后端契约传 customer_id；采购申请下推采购单传 supplier_id
+    payload[props.partyKind === 'customer' ? 'customer_id' : 'supplier_id'] = partyId.value
+  } else {
     payload.warehouse_id = warehouseId.value
-    payload.in_type = inType.value
+    payload[props.stockTypeField] = stockType.value
   }
 
   loading.value = true
@@ -167,7 +201,7 @@ async function submit() {
     visible.value = false
     emit('done', doc)
   } catch {
-    // 422（超量 / 缺供应商）由拦截器提示
+    // 422（超量 / 缺往来单位 / 缺仓库）由拦截器提示
   } finally {
     loading.value = false
   }
@@ -184,19 +218,19 @@ defineExpose({ open })
       <el-form-item label="单据日期">
         <el-date-picker v-model="docDate" type="date" value-format="YYYY-MM-DD" style="width: 160px" />
       </el-form-item>
-      <el-form-item v-if="destType === 'order'" label="供应商" required>
-        <el-select v-model="supplierId" filterable placeholder="请选择供应商" style="width: 200px">
-          <el-option v-for="s in suppliers" :key="s.id" :label="`${s.name}（${s.code}）`" :value="s.id" />
+      <el-form-item v-if="destType === 'order'" :label="partyLabel" required>
+        <el-select v-model="partyId" filterable :placeholder="`请选择${partyLabel}`" style="width: 200px">
+          <el-option v-for="s in parties" :key="s.id" :label="`${s.name}（${s.code}）`" :value="s.id" />
         </el-select>
       </el-form-item>
-      <el-form-item v-if="destType === 'stock'" label="入库仓库" required>
-        <el-select v-model="warehouseId" filterable placeholder="请选择仓库" style="width: 180px">
+      <el-form-item v-if="destType === 'stock'" :label="warehouseLabel" required>
+        <el-select v-model="warehouseId" filterable :placeholder="`请选择仓库`" style="width: 180px">
           <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
         </el-select>
       </el-form-item>
-      <el-form-item v-if="destType === 'stock'" label="入库类型">
-        <el-select v-model="inType" style="width: 130px">
-          <el-option v-for="t in IN_TYPES" :key="t" :label="t" :value="t" />
+      <el-form-item v-if="destType === 'stock'" :label="stockTypeLabel">
+        <el-select v-model="stockType" style="width: 130px">
+          <el-option v-for="t in stockTypeOptions" :key="t" :label="t" :value="t" />
         </el-select>
       </el-form-item>
     </el-form>
@@ -218,7 +252,7 @@ defineExpose({ open })
       <el-table-column label="单据数量" width="96" align="right">
         <template #default="{ row }">{{ fmtQty(row.qty, decimalsOf(row)) }}</template>
       </el-table-column>
-      <el-table-column :label="usedLabel()" width="90" align="right">
+      <el-table-column :label="usedLabel" width="90" align="right">
         <template #default="{ row }">{{ fmtQty(usedQty(row), decimalsOf(row)) }}</template>
       </el-table-column>
       <el-table-column label="剩余可推" width="96" align="right">

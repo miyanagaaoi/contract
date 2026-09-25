@@ -11,6 +11,7 @@ import type {
   StockBalance,
   StockLedgerResult,
   StockRecalcResult,
+  TakeCountInput,
 } from '@/types/doc'
 
 export const TOKEN_KEY = 'ctms_token'
@@ -326,27 +327,38 @@ export async function ignorePartyDraft(id: number, reason?: string): Promise<Dic
   return data
 }
 
-// ==================== V2.0：采购线与库存单据（T-V2-24/25） ====================
+// ==================== V2.0：采购线、销售线与库存单据（T-V2-24/25/29/30） ====================
+
+/**
+ * 单据接口路径规范化。
+ *
+ * `http` 的 `baseURL` 已是 `/api`（主数据页按 `/master/customers` 这种相对写法调用），
+ * 而单据页按后端契约填写 `/api/xxx` 这种全路径。若不做处理，axios 会把两者拼成
+ * `/api/api/xxx`。这里统一去掉重复前缀，两种写法都能正确落到同一个地址。
+ */
+export function docPath(path: string): string {
+  return path.startsWith('/api/') ? path.slice(4) : path
+}
 
 /** 单据列表（7 类单据共用结构；`statuses` 为后端状态字典） */
 export async function fetchDocList(path: string, params: DocListQuery = {}): Promise<DocListResult> {
-  const { data } = await http.get(path, { params })
+  const { data } = await http.get(docPath(path), { params })
   return data as DocListResult
 }
 
 /** 单据详情（含 items） */
 export async function fetchDoc(path: string, id: number): Promise<DocRecord> {
-  const { data } = await http.get(`${path}/${id}`)
+  const { data } = await http.get(`${docPath(path)}/${id}`)
   return data as DocRecord
 }
 
 export async function createDoc(path: string, payload: Dict): Promise<DocRecord> {
-  const { data } = await http.post(path, payload)
+  const { data } = await http.post(docPath(path), payload)
   return data as DocRecord
 }
 
 export async function updateDoc(path: string, id: number, payload: Dict): Promise<DocRecord> {
-  const { data } = await http.put(`${path}/${id}`, payload)
+  const { data } = await http.put(`${docPath(path)}/${id}`, payload)
   return data as DocRecord
 }
 
@@ -357,20 +369,34 @@ export async function docAction(
   action: 'submit' | 'approve' | 'complete' | 'reject' | 'void' | 'unapprove',
   payload: Dict = {},
 ): Promise<DocRecord> {
-  const { data } = await http.post(`${path}/${id}/${action}`, payload)
+  const { data } = await http.post(`${docPath(path)}/${id}/${action}`, payload)
   return data as DocRecord
 }
 
-/** 下推：生成下游单据（申请→采购单 / 采购单→入库单） */
+/** 下推：生成下游单据（申请→订单 / 订单→出入库单） */
 export async function pushDoc(path: string, id: number, payload: Dict): Promise<DocRecord> {
-  const { data } = await http.post(`${path}/${id}/push`, payload)
+  const { data } = await http.post(`${docPath(path)}/${id}/push`, payload)
   return data as DocRecord
 }
 
 /** 单据变更历史 */
 export async function fetchDocChangelogs(path: string, id: number): Promise<DocChangeLog[]> {
-  const { data } = await http.get(`${path}/${id}/changelogs`)
+  const { data } = await http.get(`${docPath(path)}/${id}/changelogs`)
   return data as DocChangeLog[]
+}
+
+/** 盘点单：按商品类型 / 指定物料生成行项（账面数量取当前结存） */
+export async function generateTakeItems(path: string, id: number, payload: Dict = {}): Promise<DocRecord> {
+  const { data } = await http.post(`${docPath(path)}/${id}/generate`, payload)
+  return data as DocRecord
+}
+
+/** 盘点单：录入实盘数量（后端据此计算 diff_qty） */
+export async function saveTakeCounts(
+  path: string, id: number, counts: TakeCountInput[],
+): Promise<DocRecord> {
+  const { data } = await http.put(`${docPath(path)}/${id}/count`, { counts })
+  return data as DocRecord
 }
 
 /** 可关联的采购合同下拉（仅采购方向合同） */
@@ -379,6 +405,79 @@ export async function fetchPurchaseContractOptions(keyword = ''): Promise<Dict[]
     params: keyword ? { keyword } : {},
   })
   return data as Dict[]
+}
+
+/** 可关联的销售合同下拉（仅销售方向合同） */
+export async function fetchSalesContractOptions(keyword = ''): Promise<Dict[]> {
+  const { data } = await http.get('/sales/contract-options', {
+    params: keyword ? { keyword } : {},
+  })
+  return data as Dict[]
+}
+
+// ---------------- 导出与打印（T-V2-35/37） ----------------
+
+/** 从 Content-Disposition 取文件名（后端用 RFC 5987 的 `filename*=UTF-8''…`） */
+function filenameFromDisposition(disposition: unknown, fallback: string): string {
+  const text = typeof disposition === 'string' ? disposition : ''
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(text)
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1])
+    } catch {
+      return fallback
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(text)
+  return plain?.[1] ? plain[1] : fallback
+}
+
+/** 需带令牌的下载：blob 取回后触发浏览器保存（不能直接用 URL，令牌在请求头） */
+export async function downloadBlobFile(
+  path: string, params: Dict = {}, fallbackName = '导出.xlsx',
+): Promise<void> {
+  const resp = await http.get(docPath(path), { params, responseType: 'blob', timeout: 120000 })
+  const url = URL.createObjectURL(resp.data as Blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filenameFromDisposition(
+    (resp.headers as Dict | undefined)?.['content-disposition'], fallbackName)
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+/** 单据导出 Excel（7 类单据 + 库存结存/流水，筛选参数与列表一致） */
+export async function exportDoc(
+  path: string, params: DocListQuery = {}, fallbackName = '单据导出.xlsx',
+): Promise<void> {
+  await downloadBlobFile(path, params as Dict, fallbackName)
+}
+
+/**
+ * 打印单据：取回可打印 HTML（令牌在请求头，不能拼进 URL），在新窗口打开后由用户点「打印」。
+ *
+ * 注意：窗口必须**同步**打开，否则会被浏览器判定为弹窗而拦截。
+ */
+export async function openDocPrint(path: string): Promise<void> {
+  const win = window.open('', '_blank')
+  try {
+    const resp = await http.get(docPath(path), { responseType: 'blob' })
+    const url = URL.createObjectURL(resp.data as Blob)
+    if (win) {
+      win.location.href = url
+    } else {
+      // 弹窗被拦截：退化为当前标签页打开 Blob（用户仍可用浏览器返回）
+      window.open(url, '_blank')
+      ElMessage.warning('浏览器拦截了新窗口，已尝试直接打开打印页')
+    }
+    // Blob 需要保留给新窗口渲染，延迟释放
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
+  } catch (error) {
+    win?.close()
+    throw error
+  }
 }
 
 /** 合同关联单据（后端未就绪时 404，调用方需容错） */
@@ -410,4 +509,6 @@ export async function recalcStock(fix = false): Promise<StockRecalcResult> {
   return data as StockRecalcResult
 }
 
-export type { DocItem, DocRecord, DocListQuery, DocListResult, PushRow } from '@/types/doc'
+export type {
+  DocItem, DocRecord, DocListQuery, DocListResult, PushRow, TakeCountInput,
+} from '@/types/doc'

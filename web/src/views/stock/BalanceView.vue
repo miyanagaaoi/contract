@@ -9,12 +9,21 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-import { fetchBalances, fetchLedger, fetchMasterOptions, recalcStock, type Dict } from '@/api'
+import {
+  downloadBlobFile,
+  fetchBalances,
+  fetchLedger,
+  fetchMasterOptions,
+  recalcStock,
+  type Dict,
+} from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import type { StockBalance, StockLedgerResult } from '@/types/doc'
 
 const auth = useAuthStore()
 const canRecalc = computed(() => auth.hasPerm('stock.balance.view'))
+/** 导出结存与结存列表同权限；流水导出需 `stock.ledger.view` */
+const canExportBalance = computed(() => auth.hasPerm('stock.balance.view'))
 /** 流水下钻需 `stock.ledger.view`；无权限时给出明确提示而不是静默失败 */
 const canLedger = computed(() => auth.hasPerm('stock.ledger.view'))
 
@@ -64,6 +73,52 @@ function resetQuery() {
   query.below_safety = false
   page.value = 1
   load()
+}
+
+/** 结存导出的筛选参数（与列表同口径，AC-V2-40） */
+function balanceParams(): Dict {
+  return {
+    keyword: query.keyword || undefined,
+    warehouse_id: query.warehouse_id || undefined,
+    product_type_id: query.product_type_id || undefined,
+    below_safety: query.below_safety || undefined,
+  }
+}
+
+// ---------------- 导出 ----------------
+const exportLoading = ref(false)
+const ledgerExportLoading = ref(false)
+
+/** 导出结存（令牌在请求头，必须走 blob 下载） */
+async function exportBalances() {
+  exportLoading.value = true
+  try {
+    await downloadBlobFile('/api/stock/balances/export.xlsx', balanceParams(), '库存结存.xlsx')
+    ElMessage.success('已开始下载结存清单')
+  } catch {
+    // 拦截器已提示
+  } finally {
+    exportLoading.value = false
+  }
+}
+
+/** 导出当前「物料 + 仓库」的库存流水 */
+async function exportLedger() {
+  if (!current.value) return
+  ledgerExportLoading.value = true
+  try {
+    await downloadBlobFile('/api/stock/ledger/export.xlsx', {
+      product_id: current.value.product_id,
+      warehouse_id: current.value.warehouse_id,
+      date_from: ledgerQuery.date_range?.[0] || undefined,
+      date_to: ledgerQuery.date_range?.[1] || undefined,
+    }, '库存流水.xlsx')
+    ElMessage.success('已开始下载库存流水')
+  } catch {
+    // 拦截器已提示
+  } finally {
+    ledgerExportLoading.value = false
+  }
 }
 
 /** 低于安全库存行高亮 */
@@ -174,6 +229,9 @@ onMounted(async () => {
             <span class="subtitle">结存 + 流水下钻；低于安全库存的行会高亮</span>
           </div>
           <div>
+            <el-button v-if="canExportBalance" :loading="exportLoading" @click="exportBalances">
+              <el-icon><Download /></el-icon>导出结存
+            </el-button>
             <el-button v-if="canRecalc" :loading="recalcLoading" @click="doRecalc(false)">库存重算</el-button>
           </div>
         </div>
@@ -290,6 +348,9 @@ onMounted(async () => {
           </el-form-item>
           <el-form-item>
             <el-button @click="ledgerQuery.date_range = []; ledgerQuery.page = 1; loadLedger()">重置</el-button>
+            <el-button v-if="canLedger" :loading="ledgerExportLoading" @click="exportLedger">
+              <el-icon><Download /></el-icon>导出流水
+            </el-button>
           </el-form-item>
         </el-form>
 

@@ -81,6 +81,16 @@ export interface DocRecord {
   expected_arrival_date?: string | null
   settle_type?: string | null
   receipt_warehouse_id?: number | null
+  /** 销售申请单特有：客户文本（未选客户档案时的兜底） */
+  customer_name_text?: string | null
+  sales_dept_id?: number | null
+  expect_delivery_date?: string | null
+  /** 销售订单特有：交期 / 收货信息 / 发运仓库 */
+  delivery_date?: string | null
+  delivery_address?: string | null
+  contact_name?: string | null
+  contact_phone?: string | null
+  ship_warehouse_id?: number | null
   generated_in_id?: number | null
   generated_in_no?: string | null
   generated_out_id?: number | null
@@ -131,11 +141,18 @@ export interface DocSavePayload {
   [key: string]: unknown
 }
 
-/** 下推行（采购申请→采购单 / 采购单→入库单） */
+/** 下推行（采购/销售申请→订单 / 订单→出入库单） */
 export interface PushRow {
   src_item_id: number
   qty: number
   unit_price?: number
+}
+
+/** 盘点实盘录入行（`PUT /api/stock/takes/{id}/count`） */
+export interface TakeCountInput {
+  id: number
+  actual_qty: number
+  diff_reason?: string | null
 }
 
 /** 单据变更历史 */

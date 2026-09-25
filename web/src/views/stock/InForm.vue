@@ -37,7 +37,8 @@ void ensureOptions()
   <DocFormPage v-model="extra" title="入库单" kind-label="入库单"
                api="/api/stock/in-orders" perm-prefix="stock.in"
                list-route="stock-in-orders" show-warehouse :show-price="false"
-               :extra-cols="['received']">
+               :extra-cols="['received']"
+               :extra-required="[{ key: 'warehouse_id', label: '入库仓库' }]">
     <template #header>
       <el-col :span="12">
         <el-form-item label="入库仓库" required>

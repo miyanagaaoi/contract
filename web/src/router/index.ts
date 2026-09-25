@@ -149,6 +149,49 @@ const router = createRouter({
           meta: { title: '采购单详情', perm: 'purchase.order.view' },
         },
 
+        // ---- 销售管理（T-V2-29/30） ----
+        {
+          path: 'sales/requests', name: 'sales-requests',
+          component: () => import('@/views/sales/RequestList.vue'),
+          meta: { title: '销售申请单', perm: 'sales.request.view' },
+        },
+        {
+          path: 'sales/requests/new', name: 'sales-request-form',
+          component: () => import('@/views/sales/RequestForm.vue'),
+          meta: { title: '新增销售申请单', perm: 'sales.request.create' },
+        },
+        {
+          path: 'sales/requests/:id/edit', name: 'sales-request-edit',
+          component: () => import('@/views/sales/RequestForm.vue'),
+          meta: { title: '编辑销售申请单', perm: 'sales.request.edit' },
+        },
+        {
+          path: 'sales/requests/:id', name: 'sales-request-detail',
+          component: () => import('@/views/sales/RequestForm.vue'),
+          meta: { title: '销售申请单详情', perm: 'sales.request.view' },
+        },
+
+        {
+          path: 'sales/orders', name: 'sales-orders',
+          component: () => import('@/views/sales/OrderList.vue'),
+          meta: { title: '销售订单', perm: 'sales.order.view' },
+        },
+        {
+          path: 'sales/orders/new', name: 'sales-order-form',
+          component: () => import('@/views/sales/OrderForm.vue'),
+          meta: { title: '新增销售订单', perm: 'sales.order.create' },
+        },
+        {
+          path: 'sales/orders/:id/edit', name: 'sales-order-edit',
+          component: () => import('@/views/sales/OrderForm.vue'),
+          meta: { title: '编辑销售订单', perm: 'sales.order.edit' },
+        },
+        {
+          path: 'sales/orders/:id', name: 'sales-order-detail',
+          component: () => import('@/views/sales/OrderForm.vue'),
+          meta: { title: '销售订单详情', perm: 'sales.order.view' },
+        },
+
         // ---- 库存管理：入库单与库存明细（T-V2-25） ----
         {
           path: 'stock/in-orders', name: 'stock-in-orders',
@@ -174,6 +217,49 @@ const router = createRouter({
           path: 'stock/balances', name: 'stock-balances',
           component: () => import('@/views/stock/BalanceView.vue'),
           meta: { title: '库存明细', perm: 'stock.balance.view' },
+        },
+
+        // ---- 库存管理：出库单与盘点单（T-V2-25/28） ----
+        {
+          path: 'stock/out-orders', name: 'stock-out-orders',
+          component: () => import('@/views/stock/OutList.vue'),
+          meta: { title: '出库单', perm: 'stock.out.view' },
+        },
+        {
+          path: 'stock/out-orders/new', name: 'stock-out-form',
+          component: () => import('@/views/stock/OutForm.vue'),
+          meta: { title: '新增出库单', perm: 'stock.out.create' },
+        },
+        {
+          path: 'stock/out-orders/:id/edit', name: 'stock-out-edit',
+          component: () => import('@/views/stock/OutForm.vue'),
+          meta: { title: '编辑出库单', perm: 'stock.out.edit' },
+        },
+        {
+          path: 'stock/out-orders/:id', name: 'stock-out-detail',
+          component: () => import('@/views/stock/OutForm.vue'),
+          meta: { title: '出库单详情', perm: 'stock.out.view' },
+        },
+
+        {
+          path: 'stock/takes', name: 'stock-takes',
+          component: () => import('@/views/stock/TakeList.vue'),
+          meta: { title: '盘点单', perm: 'stock.take.view' },
+        },
+        {
+          path: 'stock/takes/new', name: 'stock-take-form',
+          component: () => import('@/views/stock/TakeForm.vue'),
+          meta: { title: '新增盘点单', perm: 'stock.take.create' },
+        },
+        {
+          path: 'stock/takes/:id/edit', name: 'stock-take-edit',
+          component: () => import('@/views/stock/TakeForm.vue'),
+          meta: { title: '编辑盘点单', perm: 'stock.take.edit' },
+        },
+        {
+          path: 'stock/takes/:id', name: 'stock-take-detail',
+          component: () => import('@/views/stock/TakeForm.vue'),
+          meta: { title: '盘点单详情', perm: 'stock.take.view' },
         },
       ],
     },

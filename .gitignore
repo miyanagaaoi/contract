@@ -28,3 +28,7 @@ logs/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# 浏览器技能插件的运行状态（勿入库）
+.browser4-cli/
+.browser4-state/

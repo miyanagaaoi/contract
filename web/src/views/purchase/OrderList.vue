@@ -38,8 +38,9 @@ function fmtDate(v: unknown): string {
   <DocListPage ref="listRef" title="采购单" api="/api/purchase/orders"
                subtitle="向供应商下单 → 审核 → 下推入库单；入库过账后回写已入库数量"
                perm-prefix="purchase.order" kind-label="采购单"
-               form-route="purchase-order-form" show-supplier show-warehouse
+               form-route="purchase-order-form" edit-route="purchase-order-edit" show-supplier show-warehouse
                pushable push-perm="purchase.order.push" :extra-cols="['received']"
+               export-path="/api/purchase/orders/export.xlsx"
                @push="onPush">
     <template #detail-head="{ detail }">
       <el-descriptions-item label="预计到货">{{ fmtDate(detail.expected_arrival_date) }}</el-descriptions-item>

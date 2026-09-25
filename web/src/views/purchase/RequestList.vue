@@ -38,7 +38,9 @@ function fmtDate(v: unknown): string {
   <DocListPage ref="listRef" title="采购申请单" api="/api/purchase/requests"
                subtitle="录入需求 → 提交 → 审核 → 下推采购单；作废单据默认隐藏"
                perm-prefix="purchase.request" kind-label="采购申请单"
-               form-route="purchase-request-form" show-supplier pushable push-perm="purchase.order.create"
+               form-route="purchase-request-form" edit-route="purchase-request-edit" show-supplier
+               pushable push-perm="purchase.order.create"
+               export-path="/api/purchase/requests/export.xlsx"
                :extra-cols="['ordered']" @push="onPush">
     <template #detail-head="{ detail }">
       <el-descriptions-item label="需求日期">{{ fmtDate(detail.need_date) }}</el-descriptions-item>

@@ -22,11 +22,14 @@ import DocItemsTable from '@/components/doc/DocItemsTable.vue'
 import DocStatusTag from '@/components/doc/DocStatusTag.vue'
 import {
   docAction,
+  exportDoc,
   fetchDoc,
   fetchDocChangelogs,
   fetchDocList,
   fetchMasterOptions,
   fetchPurchaseContractOptions,
+  fetchSalesContractOptions,
+  openDocPrint,
   type Dict,
 } from '@/api'
 import { useAuthStore } from '@/stores/auth'
@@ -40,6 +43,8 @@ const props = withDefaults(defineProps<{
   api: string
   /** 表单页路由名（用于跳转新增/编辑） */
   formRoute: string
+  /** 编辑页路由名（缺省用 formRoute）；带 `:id` 的路由必须显式传入，否则 id 会被丢弃 */
+  editRoute?: string
   /** 列表路由名（下推后返回列表用） */
   listRoute?: string
   /** 详情/表单页路由名（用于查看） */
@@ -62,10 +67,19 @@ const props = withDefaults(defineProps<{
   extraCols?: ('ordered' | 'received' | 'shipped' | 'book' | 'actual' | 'diff')[]
   /** 单据类型标签（详情抽屉标题用） */
   kindLabel?: string
+  /** 导出接口路径（如 '/api/sales/orders/export.xlsx'）；设置后显示「导出」按钮 */
+  exportPath?: string
+  /** 打印接口前缀（缺省与 api 相同），最终请求 `{printApi}/{id}/print` */
+  printApi?: string
+  /** 是否显示「打印」按钮（单据已保存即可打印） */
+  printable?: boolean
+  /** 关联合同下拉的数据源：采购方向 / 销售方向 */
+  contractSource?: 'purchase' | 'sales'
 }>(), {
   subtitle: '',
   listRoute: '',
   detailRoute: '',
+  editRoute: '',
   createPerm: '',
   showWarehouse: false,
   showSupplier: false,
@@ -74,6 +88,10 @@ const props = withDefaults(defineProps<{
   pushPerm: '',
   extraCols: () => [],
   kindLabel: '单据',
+  exportPath: '',
+  printApi: '',
+  printable: true,
+  contractSource: 'purchase',
 })
 
 const emit = defineEmits<{
@@ -110,29 +128,37 @@ const customerOptions = ref<Dict[]>([])
 const contractOptions = ref<Dict[]>([])
 
 const canCreate = computed(() => auth.hasPerm(props.createPerm || `${props.permPrefix}.create`))
+const canExport = computed(() => !!props.exportPath && auth.hasPerm(`${props.permPrefix}.export`))
 
 /** 权限判定：按钮显示只是体验，后端仍是硬边界 */
 function can(code: string): boolean {
   return auth.hasPerm(`${props.permPrefix}.${code}`)
 }
 
+/** 列表筛选参数（导出必须与列表同口径，AC-V2-40） */
+function queryParams(includePage = false): DocListQuery {
+  const params: DocListQuery = {
+    keyword: query.keyword || undefined,
+    status: query.status || undefined,
+    date_from: query.date_range?.[0] || undefined,
+    date_to: query.date_range?.[1] || undefined,
+    include_voided: query.status === 'voided' ? true : query.include_voided,
+    contract_id: query.contract_id || undefined,
+    warehouse_id: query.warehouse_id || undefined,
+    supplier_id: query.supplier_id || undefined,
+    customer_id: query.customer_id || undefined,
+  }
+  if (includePage) {
+    params.page = page.value
+    params.page_size = pageSize.value
+  }
+  return params
+}
+
 async function load() {
   loading.value = true
   try {
-    const params: DocListQuery = {
-      keyword: query.keyword || undefined,
-      status: query.status || undefined,
-      date_from: query.date_range?.[0] || undefined,
-      date_to: query.date_range?.[1] || undefined,
-      include_voided: query.status === 'voided' ? true : query.include_voided,
-      contract_id: query.contract_id || undefined,
-      warehouse_id: query.warehouse_id || undefined,
-      supplier_id: query.supplier_id || undefined,
-      customer_id: query.customer_id || undefined,
-      page: page.value,
-      page_size: pageSize.value,
-    }
-    const data = await fetchDocList(props.api, params)
+    const data = await fetchDocList(props.api, queryParams(true))
     rows.value = data.items ?? []
     total.value = data.total ?? rows.value.length
     statusOptions.value = data.statuses ?? []
@@ -161,13 +187,39 @@ function openNew() {
 }
 
 function openEdit(row: DocRecord) {
-  router.push({ name: props.formRoute, params: { id: String(row.id) } })
+  router.push({ name: props.editRoute || props.formRoute, params: { id: String(row.id) } })
 }
 
 function openDetail(row: DocRecord) {
   emit('view', row)
   loadDetail(row.id).then(() => { drawerVisible.value = true })
   loadLogs(row.id)
+}
+
+// ---------------- 导出 / 打印 ----------------
+const exporting = ref(false)
+
+/** 导出当前筛选结果（令牌在请求头，必须走 blob 下载） */
+async function doExport() {
+  if (!props.exportPath) return
+  exporting.value = true
+  try {
+    await exportDoc(props.exportPath, queryParams(), `${props.kindLabel}导出.xlsx`)
+    ElMessage.success('已开始下载')
+  } catch {
+    // 拦截器已提示
+  } finally {
+    exporting.value = false
+  }
+}
+
+/** 打印单据（后端返回可打印 HTML，新窗口打开后由用户点「打印」） */
+async function doPrint(row: DocRecord) {
+  try {
+    await openDocPrint(`${props.printApi || props.api}/${row.id}/print`)
+  } catch {
+    // 拦截器已提示
+  }
 }
 
 // ---------------- 内置详情抽屉 ----------------
@@ -205,10 +257,10 @@ function fmtDate(v: unknown): string {
   return v ? String(v).slice(0, 10) : '—'
 }
 
-/** 往来单位 / 仓库列取值 */
+/** 往来单位 / 仓库列取值（销售申请单可能只填了客户文本） */
 function partyOf(row: DocRecord): string {
   if (props.showSupplier) return row.supplier_name || '—'
-  if (props.showCustomer) return row.customer_name || '—'
+  if (props.showCustomer) return row.customer_name || (row.customer_name_text as string) || '—'
   if (props.showWarehouse) return row.warehouse_name || '—'
   return '—'
 }
@@ -286,7 +338,9 @@ async function loadOptions() {
     // 下拉失败不阻塞列表
   }
   try {
-    contractOptions.value = await fetchPurchaseContractOptions()
+    contractOptions.value = props.contractSource === 'sales'
+      ? await fetchSalesContractOptions()
+      : await fetchPurchaseContractOptions()
   } catch {
     contractOptions.value = []
   }
@@ -309,6 +363,9 @@ defineExpose({ load, rows })
             <span v-if="subtitle" class="subtitle">{{ subtitle }}</span>
           </div>
           <div>
+            <el-button v-if="canExport" :loading="exporting" @click="doExport">
+              <el-icon><Download /></el-icon>导出
+            </el-button>
             <el-button v-if="canCreate" type="primary" @click="openNew">
               <el-icon><Plus /></el-icon>新增
             </el-button>
@@ -351,7 +408,8 @@ defineExpose({ load, rows })
         </el-form-item>
         <el-form-item label="关联合同">
           <el-select v-model="query.contract_id" clearable filterable style="width: 200px"
-                     placeholder="选择采购合同" @change="page = 1; load()">
+                     :placeholder="contractSource === 'sales' ? '选择销售合同' : '选择采购合同'"
+                     @change="page = 1; load()">
             <el-option v-for="c in contractOptions" :key="c.id"
                        :label="`${c.contract_no} · ${c.name}`" :value="c.id" />
           </el-select>
@@ -397,7 +455,7 @@ defineExpose({ load, rows })
         <el-table-column label="来源单号" width="150" show-overflow-tooltip>
           <template #default="{ row }">{{ row.source_doc_no || '—' }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="320" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openDetail(row)">查看</el-button>
             <el-button v-if="canEdit(row)" link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
@@ -409,6 +467,7 @@ defineExpose({ load, rows })
                        @click="openApprove(row, 'reject')">驳回</el-button>
             <el-button v-if="canPush(row)" link type="primary" size="small"
                        @click="emit('push', row)">下推</el-button>
+            <el-button v-if="printable" link type="info" size="small" @click="doPrint(row)">打印</el-button>
             <el-button v-if="canUnapprove(row)" link type="warning" size="small"
                        @click="openApprove(row, 'unapprove')">反审核</el-button>
             <el-button v-if="canVoid(row)" link type="danger" size="small"
@@ -452,6 +511,12 @@ defineExpose({ load, rows })
 
         <slot name="detail-extra" :detail="detail" />
 
+        <div v-if="printable" class="drawer-actions">
+          <el-button size="small" @click="doPrint(detail)">
+            <el-icon><Printer /></el-icon>打印单据
+          </el-button>
+        </div>
+
         <el-divider content-position="left">行项明细</el-divider>
         <DocItemsTable :items="(detail.items || []) as unknown as Record<string, any>[]" readonly
                        :show-warehouse="showWarehouse" :extra-cols="extraCols" />
@@ -479,5 +544,6 @@ defineExpose({ load, rows })
 .title { font-weight: 600; font-size: 15px; }
 .subtitle { margin-left: 10px; color: #909399; font-size: 12.5px; }
 .pager { margin-top: 12px; justify-content: flex-end; }
+.drawer-actions { margin-top: 12px; display: flex; gap: 8px; }
 .gray { color: #909399; font-size: 12.5px; }
 </style>
