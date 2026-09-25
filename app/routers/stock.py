@@ -60,7 +60,8 @@ register_doc_routes(router, prefix=IN_PREFIX, kind="stock_in", model=StockInOrde
                     perm_prefix="stock.in", label="入库单",
                     create_hook=_apply_in_fields, update_hook=_apply_in_fields,
                     approve_handler=posting_service.approve_stock_doc,
-                    unapprove_handler=posting_service.unapprove_stock_doc)
+                    unapprove_handler=posting_service.unapprove_stock_doc,
+                    export_perm="stock.in.export")
 
 
 # ==================== 出库单 ====================
@@ -91,7 +92,8 @@ register_doc_routes(router, prefix=OUT_PREFIX, kind="stock_out", model=StockOutO
                     perm_prefix="stock.out", label="出库单",
                     create_hook=_apply_out_fields, update_hook=_apply_out_fields,
                     approve_handler=posting_service.approve_stock_doc,
-                    unapprove_handler=posting_service.unapprove_stock_doc)
+                    unapprove_handler=posting_service.unapprove_stock_doc,
+                    export_perm="stock.out.export")
 
 
 # ==================== 盘点单 ====================
@@ -121,7 +123,7 @@ def _approve_take(db: Session, doc: StockTake, user) -> None:
 register_doc_routes(router, prefix=TAKE_PREFIX, kind="stock_take", model=StockTake,
                     perm_prefix="stock.take", label="盘点单",
                     create_hook=_apply_take_fields, update_hook=_apply_take_fields,
-                    approve_handler=_approve_take)
+                    approve_handler=_approve_take, export_perm="stock.take.export")
 
 
 @router.post(TAKE_PREFIX + "/{doc_id}/generate", tags=["stock"], summary="生成盘点行项")
@@ -174,14 +176,9 @@ def submit_counts(doc_id: int, request: Request, payload: dict = Body(...),
 
 # ==================== 库存明细 / 流水 / 重算 ====================
 
-@router.get("/api/stock/balances", tags=["stock"], summary="库存结存列表")
-def stock_balances(keyword: str | None = Query(None, description="物料编码/名称/规格模糊"),
-                   warehouse_id: int | None = Query(None),
-                   product_type_id: int | None = Query(None),
-                   below_safety: bool = Query(False, description="仅看低于安全库存（T-V2-34）"),
-                   page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
-                   _user: User = Depends(require_perm("stock.balance.view")),
-                   db: Session = Depends(get_db)):
+def _balances_query(db: Session, *, keyword: str | None = None, warehouse_id: int | None = None,
+                    product_type_id: int | None = None, below_safety: bool = False):
+    """库存结存查询（列表与导出共用，保证"导出口径与页面一致"，R7）。"""
     query = (db.query(Stock)
              .join(Product, Stock.product_id == Product.id)
              .filter(Stock.qty != 0))
@@ -198,6 +195,19 @@ def stock_balances(keyword: str | None = Query(None, description="物料编码/�
                              | (Product.spec.like(like)))
     if below_safety:
         query = query.filter(Product.safety_stock.isnot(None), Stock.qty < Product.safety_stock)
+    return query
+
+
+@router.get("/api/stock/balances", tags=["stock"], summary="库存结存列表")
+def stock_balances(keyword: str | None = Query(None, description="物料编码/名称/规格模糊"),
+                   warehouse_id: int | None = Query(None),
+                   product_type_id: int | None = Query(None),
+                   below_safety: bool = Query(False, description="仅看低于安全库存（T-V2-34）"),
+                   page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
+                   _user: User = Depends(require_perm("stock.balance.view")),
+                   db: Session = Depends(get_db)):
+    query = _balances_query(db, keyword=keyword, warehouse_id=warehouse_id,
+                            product_type_id=product_type_id, below_safety=below_safety)
     total = int(query.count() or 0)
     rows = (query.order_by(Product.code.asc())
             .offset((page - 1) * page_size).limit(page_size).all())
@@ -269,3 +279,70 @@ def recalc_stocks(request: Request, fix: bool = Query(False, description="true=�
                       request=request)
     db.commit()
     return result
+
+
+# ==================== 库存导出（T-V2-35 / AC-V2-40） ====================
+
+@router.get("/api/stock/balances/export.xlsx", tags=["stock"], summary="库存结存导出")
+def export_balances(keyword: str | None = Query(None), warehouse_id: int | None = Query(None),
+                    product_type_id: int | None = Query(None),
+                    below_safety: bool = Query(False),
+                    _user: User = Depends(require_perm("stock.balance.view")),
+                    db: Session = Depends(get_db)):
+    """导出当前筛选的结存清单（与列表同一查询构建，条数与内容一致）。"""
+    from .export import BALANCE_EXPORT_COLUMNS, DOC_EXPORT_LIMIT, build_xlsx_response
+
+    rows = []
+    stocks = (_balances_query(db, keyword=keyword, warehouse_id=warehouse_id,
+                              product_type_id=product_type_id, below_safety=below_safety)
+              .order_by(Product.code.asc()).limit(DOC_EXPORT_LIMIT).all())
+    for s in stocks:
+        product = s.product
+        below = bool(product and product.safety_stock is not None
+                     and (s.qty or 0) < product.safety_stock)
+        rows.append([
+            product.code if product else "",
+            product.name if product else "",
+            product.spec if product else "",
+            product.product_type.name if product and product.product_type else "",
+            product.uom.name if product and product.uom else "",
+            s.warehouse.name if s.warehouse else "",
+            float(s.qty or 0),
+            float(product.safety_stock) if product and product.safety_stock is not None else "",
+            "是" if below else "否",
+            s.updated_at.isoformat(sep=" ", timespec="seconds") if s.updated_at else "",
+        ])
+    return build_xlsx_response("库存结存", BALANCE_EXPORT_COLUMNS, rows, "库存结存")
+
+
+@router.get("/api/stock/ledger/export.xlsx", tags=["stock"], summary="库存流水导出")
+def export_ledger(product_id: int = Query(...), warehouse_id: int = Query(...),
+                  date_from: str | None = Query(None), date_to: str | None = Query(None),
+                  _user: User = Depends(require_perm("stock.ledger.view")),
+                  db: Session = Depends(get_db)):
+    """导出指定物料+仓库的流水（含红冲记录，按时间倒序）。"""
+    from .export import DOC_EXPORT_LIMIT, LEDGER_EXPORT_COLUMNS, build_xlsx_response
+
+    query = (db.query(StockLedger)
+             .filter(StockLedger.product_id == product_id,
+                     StockLedger.warehouse_id == warehouse_id))
+    if date_from:
+        query = query.filter(StockLedger.created_at >= doc_service.parse_doc_date(date_from))
+    if date_to:
+        query = query.filter(func.date(StockLedger.created_at)
+                             <= doc_service.parse_doc_date(date_to).isoformat())
+    rows = []
+    for r in query.order_by(StockLedger.id.desc()).limit(DOC_EXPORT_LIMIT).all():
+        rows.append([
+            r.created_at.isoformat(sep=" ", timespec="seconds") if r.created_at else "",
+            r.biz_type,
+            r.src_doc_no or r.doc_no,
+            float(r.qty_change or 0),
+            float(r.qty_after or 0),
+            r.product.code if r.product else "",
+            r.product.name if r.product else "",
+            r.warehouse.name if r.warehouse else "",
+            r.created_by or "",
+            r.remark or "",
+        ])
+    return build_xlsx_response("库存流水", LEDGER_EXPORT_COLUMNS, rows, "库存流水")

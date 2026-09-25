@@ -45,7 +45,8 @@ def _apply_request_fields(db: Session, doc: SalesRequest, payload: dict) -> None
 
 register_doc_routes(router, prefix=REQ_PREFIX, kind="sales_request", model=SalesRequest,
                     perm_prefix="sales.request", label="销售申请单",
-                    create_hook=_apply_request_fields, update_hook=_apply_request_fields)
+                    create_hook=_apply_request_fields, update_hook=_apply_request_fields,
+                    export_perm="sales.request.export")
 
 
 @router.post(REQ_PREFIX + "/{doc_id}/push", tags=["sales"], summary="销售申请下推销售订单")
@@ -95,7 +96,8 @@ def _apply_order_fields(db: Session, doc: SalesOrder, payload: dict) -> None:
 
 register_doc_routes(router, prefix=ORDER_PREFIX, kind="sales_order", model=SalesOrder,
                     perm_prefix="sales.order", label="销售订单",
-                    create_hook=_apply_order_fields, update_hook=_apply_order_fields)
+                    create_hook=_apply_order_fields, update_hook=_apply_order_fields,
+                    export_perm="sales.order.export")
 
 
 @router.post(ORDER_PREFIX + "/{doc_id}/push", tags=["sales"], summary="销售订单下推出库单")

@@ -148,3 +148,84 @@ def export_contracts(
     headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
     return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                              headers=headers)
+
+
+# ==================== V2.0/M3：单据与库存导出（T-V2-35 / AC-V2-40） ====================
+
+# 单据导出列（列名, 宽度）——列集合对应 AC-V2-40：单号/日期/类型/仓库/对方单位/金额/状态/经办人
+DOC_EXPORT_COLUMNS: list[tuple[str, int]] = [
+    ("单据编号", 16), ("单据日期", 12), ("单据类型", 12), ("状态", 10),
+    ("对方单位", 22), ("仓库", 14), ("金额", 12), ("行项数", 8),
+    ("经办人", 12), ("关联合同", 18), ("来源单据", 18), ("备注", 20), ("创建时间", 20),
+]
+
+# 单据导出行数上限（防止误导出超大表；超出部分请在界面用筛选缩小范围）
+DOC_EXPORT_LIMIT = 5000
+
+
+def build_xlsx_response(sheet_title: str, columns: list[tuple[str, int]],
+                        rows: list[list], file_prefix: str) -> StreamingResponse:
+    """通用 xlsx 导出响应（表头加粗底色 + 冻结首行 + 列宽）。"""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_title[:31] or "导出"
+    ws.append([label for label, _ in columns])
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill("solid", fgColor="DDEBF7")
+    for row in rows:
+        ws.append(row)
+    for idx, (_, width) in enumerate(columns, start=1):
+        ws.column_dimensions[get_column_letter(idx)].width = width
+    ws.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"{file_prefix}_{date.today().isoformat()}.xlsx"
+    headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
+    return StreamingResponse(
+        buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers)
+
+
+def doc_export_row(doc) -> list:
+    """把单据格式化为导出行（与列表同源字段，含状态中文与往来单位/仓库快照）。"""
+    from ..models_doc import DOC_STATUS
+    from ..services import doc_service
+
+    party = (getattr(doc, "supplier_name", None) or getattr(doc, "customer_name", None)
+             or getattr(doc, "customer_name_text", None) or "")
+    amount = getattr(doc, "total_amount", None)
+    if amount is None:
+        amount = doc_service.total_amount_of(doc)
+    return [
+        doc.doc_no,
+        doc.doc_date.isoformat() if doc.doc_date else "",
+        getattr(type(doc), "label", ""),
+        DOC_STATUS.get(doc.status, doc.status),
+        party,
+        getattr(doc, "warehouse_name", None) or "",
+        float(amount or 0),
+        len(doc.items or []),
+        doc.created_by_name or "",
+        doc.contract_no or "",
+        doc.source_doc_no or "",
+        (doc.remark or "")[:200],
+        doc.created_at.isoformat(sep=" ", timespec="seconds") if doc.created_at else "",
+    ]
+
+
+# 库存结存导出列
+BALANCE_EXPORT_COLUMNS: list[tuple[str, int]] = [
+    ("物料编码", 16), ("物料名称", 24), ("规格型号", 18), ("商品类型", 14),
+    ("单位", 10), ("仓库", 14), ("结存数量", 12), ("安全库存", 12),
+    ("是否低于安全库存", 16), ("更新时间", 20),
+]
+
+# 库存流水导出列
+LEDGER_EXPORT_COLUMNS: list[tuple[str, int]] = [
+    ("时间", 20), ("业务类型", 14), ("来源单据", 18), ("变动数量", 12),
+    ("变动后结存", 12), ("物料编码", 16), ("物料名称", 24), ("仓库", 14),
+    ("操作人", 12), ("备注", 20),
+]

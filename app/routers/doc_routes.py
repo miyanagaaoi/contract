@@ -34,13 +34,15 @@ def _guard(db: Session, fn, *args, **kwargs):
 
 def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, perm_prefix: str,
                         label: str, create_hook=None, update_hook=None,
-                        approve_handler=None, unapprove_handler=None) -> None:
+                        approve_handler=None, unapprove_handler=None,
+                        export_perm: str | None = None) -> None:
     view_perm = require_perm(f"{perm_prefix}.view")
     create_perm = require_perm(f"{perm_prefix}.create")
     edit_perm = require_perm(f"{perm_prefix}.edit")
     submit_perm = require_perm(f"{perm_prefix}.submit")
     approve_perm = require_perm(f"{perm_prefix}.approve")
     void_perm = require_perm(f"{perm_prefix}.void")
+    export_dep = require_perm(export_perm) if export_perm else None
 
     def _new_doc(db: Session, payload: dict, user: User):
         day = _guard(db, doc_service.parse_doc_date, payload.get("doc_date"))
@@ -63,6 +65,23 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
                default_warehouse_id=getattr(doc, "warehouse_id", None))
         return doc
 
+    def _build_query(db: Session, user: User, *, keyword=None, status=None, date_from=None,
+                     date_to=None, include_voided=False, warehouse_id=None, supplier_id=None,
+                     customer_id=None, contract_id=None, handler_user_id=None, product_id=None):
+        """列表与导出共用的查询构建（单一数据源；导出必须与列表同数据范围，防越权导出）。"""
+        query = apply_data_scope(db.query(model), model, user, db)
+        query = doc_service.apply_doc_filters(
+            query, model, keyword=keyword, status=status, date_from=date_from, date_to=date_to,
+            include_voided=include_voided or status == "voided")
+        for field, value in (("warehouse_id", warehouse_id), ("supplier_id", supplier_id),
+                             ("customer_id", customer_id), ("contract_id", contract_id),
+                             ("handler_user_id", handler_user_id)):
+            if value is not None and hasattr(model, field):
+                query = query.filter(getattr(model, field) == value)
+        if product_id is not None:
+            query = query.filter(model.items.any(product_id=product_id))
+        return query
+
     @router.get(prefix, summary=f"{label}列表")
     def _list(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
               keyword: str | None = Query(None, description="单号/来源单号/合同号/往来单位/仓库"),
@@ -75,17 +94,11 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
               user: User = Depends(view_perm), db: Session = Depends(get_db)):
         if status and status not in DOC_STATUS:
             raise HTTPException(status_code=422, detail=f"无效状态：{status}")
-        query = apply_data_scope(db.query(model), model, user, db)
-        query = doc_service.apply_doc_filters(
-            query, model, keyword=keyword, status=status, date_from=date_from, date_to=date_to,
-            include_voided=include_voided or status == "voided")
-        for field, value in (("warehouse_id", warehouse_id), ("supplier_id", supplier_id),
-                             ("customer_id", customer_id), ("contract_id", contract_id),
-                             ("handler_user_id", handler_user_id)):
-            if value is not None and hasattr(model, field):
-                query = query.filter(getattr(model, field) == value)
-        if product_id is not None:
-            query = query.filter(model.items.any(product_id=product_id))
+        query = _build_query(db, user, keyword=keyword, status=status, date_from=date_from,
+                             date_to=date_to, include_voided=include_voided,
+                             warehouse_id=warehouse_id, supplier_id=supplier_id,
+                             customer_id=customer_id, contract_id=contract_id,
+                             handler_user_id=handler_user_id, product_id=product_id)
         total = int(query.count() or 0)
         rows = (query.order_by(model.id.desc())
                 .offset((page - 1) * page_size).limit(page_size).all())
@@ -94,6 +107,28 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
             "total": total, "page": page, "page_size": page_size,
             "statuses": [{"code": c, "label": t} for c, t in DOC_STATUS.items()],
         }
+
+    if export_dep is not None:
+        @router.get(prefix + "/export.xlsx", summary=f"{label}导出（当前筛选）")
+        def _export(keyword: str | None = Query(None),
+                    status: str | None = Query(None),
+                    date_from: str | None = Query(None), date_to: str | None = Query(None),
+                    include_voided: bool = Query(False),
+                    warehouse_id: int | None = Query(None), supplier_id: int | None = Query(None),
+                    customer_id: int | None = Query(None), contract_id: int | None = Query(None),
+                    handler_user_id: int | None = Query(None), product_id: int | None = Query(None),
+                    user: User = Depends(export_dep), db: Session = Depends(get_db)):
+            """导出当前筛选结果（AC-V2-40：导出条数与列与列表筛选一致）。"""
+            from .export import DOC_EXPORT_COLUMNS, DOC_EXPORT_LIMIT, build_xlsx_response, doc_export_row
+
+            query = _build_query(db, user, keyword=keyword, status=status, date_from=date_from,
+                                 date_to=date_to, include_voided=include_voided,
+                                 warehouse_id=warehouse_id, supplier_id=supplier_id,
+                                 customer_id=customer_id, contract_id=contract_id,
+                                 handler_user_id=handler_user_id, product_id=product_id)
+            docs = query.order_by(model.id.desc()).limit(DOC_EXPORT_LIMIT).all()
+            rows = [doc_export_row(d) for d in docs]
+            return build_xlsx_response(label, DOC_EXPORT_COLUMNS, rows, label)
 
     @router.post(prefix, summary=f"新增{label}")
     def _create(request: Request, payload: dict = Body(...),

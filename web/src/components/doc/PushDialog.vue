@@ -7,7 +7,7 @@
  * - 单价：申请 → 采购单可改（后端支持 `unit_price`）；采购单 → 入库单沿用采购单价（只读）。
  * - 下推成功后返回新建的下游单据，由父页面提示并跳转。
  */
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import { fetchMasterOptions, pushDoc, type Dict } from '@/api'
@@ -39,8 +39,16 @@ const suppliers = ref<Dict[]>([])
 const warehouses = ref<Dict[]>([])
 const IN_TYPES = ['采购入库', '退货入库', '其他入库']
 
-/** 已下推字段：申请→采购单看 ordered_qty，采购单→入库单看 received_qty */
-const usedField = computed(() => (props.destType === 'order' ? 'ordered_qty' : 'received_qty'))
+/** 已下推数量：申请→采购单看 ordered_qty，采购单→入库单看 received_qty */
+function usedQty(row: Record<string, any>): number {
+  const field = props.destType === 'order' ? 'ordered_qty' : 'received_qty'
+  return Number(row[field] || 0)
+}
+
+/** 已下推列标题 */
+function usedLabel(): string {
+  return props.destType === 'order' ? '已下单' : '已入库'
+}
 
 function fmtQty(v: unknown, decimals = 2): string {
   const n = Number(v ?? 0)
@@ -48,8 +56,7 @@ function fmtQty(v: unknown, decimals = 2): string {
 }
 
 function balanceOf(row: Record<string, any>): number {
-  const used = Number(row[usedField.value] || 0)
-  return Math.max(0, Math.round((Number(row.qty || 0) - used) * 1000) / 1000)
+  return Math.max(0, Math.round((Number(row.qty || 0) - usedQty(row)) * 1000) / 1000)
 }
 
 function decimalsOf(row: Record<string, any>): number {
@@ -195,8 +202,8 @@ defineExpose({ open })
       <el-table-column label="单据数量" width="96" align="right">
         <template #default="{ row }">{{ fmtQty(row.qty, decimalsOf(row)) }}</template>
       </el-table-column>
-      <el-table-column :label="destType === 'order' ? '已下单' : '已入库'" width="90" align="right">
-        <template #default="{ row }">{{ fmtQty(row[usedField], decimalsOf(row)) }}</template>
+      <el-table-column :label="usedLabel()" width="90" align="right">
+        <template #default="{ row }">{{ fmtQty(usedQty(row), decimalsOf(row)) }}</template>
       </el-table-column>
       <el-table-column label="剩余可推" width="96" align="right">
         <template #default="{ row }">{{ fmtQty(balanceOf(row), decimalsOf(row)) }}</template>

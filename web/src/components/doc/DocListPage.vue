@@ -30,7 +30,7 @@ import {
   type Dict,
 } from '@/api'
 import { useAuthStore } from '@/stores/auth'
-import type { DocChangeLog, DocItem, DocListQuery, DocRecord } from '@/types/doc'
+import type { DocChangeLog, DocListQuery, DocRecord } from '@/types/doc'
 
 const props = withDefaults(defineProps<{
   /** 页面标题 */

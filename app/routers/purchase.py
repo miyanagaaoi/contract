@@ -40,7 +40,8 @@ def _apply_request_fields(db: Session, doc: PurchaseRequest, payload: dict) -> N
 
 register_doc_routes(router, prefix=REQ_PREFIX, kind="purchase_request", model=PurchaseRequest,
                     perm_prefix="purchase.request", label="采购申请单",
-                    create_hook=_apply_request_fields, update_hook=_apply_request_fields)
+                    create_hook=_apply_request_fields, update_hook=_apply_request_fields,
+                    export_perm="purchase.request.export")
 
 
 @router.post(REQ_PREFIX + "/{doc_id}/push", tags=["purchase"], summary="采购申请下推采购单")
@@ -89,8 +90,8 @@ def _apply_order_fields(db: Session, doc: PurchaseOrder, payload: dict) -> None:
 
 register_doc_routes(router, prefix=ORDER_PREFIX, kind="purchase_order", model=PurchaseOrder,
                     perm_prefix="purchase.order", label="采购单",
-                    create_hook=_apply_order_fields, update_hook=_apply_order_fields)
-
+                    create_hook=_apply_order_fields, update_hook=_apply_order_fields,
+                    export_perm="purchase.order.export")
 
 @router.post(ORDER_PREFIX + "/{doc_id}/push", tags=["purchase"], summary="采购单下推入库单")
 def push_to_stock_in(doc_id: int, request: Request, payload: dict = Body(default={}),

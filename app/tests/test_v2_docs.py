@@ -702,3 +702,83 @@ class TestObjectAttachments:
         assert self._upload(box.client, keeper, "unknown_kind", doc["id"]).status_code == 422
         assert box.client.get("/api/attachments/list", headers=keeper,
                               params={"object_type": "stock_in", "object_id": 999999}).status_code == 404
+
+
+# ===================== T-V2-35 单据与库存导出（AC-V2-40） =====================
+
+class TestDocExport:
+    def _sheet(self, content: bytes):
+        import io as _io
+
+        from openpyxl import load_workbook
+
+        wb = load_workbook(_io.BytesIO(content), read_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        return ws.title, rows
+
+    def test_request_export_matches_filter(self, box):
+        product = box.product(ptype_id=box.ptype()["id"], uom_id=box.uom()["id"])
+        buyer = box.headers(BUYER)
+        doc = box.create_doc("/api/purchase/requests", buyer,
+                             {"items": _req_items(box, product, 7), "purpose": "导出验收"})
+
+        listed = box.client.get("/api/purchase/requests", headers=buyer,
+                                params={"keyword": doc["doc_no"]}).json()
+        resp = box.client.get("/api/purchase/requests/export.xlsx", headers=buyer,
+                              params={"keyword": doc["doc_no"]})
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"].startswith(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        title, rows = self._sheet(resp.content)
+        assert title == "采购申请单"
+        header = list(rows[0])
+        for column in ("单据编号", "单据日期", "单据类型", "状态", "金额", "经办人"):
+            assert column in header, f"导出缺少列：{column}"
+        assert len(rows) - 1 == listed["total"], "导出行数应与列表筛选一致（AC-V2-40）"
+        assert rows[1][0] == doc["doc_no"]
+        assert rows[1][header.index("金额")] == 70.0
+
+    def test_export_requires_permission(self, box):
+        keeper = box.headers(KEEPER)
+        resp = box.client.get("/api/purchase/requests/export.xlsx", headers=keeper)
+        assert resp.status_code == 403
+        assert "purchase.request.export" in resp.json()["detail"]
+
+    def test_stock_balance_and_ledger_export(self, box):
+        product = box.product(ptype_id=box.ptype()["id"], uom_id=box.uom()["id"])
+        warehouse, keeper = box.warehouse(), box.headers(KEEPER)
+        doc = box.create_doc("/api/stock/in-orders", keeper, {
+            "warehouse_id": warehouse["id"], "in_type": "其他入库",
+            "items": _req_items(box, product, 9)})
+        box.client.post(f"/api/stock/in-orders/{doc['id']}/submit", headers=keeper)
+        _approve(box.client, "/api/stock/in-orders", doc["id"], box.admin)
+
+        resp = box.client.get("/api/stock/balances/export.xlsx", headers=keeper,
+                              params={"keyword": product["code"]})
+        assert resp.status_code == 200, resp.text
+        title, rows = self._sheet(resp.content)
+        assert title == "库存结存"
+        assert rows[0][0] == "物料编码" and rows[1][0] == product["code"]
+        assert rows[1][6] == 9.0
+
+        resp = box.client.get("/api/stock/ledger/export.xlsx", headers=keeper,
+                              params={"product_id": product["id"], "warehouse_id": warehouse["id"]})
+        assert resp.status_code == 200, resp.text
+        title, rows = self._sheet(resp.content)
+        assert title == "库存流水" and len(rows) == 2
+        assert rows[1][3] == 9.0, "变动数量"
+
+    def test_doc_export_respects_data_scope(self, box):
+        """导出必须与列表同数据范围（防越权导出全公司单据）。"""
+        product = box.product(ptype_id=box.ptype()["id"], uom_id=box.uom()["id"])
+        buyer, manager = box.headers(BUYER), box.headers(MANAGER)
+        mine = box.create_doc("/api/purchase/requests", buyer, {"items": _req_items(box, product, 1)})
+        theirs = box.create_doc("/api/purchase/requests", manager, {"items": _req_items(box, product, 1)})
+
+        resp = box.client.get("/api/purchase/requests/export.xlsx", headers=buyer)
+        assert resp.status_code == 200
+        _, rows = self._sheet(resp.content)
+        exported = {row[0] for row in rows[1:]}
+        assert mine["doc_no"] in exported
+        assert theirs["doc_no"] not in exported, "采购员不得导出他人（范围外）单据"

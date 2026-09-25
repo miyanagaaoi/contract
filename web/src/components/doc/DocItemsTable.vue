@@ -97,6 +97,16 @@ function integerHint(row: Record<string, any>): string {
   return decimalsOf(row) === 0 ? '该单位不支持小数，请填整数' : ''
 }
 
+/** 只读快照列的取值（下推进度 / 盘点差异） */
+function extraValue(row: Record<string, any>, col: ExtraCol): number | null {
+  const map: Record<ExtraCol, string> = {
+    ordered: 'ordered_qty', received: 'received_qty', shipped: 'shipped_qty',
+    book: 'book_qty', actual: 'actual_qty', diff: 'diff_qty',
+  }
+  const v = row[map[col]]
+  return v === null || v === undefined ? null : Number(v)
+}
+
 async function loadProducts(keyword = '') {
   loadingProducts.value = true
   try {
@@ -235,7 +245,7 @@ defineExpose({ loadProducts, totalAmount })
         </template>
       </el-table-column>
       <el-table-column v-for="c in extraCols" :key="c" :label="EXTRA_LABEL[c]" width="100" align="right">
-        <template #default="{ row }">{{ fmtQty(row[c + '_qty'], decimalsOf(row)) }}</template>
+        <template #default="{ row }">{{ fmtQty(extraValue(row, c), decimalsOf(row)) }}</template>
       </el-table-column>
       <el-table-column label="备注" min-width="140">
         <template #default="{ row }">
