@@ -829,3 +829,55 @@ def contract_logs(contract_id: int,
          "created_at": lg.created_at.isoformat() if lg.created_at else None}
         for lg in logs
     ]
+
+
+@router.get("/{contract_id}/related-docs")
+def contract_related_docs(contract_id: int,
+                          _user: User = Depends(require_perm("contract.view")),
+                          db: Session = Depends(get_db)):
+    """关联单据与执行汇总（只读，AC-V2-31/32）。
+
+    **只读汇总**：合同自身的金额、已付等字段不因单据而改变（AC-V2-32 明确要求）。
+    """
+    from ..models_doc import DOC_MODELS, DOC_STATUS
+
+    _get_contract(db, contract_id)
+    docs: list[dict] = []
+    counts: dict[str, int] = {}
+    amounts: dict[str, float] = {}
+    for kind, model in DOC_MODELS.items():
+        rows = (db.query(model)
+                .filter(model.contract_id == contract_id)
+                .order_by(model.id.desc()).all())
+        active = [r for r in rows if r.status != "voided"]
+        counts[kind] = len(active)
+        amounts[kind] = float(sum((getattr(r, "total_amount", None) or 0) for r in active))
+        for row in rows:
+            docs.append({
+                "id": row.id, "doc_type": kind, "kind_label": model.label,
+                "doc_no": row.doc_no,
+                "doc_date": row.doc_date.isoformat() if row.doc_date else None,
+                "status": row.status, "status_label": DOC_STATUS.get(row.status, row.status),
+                "total_amount": float(getattr(row, "total_amount", None) or 0),
+                "source_doc_no": row.source_doc_no,
+                "created_by_name": row.created_by_name,
+            })
+    docs.sort(key=lambda d: (d["doc_date"] or "", d["doc_no"]), reverse=True)
+
+    purchase_order_amount = amounts.get("purchase_order", 0.0)
+    received_amount = amounts.get("stock_in", 0.0)
+    return {
+        "docs": docs,
+        "summary": {
+            "counts": counts,
+            "amounts": amounts,
+            "purchase_request_count": counts.get("purchase_request", 0),
+            "purchase_order_count": counts.get("purchase_order", 0),
+            "purchase_order_amount": purchase_order_amount,     # 已下单金额
+            "sales_order_count": counts.get("sales_order", 0),
+            "sales_order_amount": amounts.get("sales_order", 0.0),
+            "stock_in_count": counts.get("stock_in", 0),
+            "stock_out_count": counts.get("stock_out", 0),
+            "received_amount": received_amount,
+        },
+    }

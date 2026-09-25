@@ -204,10 +204,18 @@ class KVSetting(Base):
 
 
 class Attachment(Base):
+    """附件元数据。
+
+    V2.0/T-V2-27：`contract_id` 放开为可空，附件可挂到任意对象
+    （`object_type` + `object_id`，如 `stock_in` / `purchase_order`）。
+    """
+
     __tablename__ = "attachments"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    contract_id: Mapped[int] = mapped_column(ForeignKey("contracts.id", ondelete="CASCADE"), index=True)
+    contract_id: Mapped[int | None] = mapped_column(
+        ForeignKey("contracts.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     stored_path: Mapped[str] = mapped_column(String(512), nullable=False)                    # 磁盘相对路径
     content_type: Mapped[str | None] = mapped_column(String(128), nullable=True)

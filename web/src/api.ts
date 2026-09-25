@@ -1,6 +1,18 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
+import type {
+  ContractRelatedResult,
+  DocChangeLog,
+  DocListQuery,
+  DocListResult,
+  DocRecord,
+  PushRow,
+  StockBalance,
+  StockLedgerResult,
+  StockRecalcResult,
+} from '@/types/doc'
+
 export const TOKEN_KEY = 'ctms_token'
 
 export const http = axios.create({ baseURL: '/api', timeout: 20000 })
@@ -313,3 +325,89 @@ export async function ignorePartyDraft(id: number, reason?: string): Promise<Dic
   const { data } = await http.post(`/contracts/party-drafts/${id}/ignore`, { reason })
   return data
 }
+
+// ==================== V2.0：采购线与库存单据（T-V2-24/25） ====================
+
+/** 单据列表（7 类单据共用结构；`statuses` 为后端状态字典） */
+export async function fetchDocList(path: string, params: DocListQuery = {}): Promise<DocListResult> {
+  const { data } = await http.get(path, { params })
+  return data as DocListResult
+}
+
+/** 单据详情（含 items） */
+export async function fetchDoc(path: string, id: number): Promise<DocRecord> {
+  const { data } = await http.get(`${path}/${id}`)
+  return data as DocRecord
+}
+
+export async function createDoc(path: string, payload: Dict): Promise<DocRecord> {
+  const { data } = await http.post(path, payload)
+  return data as DocRecord
+}
+
+export async function updateDoc(path: string, id: number, payload: Dict): Promise<DocRecord> {
+  const { data } = await http.put(`${path}/${id}`, payload)
+  return data as DocRecord
+}
+
+/** 通用状态动作：submit / approve / complete / reject / void / unapprove */
+export async function docAction(
+  path: string,
+  id: number,
+  action: 'submit' | 'approve' | 'complete' | 'reject' | 'void' | 'unapprove',
+  payload: Dict = {},
+): Promise<DocRecord> {
+  const { data } = await http.post(`${path}/${id}/${action}`, payload)
+  return data as DocRecord
+}
+
+/** 下推：生成下游单据（申请→采购单 / 采购单→入库单） */
+export async function pushDoc(path: string, id: number, payload: Dict): Promise<DocRecord> {
+  const { data } = await http.post(`${path}/${id}/push`, payload)
+  return data as DocRecord
+}
+
+/** 单据变更历史 */
+export async function fetchDocChangelogs(path: string, id: number): Promise<DocChangeLog[]> {
+  const { data } = await http.get(`${path}/${id}/changelogs`)
+  return data as DocChangeLog[]
+}
+
+/** 可关联的采购合同下拉（仅采购方向合同） */
+export async function fetchPurchaseContractOptions(keyword = ''): Promise<Dict[]> {
+  const { data } = await http.get('/purchase/contract-options', {
+    params: keyword ? { keyword } : {},
+  })
+  return data as Dict[]
+}
+
+/** 合同关联单据（后端未就绪时 404，调用方需容错） */
+export async function fetchContractRelatedDocs(id: number): Promise<ContractRelatedResult> {
+  const { data } = await http.get(`/contracts/${id}/related-docs`)
+  return data as ContractRelatedResult
+}
+
+/** 库存结存列表 */
+export async function fetchBalances(params: Dict = {}): Promise<{
+  items: StockBalance[]
+  total: number
+  page: number
+  page_size: number
+}> {
+  const { data } = await http.get('/stock/balances', { params })
+  return data
+}
+
+/** 库存流水（按物料 + 仓库下钻） */
+export async function fetchLedger(params: Dict = {}): Promise<StockLedgerResult> {
+  const { data } = await http.get('/stock/ledger', { params })
+  return data as StockLedgerResult
+}
+
+/** 结存重算校验（fix=true 时按流水修复） */
+export async function recalcStock(fix = false): Promise<StockRecalcResult> {
+  const { data } = await http.post('/stock/recalc', {}, { params: { fix } })
+  return data as StockRecalcResult
+}
+
+export type { DocItem, DocRecord, DocListQuery, DocListResult, PushRow } from '@/types/doc'

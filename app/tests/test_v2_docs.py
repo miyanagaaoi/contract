@@ -70,6 +70,8 @@ class Box:
         self.docs: dict[str, list[int]] = {k: [] for k in
                                            ("purchase_requests", "purchase_orders",
                                             "stock_in_orders", "stock_out_orders", "stock_takes")}
+        self.contracts: list[int] = []
+        self.attachments: list[int] = []
         self._token_cache: dict[str, dict] = {}
 
     # ---- 主数据 ----
@@ -173,10 +175,20 @@ class Box:
             db.query(ChangeLog).filter(ChangeLog.object_type.in_(
                 ["purchase_request", "purchase_order", "stock_in", "stock_out", "stock_take"]
             )).delete(synchronize_session=False)
+            from app.models import Attachment
+
+            for aid in self.attachments:
+                db.query(Attachment).filter(Attachment.id == aid).delete()
             for uid in self.users:
                 db.query(OperationLog).filter(OperationLog.user_id == uid).delete()
                 db.query(User).filter(User.id == uid).delete()
             db.commit()
+        for cid in self.contracts:
+            try:
+                self.client.delete(f"/api/contracts/{cid}", headers=self.admin,
+                                   params={"reason": "M2 测试归档"})
+            except Exception:  # noqa: BLE001
+                pass
         self.__init__(self.client, self.admin)
 
 
@@ -586,3 +598,107 @@ class TestDocPermissions:
         assert listed["total"] == 1
         blocked = box.client.get(f"/api/purchase/requests/{theirs['id']}", headers=buyer)
         assert blocked.status_code == 403, "越范围详情应被拒绝"
+
+
+# ===================== T-V2-26 合同关联单据（AC-V2-31/32） =====================
+
+class TestContractRelatedDocs:
+    def test_related_docs_summary_is_readonly(self, box):
+        product = box.product(ptype_id=box.ptype()["id"], uom_id=box.uom()["id"])
+        supplier, warehouse = box.supplier(), box.warehouse()
+        buyer, manager = box.headers(BUYER), box.headers(MANAGER)
+
+        contract = box.client.post("/api/contracts", headers=box.admin, json={
+            "name": f"关联单据合同{uuid.uuid4().hex[:5]}", "type": "PUR",
+            "subject_code": "ZC", "amount": 99999}).json()
+        box.contracts.append(contract["id"])
+
+        req = box.create_doc("/api/purchase/requests", buyer, {
+            "items": _req_items(box, product, 10), "contract_id": contract["id"]})
+        box.client.post(f"/api/purchase/requests/{req['id']}/submit", headers=buyer)
+        _approve(box.client, "/api/purchase/requests", req["id"], manager)
+        po = box.client.post(f"/api/purchase/requests/{req['id']}/push", headers=buyer,
+                             json={"supplier_id": supplier["id"]}).json()
+        box.docs["purchase_orders"].append(po["id"])
+        box.client.post(f"/api/purchase/orders/{po['id']}/submit", headers=manager)
+        _approve(box.client, "/api/purchase/orders", po["id"], manager)
+
+        data = box.client.get(f"/api/contracts/{contract['id']}/related-docs",
+                              headers=box.admin).json()
+        assert data["summary"]["purchase_order_count"] == 1
+        assert data["summary"]["purchase_order_amount"] == 100.0
+        assert any(d["doc_no"] == po["doc_no"] and d["kind_label"] == "采购单" for d in data["docs"])
+
+        after = box.client.get(f"/api/contracts/{contract['id']}", headers=box.admin).json()
+        assert after["amount"] == 99999.0, "关联单据不得改动合同金额（AC-V2-32 只读汇总）"
+
+    def test_buyer_cannot_push_to_unrelated_supplier_status(self, box):
+        """下推必须选择启用状态的供应商档案。"""
+        product = box.product(ptype_id=box.ptype()["id"], uom_id=box.uom()["id"])
+        supplier = box.supplier()
+        box.client.put(f"/api/master/suppliers/{supplier['id']}/status",
+                       headers=box.admin, json={"enabled": False})
+        buyer, manager = box.headers(BUYER), box.headers(MANAGER)
+        req = box.create_doc("/api/purchase/requests", buyer, {"items": _req_items(box, product, 5)})
+        box.client.post(f"/api/purchase/requests/{req['id']}/submit", headers=buyer)
+        _approve(box.client, "/api/purchase/requests", req["id"], manager)
+        resp = box.client.post(f"/api/purchase/requests/{req['id']}/push", headers=buyer,
+                               json={"supplier_id": supplier["id"]})
+        assert resp.status_code == 422
+        assert "已停用" in resp.json()["detail"]
+
+
+# ===================== T-V2-27 附件扩展到单据 =====================
+
+class TestObjectAttachments:
+    def _stock_in(self, box):
+        product = box.product(ptype_id=box.ptype()["id"], uom_id=box.uom()["id"])
+        warehouse, keeper = box.warehouse(), box.headers(KEEPER)
+        return box.create_doc("/api/stock/in-orders", keeper, {
+            "warehouse_id": warehouse["id"], "in_type": "其他入库",
+            "items": _req_items(box, product, 2)}), keeper
+
+    def _upload(self, client, headers, object_type, object_id, name="单据附件.pdf"):
+        boundary = f"----ctms-{uuid.uuid4().hex[:8]}"
+        content = b"%PDF-1.4 doc attachment smoke"
+        body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; "
+                f"filename=\"{name}\"\r\nContent-Type: application/pdf\r\n\r\n").encode() + content + \
+               f"\r\n--{boundary}--\r\n".encode()
+        return client.post(f"/api/attachments/upload?object_type={object_type}&object_id={object_id}",
+                           headers={**headers, "Content-Type": f"multipart/form-data; boundary={boundary}"},
+                           content=body)
+
+    def test_upload_list_download_delete(self, box):
+        doc, keeper = self._stock_in(box)
+        uploaded = self._upload(box.client, keeper, "stock_in", doc["id"])
+        assert uploaded.status_code == 200, uploaded.text
+        att = uploaded.json()
+        box.attachments.append(att["id"])
+        assert att["object_type"] == "stock_in" and att["object_id"] == doc["id"]
+
+        listed = box.client.get("/api/attachments/list", headers=keeper,
+                                params={"object_type": "stock_in", "object_id": doc["id"]}).json()
+        assert [a["id"] for a in listed] == [att["id"]]
+
+        blob = box.client.get(f"/api/attachments/{att['id']}/download", headers=keeper)
+        assert blob.status_code == 200 and b"doc attachment smoke" in blob.content
+
+        assert box.client.delete(f"/api/attachments/{att['id']}", headers=keeper,
+                                 params={"reason": "测试删除"}).status_code == 200
+        listed = box.client.get("/api/attachments/list", headers=keeper,
+                                params={"object_type": "stock_in", "object_id": doc["id"]}).json()
+        assert listed == []
+
+    def test_permission_boundary(self, box):
+        """采购员无 stock.in.edit/stock.in.view → 不能操作入库单附件。"""
+        doc, _ = self._stock_in(box)
+        buyer = box.headers(BUYER)
+        assert self._upload(box.client, buyer, "stock_in", doc["id"]).status_code == 403
+        assert box.client.get("/api/attachments/list", headers=buyer,
+                              params={"object_type": "stock_in", "object_id": doc["id"]}).status_code == 403
+
+    def test_reject_unknown_object(self, box):
+        doc, keeper = self._stock_in(box)
+        assert self._upload(box.client, keeper, "unknown_kind", doc["id"]).status_code == 422
+        assert box.client.get("/api/attachments/list", headers=keeper,
+                              params={"object_type": "stock_in", "object_id": 999999}).status_code == 404
