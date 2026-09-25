@@ -863,6 +863,20 @@ def uom_options(db: Session, limit: int = 200) -> list[dict]:
     return [{"id": u.id, "code": u.code, "name": u.name, "decimals": u.decimals} for u in rows]
 
 
+def org_options(db: Session, keyword: str | None = None, limit: int = 200) -> list[dict]:
+    """组织节点下拉（部门选择用；登录即可，供单据表单选择申请/采购部门）。"""
+    from ..models_auth import OrgUnit
+
+    query = db.query(OrgUnit).filter(OrgUnit.enabled == True)  # noqa: E712
+    kw = _s(keyword)
+    if kw:
+        like = f"%{kw}%"
+        query = query.filter(or_(OrgUnit.name.like(like), OrgUnit.code.like(like)))
+    rows = query.order_by(OrgUnit.path.asc()).limit(max(1, min(500, limit))).all()
+    return [{"id": o.id, "name": o.name, "code": o.code, "path": o.path,
+             "level": o.level, "unit_type": o.unit_type} for o in rows]
+
+
 def options(db: Session, kind: str, keyword: str | None = None,
             product_type_id: int | None = None) -> list[dict]:
     """`/api/master/options/{kind}` 统一入口。"""
@@ -877,6 +891,8 @@ def options(db: Session, kind: str, keyword: str | None = None,
         return product_type_options(db, keyword)
     if kind in ("uom", "uoms"):
         return uom_options(db)
+    if kind in ("org", "orgs", "org-unit", "org-units", "department", "dept"):
+        return org_options(db, keyword)
     if kind in ("warehouse", "warehouses"):
         return warehouse_options(db, keyword)
     raise ValueError(f"未知下拉类别：{kind}")

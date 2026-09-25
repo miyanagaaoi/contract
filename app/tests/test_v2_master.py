@@ -546,3 +546,23 @@ class TestMasterPermissions:
             assert data["uom_decimals_range"] == [0, 4]
         finally:
             _drop_user(uid)
+
+    def test_org_options_for_department_pickers(self, client, h, box):
+        """组织下拉（登录即可）：单据表单选择申请/采购部门用。"""
+        org = box.client.post("/api/system/org-units", headers=h,
+                              json={"name": f"下拉部_{uuid.uuid4().hex[:4]}", "unit_type": "部门"}).json()
+        try:
+            rows = box.client.get(f"{API}/options/org", headers=h).json()
+            assert any(r["id"] == org["id"] and r["name"] == org["name"] for r in rows)
+            rows = box.client.get(f"{API}/options/org", headers=h,
+                                  params={"keyword": org["name"]}).json()
+            assert len(rows) == 1
+            # 登录即可（无 master.org.view 的角色也能取到，避免开不了单）
+            uid = _mk_user_with_role("buyer")
+            try:
+                headers = {"Authorization": f"Bearer {_token_of(client, uid)}"}
+                assert box.client.get(f"{API}/options/org", headers=headers).status_code == 200
+            finally:
+                _drop_user(uid)
+        finally:
+            box.client.delete(f"/api/system/org-units/{org['id']}", headers=h)
