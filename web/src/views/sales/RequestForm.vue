@@ -17,6 +17,7 @@ const extra = ref<Dict>({
 })
 
 const customers = ref<Dict[]>([])
+const orgs = ref<Dict[]>([])
 
 /** 客户下拉（懒加载一次） */
 async function ensureCustomers() {
@@ -28,6 +29,17 @@ async function ensureCustomers() {
   }
 }
 void ensureCustomers()
+
+/** 组织（部门）下拉：来自 /api/master/options/org */
+async function ensureOrgs() {
+  if (orgs.value.length) return
+  try {
+    orgs.value = await fetchMasterOptions('org')
+  } catch {
+    orgs.value = []
+  }
+}
+void ensureOrgs()
 
 const customerId = computed({
   get: () => (extra.value.customer_id as number | null) ?? null,
@@ -84,8 +96,10 @@ const customerName = computed(() => {
       </el-col>
       <el-col :span="12">
         <el-form-item label="销售部门">
-          <el-input-number v-model="deptId" :min="1" :controls="false"
-                           placeholder="部门 ID（可留空）" style="width: 100%" />
+          <el-select v-model="deptId" filterable clearable placeholder="选择部门（可留空）"
+                     style="width: 100%">
+            <el-option v-for="o in orgs" :key="o.id" :label="o.name" :value="o.id" />
+          </el-select>
         </el-form-item>
       </el-col>
     </template>

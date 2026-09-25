@@ -21,6 +21,7 @@ const extra = ref<Dict>({
 
 const suppliers = ref<Dict[]>([])
 const warehouses = ref<Dict[]>([])
+const orgs = ref<Dict[]>([])
 
 const SETTLE_TYPES = ['月结', '现结', '货到付款', '预付款', '其他']
 const CURRENCIES = ['CNY', 'USD', 'EUR', 'HKD']
@@ -32,6 +33,9 @@ async function ensureOptions() {
   }
   if (!warehouses.value.length) {
     tasks.push(fetchMasterOptions('warehouse').then((v) => { warehouses.value = v }).catch(() => { warehouses.value = [] }))
+  }
+  if (!orgs.value.length) {
+    tasks.push(fetchMasterOptions('org').then((v) => { orgs.value = v }).catch(() => { orgs.value = [] }))
   }
   await Promise.all(tasks)
 }
@@ -82,8 +86,10 @@ void ensureOptions()
       </el-col>
       <el-col :span="12">
         <el-form-item label="采购部门">
-          <el-input-number v-model="extra.purchase_dept_id" :min="1" :controls="false"
-                           placeholder="部门 ID（可留空）" style="width: 100%" />
+          <el-select v-model="extra.purchase_dept_id" filterable clearable
+                     placeholder="选择部门（可留空）" style="width: 100%">
+            <el-option v-for="o in orgs" :key="o.id" :label="o.name" :value="o.id" />
+          </el-select>
         </el-form-item>
       </el-col>
     </template>

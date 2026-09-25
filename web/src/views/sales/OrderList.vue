@@ -4,11 +4,12 @@
  *
  * 特有：默认按 `shipped_qty` 计算剩余可下推量（已出库），详情展示交货 / 收货与已生成出库单号。
  */
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import DocListPage from '@/components/doc/DocListPage.vue'
 import PushDialog from '@/components/doc/PushDialog.vue'
+import { fetchMasterOptions, type Dict } from '@/api'
 import type { DocRecord } from '@/types/doc'
 
 const router = useRouter()
@@ -34,6 +35,33 @@ function fmtMoney(v: unknown): string {
 function fmtDate(v: unknown): string {
   return v ? String(v).slice(0, 10) : '—'
 }
+
+/** 部门 / 仓库显示名（详情抽屉里避免只显示 ID） */
+const orgs = ref<Dict[]>([])
+const warehouses = ref<Dict[]>([])
+
+function deptName(id: unknown): string {
+  if (!id) return '—'
+  const hit = orgs.value.find((o) => o.id === Number(id))
+  return hit ? hit.name : `ID ${id}`
+}
+
+function warehouseName(id: unknown): string {
+  if (!id) return '—'
+  const hit = warehouses.value.find((w) => w.id === Number(id))
+  return hit ? hit.name : `ID ${id}`
+}
+
+onMounted(async () => {
+  try {
+    const [o, w] = await Promise.all([fetchMasterOptions('org'), fetchMasterOptions('warehouse')])
+    orgs.value = o
+    warehouses.value = w
+  } catch {
+    orgs.value = []
+    warehouses.value = []
+  }
+})
 </script>
 
 <template>
@@ -51,12 +79,12 @@ function fmtDate(v: unknown): string {
       <el-descriptions-item label="联系人">{{ detail.contact_name || '—' }}</el-descriptions-item>
       <el-descriptions-item label="联系电话">{{ detail.contact_phone || '—' }}</el-descriptions-item>
       <el-descriptions-item label="发运仓库">
-        {{ detail.ship_warehouse_id ? `ID ${detail.ship_warehouse_id}` : '—' }}
+        {{ warehouseName(detail.ship_warehouse_id) }}
       </el-descriptions-item>
       <el-descriptions-item label="已生成出库单">{{ detail.generated_out_no || '—' }}</el-descriptions-item>
       <el-descriptions-item label="收货地址" :span="2">{{ detail.delivery_address || '—' }}</el-descriptions-item>
       <el-descriptions-item label="销售部门" :span="2">
-        {{ detail.sales_dept_id ? `ID ${detail.sales_dept_id}` : '—' }}
+        {{ deptName(detail.sales_dept_id) }}
       </el-descriptions-item>
       <el-descriptions-item label="单据金额" :span="2">{{ fmtMoney(detail.total_amount) }}</el-descriptions-item>
     </template>

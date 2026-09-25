@@ -5,11 +5,12 @@
  * 通用列表能力（筛选 / 分页 / 权限动作 / 详情抽屉）由 `DocListPage` 提供，
  * 本页只补充申请单特有字段与「下推采购单」入口。
  */
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import DocListPage from '@/components/doc/DocListPage.vue'
 import PushDialog from '@/components/doc/PushDialog.vue'
+import { fetchMasterOptions, type Dict } from '@/api'
 import type { DocRecord } from '@/types/doc'
 
 const API = '/api/purchase/requests'
@@ -32,6 +33,23 @@ function onPushed(doc: DocRecord) {
 function fmtDate(v: unknown): string {
   return v ? String(v).slice(0, 10) : '—'
 }
+
+/** 建议供应商显示名（详情抽屉里避免只显示 ID） */
+const suppliers = ref<Dict[]>([])
+
+function supplierName(id: unknown): string {
+  if (!id) return '—'
+  const hit = suppliers.value.find((s) => s.id === Number(id))
+  return hit ? hit.name : `ID ${id}`
+}
+
+onMounted(async () => {
+  try {
+    suppliers.value = await fetchMasterOptions('supplier')
+  } catch {
+    suppliers.value = []
+  }
+})
 </script>
 
 <template>
@@ -45,7 +63,7 @@ function fmtDate(v: unknown): string {
     <template #detail-head="{ detail }">
       <el-descriptions-item label="需求日期">{{ fmtDate(detail.need_date) }}</el-descriptions-item>
       <el-descriptions-item label="建议供应商">
-        {{ detail.suggest_supplier_id ? `ID ${detail.suggest_supplier_id}` : '—' }}
+        {{ supplierName(detail.suggest_supplier_id) }}
       </el-descriptions-item>
       <el-descriptions-item label="用途说明" :span="2">{{ detail.purpose || '—' }}</el-descriptions-item>
     </template>

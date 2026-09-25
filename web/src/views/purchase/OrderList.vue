@@ -2,11 +2,12 @@
 /**
  * 采购单列表（T-V2-24，AC-V2-18）：审核通过后可下推生成入库单。
  */
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import DocListPage from '@/components/doc/DocListPage.vue'
 import PushDialog from '@/components/doc/PushDialog.vue'
+import { fetchMasterOptions, type Dict } from '@/api'
 import type { DocRecord } from '@/types/doc'
 
 const router = useRouter()
@@ -32,6 +33,23 @@ function fmtMoney(v: unknown): string {
 function fmtDate(v: unknown): string {
   return v ? String(v).slice(0, 10) : '—'
 }
+
+/** 收货仓库显示名（详情抽屉里避免只显示 ID） */
+const warehouses = ref<Dict[]>([])
+
+function warehouseName(id: unknown): string {
+  if (!id) return '—'
+  const hit = warehouses.value.find((w) => w.id === Number(id))
+  return hit ? hit.name : `ID ${id}`
+}
+
+onMounted(async () => {
+  try {
+    warehouses.value = await fetchMasterOptions('warehouse')
+  } catch {
+    warehouses.value = []
+  }
+})
 </script>
 
 <template>
@@ -47,7 +65,7 @@ function fmtDate(v: unknown): string {
       <el-descriptions-item label="结算方式">{{ detail.settle_type || '—' }}</el-descriptions-item>
       <el-descriptions-item label="币种">{{ detail.currency || 'CNY' }}</el-descriptions-item>
       <el-descriptions-item label="收货仓库">
-        {{ detail.receipt_warehouse_id ? `ID ${detail.receipt_warehouse_id}` : '—' }}
+        {{ warehouseName(detail.receipt_warehouse_id) }}
       </el-descriptions-item>
       <el-descriptions-item label="已生成入库单" :span="2">
         {{ detail.generated_in_no || '—' }}

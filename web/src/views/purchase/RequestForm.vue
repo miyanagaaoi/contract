@@ -17,6 +17,7 @@ const extra = ref<Dict>({
 })
 
 const suppliers = ref<Dict[]>([])
+const orgs = ref<Dict[]>([])
 
 /** 建议供应商下拉（懒加载一次） */
 async function ensureSuppliers() {
@@ -28,6 +29,17 @@ async function ensureSuppliers() {
   }
 }
 void ensureSuppliers()
+
+/** 组织（部门）下拉：来自 /api/master/options/org，登录即可取 */
+async function ensureOrgs() {
+  if (orgs.value.length) return
+  try {
+    orgs.value = await fetchMasterOptions('org')
+  } catch {
+    orgs.value = []
+  }
+}
+void ensureOrgs()
 
 const purpose = computed({
   get: () => (extra.value.purpose as string) ?? '',
@@ -64,8 +76,10 @@ const suggestSupplierName = computed(() => {
       </el-col>
       <el-col :span="12">
         <el-form-item label="申请部门">
-          <el-input-number v-model="deptId" :min="1" :controls="false"
-                           placeholder="部门 ID（可留空）" style="width: 100%" />
+          <el-select v-model="deptId" filterable clearable placeholder="选择部门（可留空）"
+                     style="width: 100%">
+            <el-option v-for="o in orgs" :key="o.id" :label="o.name" :value="o.id" />
+          </el-select>
         </el-form-item>
       </el-col>
       <el-col :span="12">
