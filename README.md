@@ -26,6 +26,8 @@
 | [12-erp-system-design.md](docs/12-erp-system-design.md) | **V2.0 详细设计**：权限模型、数据模型、过账与下推服务、接口清单、前端结构 | 开发 |
 | [13-m1-acceptance.md](docs/13-m1-acceptance.md) | **V2.0 · M1 验收报告**：任务完成情况、交付物、验收证据、缺陷修复、人工验收清单 | 全体 |
 | [14-m2-acceptance.md](docs/14-m2-acceptance.md) | **V2.0 · M2 验收报告**：采购线与库存过账（单据/下推/过账/盘点）的验收证据与清单 | 全体 |
+| [15-backup-drill.md](docs/15-backup-drill.md) | **备份与恢复演练记录**：实测证据、备份机制、Windows/Docker 恢复步骤、运维建议 | 运维、决策人 |
+| [16-permission-matrix.md](docs/16-permission-matrix.md) | **权限矩阵复核记录**：8 个内置角色的权限点、菜单裁剪与接口 200/403 实测矩阵 | 全体 |
 
 ## 关键决策记录（本轮已确认）
 
