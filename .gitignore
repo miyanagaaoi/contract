@@ -12,6 +12,7 @@ web/dist/
 .npm-cache/
 
 # 运行数据
+app/data/           # SQLite 库 + JWT 签名密钥（app/data/.jwt_secret），禁止入库
 app/uploads/
 app/backups/
 *.db
