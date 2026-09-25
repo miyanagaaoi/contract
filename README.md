@@ -2,9 +2,10 @@
 
 > 内网版合同台账与履约跟踪系统：采购 / 财务 / 项目管理 3~4 人使用。
 > 开发方法：SDD（Specification-Driven Development，规格驱动开发）。
-> 当前阶段：**V2.0（ERP 进销存改造）M1 权限与主数据地基已完成并通过验收**
-> （`pytest 203 passed` + M1 冒烟 15/15 + V1.0 合同模块回归 13/13，见 [13-m1-acceptance.md](docs/13-m1-acceptance.md)）；
-> 下一步进入 M2 采购线与库存过账。
+> 当前阶段：**V2.0（ERP 进销存改造）M1 权限与主数据地基、M2 采购线与库存过账均已交付**
+> （M1：`pytest` + 冒烟 15/15；M2：冒烟 11/11、全量测试 232 passed；
+> 见 [13-m1-acceptance.md](docs/13-m1-acceptance.md)、[14-m2-acceptance.md](docs/14-m2-acceptance.md)）；
+> 下一步：M3 销售前端与导出 → M4 打印/看板/UAT。
 
 ## 文档导航
 
@@ -24,6 +25,7 @@
 | [11-erp-requirements.md](docs/11-erp-requirements.md) | **V2.0 需求规格（ERP 进销存）**：账号角色权限、采购/销售/库存、盘点、验收场景 AC-V2-01~42 | 全体 |
 | [12-erp-system-design.md](docs/12-erp-system-design.md) | **V2.0 详细设计**：权限模型、数据模型、过账与下推服务、接口清单、前端结构 | 开发 |
 | [13-m1-acceptance.md](docs/13-m1-acceptance.md) | **V2.0 · M1 验收报告**：任务完成情况、交付物、验收证据、缺陷修复、人工验收清单 | 全体 |
+| [14-m2-acceptance.md](docs/14-m2-acceptance.md) | **V2.0 · M2 验收报告**：采购线与库存过账（单据/下推/过账/盘点）的验收证据与清单 | 全体 |
 
 ## 关键决策记录（本轮已确认）
 

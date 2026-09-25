@@ -204,6 +204,18 @@ gantt
 | T-V2-28 | M2 回归验收：AC-V2-13~26 | 全部 | 验收报告 | 1.0 |
 | | | | **小计** | **16.5** |
 
+> **M2 后端完成记录（2026）**：T-V2-17~23、T-V2-26、T-V2-27 后端，以及 M3 的 T-V2-29/T-V2-30（销售线）与 T-V2-31/T-V2-32
+> （出库、盘点）**均已落地并通过测试**：
+> - 数据模型 `models_doc.py`（7 类单据）/ `models_stock.py`（结存 + 流水）；
+> - 服务层 `doc_service`（状态机/行项/变更历史）、`posting_service`（过账/幂等/负库存/红冲/盘点/recalc）、
+>   `push_service`（下推与数量回写）、`numbering_service`（7 类单据取号）；
+> - 接口 `routers/doc_routes.py`（单据路由工厂）、`purchase.py`、`sales.py`、`stock.py`，
+>   以及合同侧 `GET /api/contracts/{id}/related-docs` 与单据附件 `GET|POST /api/attachments/*`；
+> - 测试：`test_v2_docs.py`（21 项）、`test_v2_sales.py`（3 项），全量 **232 passed**；
+>   `smoke_m2.py` 端到端 **11/11 PASS**，`smoke_m1.py` 15/15、`smoke_p0.py` 13/13（无回归）。
+>
+> 前端（T-V2-24/25）与 M2 验收报告见 `14-m2-acceptance.md`。
+
 #### M3 销售与盘点（AC-V2-27~30）
 
 | 任务 | 内容要点 | 依赖 | 验收 | 人日 |

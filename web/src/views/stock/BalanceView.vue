@@ -328,7 +328,7 @@ onMounted(async () => {
           <template #empty>暂无流水记录</template>
         </el-table>
 
-        <el-pagination v-if="(ledger?.total ?? 0) > ledgerQuery.page_size" class="pager" background
+        <el-pagination v-if="(ledger?.total ?? 0) > 0" class="pager" background
                        layout="total, prev, pager, next" :total="ledger?.total ?? 0"
                        :current-page="ledgerQuery.page" :page-size="ledgerQuery.page_size"
                        @current-change="(p: number) => { ledgerQuery.page = p; loadLedger() }" />
