@@ -127,10 +127,10 @@ class TestNumberRules:
         data = client.get(f"{API}/number-rules", headers=h).json()
         assert set(DEFAULT_NUMBER_RULES) <= set(data["rules"])
         assert data["labels"]["customer"] == "客户编码"
-        # 主数据编号已实现 → 有预览值；单据类（M2）尚未实现 → None
-        assert (data["previews"]["customer"] or "").startswith(
-            data["rules"]["customer"]["prefix"])
-        assert data["previews"]["purchase_order"] is None
+        # 主数据（M1）与单据（M2）编号均已实现 → 所有类别都有预览值
+        for kind, rule in data["rules"].items():
+            preview = data["previews"][kind]
+            assert preview and preview.startswith(rule["prefix"]), f"{kind} 缺少编号预览"
 
     def test_update_prefix_and_seq_len(self, client, h):
         before = client.get(f"{API}/number-rules", headers=h).json()["rules"]

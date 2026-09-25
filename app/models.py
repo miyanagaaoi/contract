@@ -225,12 +225,16 @@ class ChangeLog(Base):
     """变更历史：记录 时间/字段/旧值/新值/备注 + **操作人**（V2.0 修订 01 BR12）。
 
     V1.0 期间产生的历史记录 `operator_*` 为空，前端显示"—"。
+    M2 起 `contract_id` 放开为可空（单据变更历史用 `object_type`/`object_id` 定位），
+    已存在的旧表由 `db_migrate._relax_change_logs()` 重建（SQLite 无法直接改列约束）。
     """
 
     __tablename__ = "change_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    contract_id: Mapped[int] = mapped_column(ForeignKey("contracts.id", ondelete="CASCADE"), index=True)
+    contract_id: Mapped[int | None] = mapped_column(
+        ForeignKey("contracts.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     field_name: Mapped[str] = mapped_column(String(64), nullable=False)
     old_value: Mapped[str | None] = mapped_column(Text, nullable=True)
     new_value: Mapped[str | None] = mapped_column(Text, nullable=True)

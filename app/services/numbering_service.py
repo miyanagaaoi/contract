@@ -24,9 +24,13 @@ _TRAILING_DIGITS = re.compile(r"(\d+)$")
 
 
 def _target(kind: str):
-    """kind → (ORM 模型, 编码列名)。M2 起在此登记 8 类单据。"""
+    """kind → (ORM 模型, 编码列名)。主数据在 M1 注册，7 类单据在 M2 注册。"""
+    from ..models_doc import DOC_MODELS
     from ..models_master import Customer, Product, Supplier
 
+    if kind in DOC_MODELS:
+        model = DOC_MODELS[kind]
+        return model, model.doc_no
     mapping = {
         "customer": (Customer, Customer.code),
         "supplier": (Supplier, Supplier.code),
@@ -61,7 +65,10 @@ def _next_by_prefix(db: Session, model, column, *, prefix: str, reset: str,
 
 
 def next_doc_no(db: Session, kind: str, ref_date: date | None = None) -> str:
-    """取下一个编号（不落库）。`kind` ∈ `number_rules` 的键。"""
+    """取下一个编号（不落库）。`kind` ∈ `number_rules` 的键。
+
+    `ref_date` 缺省取今天——按月重置的类别需要年月参与比较键，传 None 会导致格式化失败。
+    """
     rule = get_number_rules(db).get(kind)
     if rule is None:
         raise ValueError(f"未知编号类别：{kind}")
@@ -72,7 +79,7 @@ def next_doc_no(db: Session, kind: str, ref_date: date | None = None) -> str:
         prefix=prefix,
         reset=str(rule.get("reset") or "never"),
         seq_len=int(rule.get("seq_len") or 4),
-        ref_date=ref_date,
+        ref_date=ref_date or date.today(),
     )
 
 

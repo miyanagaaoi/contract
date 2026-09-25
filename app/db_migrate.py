@@ -93,12 +93,47 @@ def _backfill_changelog() -> None:
         ))
 
 
-def ensure_schema_upgrades() -> dict:
-    """执行全部增量升级，返回本次实际变更统计（便于日志观察）。"""
+def _relax_change_logs() -> bool:
+    """把 `change_logs.contract_id` 由 NOT NULL 改为可空（M2 单据变更历史需要）。
+
+    SQLite 不支持 `ALTER COLUMN`，故采用"改名 → 按当前模型建新表 → 拷数据 → 删旧表"，
+    历史数据完整保留；已是可空结构时直接跳过（幂等）。
+    """
     insp = inspect(engine)
-    result = {
-        "columns_added": _add_columns(insp),
-        "indexes_created": _add_indexes(insp),
-    }
+    if "change_logs" not in _table_names(insp):
+        return False
+    cols = {c["name"]: c for c in insp.get_columns("change_logs")}
+    contract_col = cols.get("contract_id")
+    if contract_col is None or contract_col.get("nullable"):
+        return False
+
+    from .models import ChangeLog
+
+    legacy = "change_logs_legacy"
+    # SQLite 重命名表**不会**重命名其索引（索引名全局唯一），故先释放旧索引名，
+    # 否则按新模型建表时 CREATE INDEX 会因同名索引已存在而失败。
+    index_names = [i["name"] for i in insp.get_indexes("change_logs") if i.get("name")]
+    with engine.begin() as conn:
+        for name in index_names:
+            conn.execute(text(f"DROP INDEX IF EXISTS {name}"))
+        conn.execute(text(f"DROP TABLE IF EXISTS {legacy}"))
+        conn.execute(text(f"ALTER TABLE change_logs RENAME TO {legacy}"))
+        ChangeLog.__table__.create(conn)
+        common = [c.name for c in ChangeLog.__table__.columns if c.name in cols]
+        columns = ", ".join(common)
+        conn.execute(text(f"INSERT INTO change_logs ({columns}) SELECT {columns} FROM {legacy}"))
+        conn.execute(text(f"DROP TABLE {legacy}"))
+    return True
+
+
+def ensure_schema_upgrades() -> dict:
+    """执行全部增量升级，返回本次实际变更统计（便于日志观察）。
+
+    顺序说明：`change_logs` 重建会丢掉该表的索引，故先重建、再补列与索引（`insp` 需重新采集）。
+    """
+    result = {"change_logs_rebuilt": _relax_change_logs()}
+    insp = inspect(engine)
+    result["columns_added"] = _add_columns(insp)
+    result["indexes_created"] = _add_indexes(insp)
     _backfill_changelog()
     return result

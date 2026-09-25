@@ -225,6 +225,8 @@ def main() -> None:
     Base.metadata.create_all(bind=engine)  # T2：建表（原型阶段；正式版切 Alembic 迁移）
     import app.models_auth  # noqa: F401  V2.0：让 create_all 感知权限/组织/账号表
     import app.models_master  # noqa: F401  V2.0：让 create_all 感知主数据表
+    import app.models_doc  # noqa: F401  V2.0/M2：单据表
+    import app.models_stock  # noqa: F401  V2.0/M2：库存结存与流水
     from .db_migrate import ensure_schema_upgrades
 
     Base.metadata.create_all(bind=engine)  # V2.0 新表（幂等）

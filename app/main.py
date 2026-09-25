@@ -29,12 +29,16 @@ from .routers import (
     imports,
     master,
     meta,
+    purchase,
     settings,
+    stock,
     system,
     tags,
 )
 from . import models_auth  # noqa: F401  V2.0：让 create_all 感知权限/组织/账号表
 from . import models_master  # noqa: F401  V2.0：让 create_all 感知主数据表
+from . import models_doc  # noqa: F401  V2.0/M2：单据表
+from . import models_stock  # noqa: F401  V2.0/M2：库存结存与流水
 
 __all__ = ["app"]
 
@@ -66,6 +70,8 @@ app.include_router(dashboard.router)
 app.include_router(tags.router)
 app.include_router(settings.router)
 app.include_router(contracts.router)
+app.include_router(purchase.router)
+app.include_router(stock.router)
 app.include_router(attachments.router)
 app.include_router(export.router)
 app.include_router(imports.router)
