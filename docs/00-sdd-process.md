@@ -70,6 +70,10 @@ SDD（Specification-Driven Development，规格驱动开发）的核心思想：
 | `02-system-design.md` | 满足规格的技术方案（ER 图、状态机、页面、接口） |
 | `03-development-plan.md` | 按功能/规格拆解的实施计划、里程碑、风险 |
 | `04-tech-route.md` | 技术选型论证（含原型两套候选路线对比） |
+| `11-erp-requirements.md` / `12-erp-system-design.md` | V2.0（ERP 进销存）需求规格与技术设计 |
+| `05`~`10` | 原型验收报告、MVP2/MVP3 迭代记录、部署手册（历史留档） |
+
+> 📄 **文档地图**：本项目全部文档（00~12）的版本演进、依赖与修订关系，见 **`docs/doc-map.html`**（浏览器直接打开，纯静态、无外网依赖）。
 
 ## 6. 推荐配套工具（可选，正式阶段引入）
 

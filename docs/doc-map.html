@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CTMS 文档版本关系图 · V1.0 → V2.0</title>
+<style>
+  :root {
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --line: #dcdfe6;
+    --text: #303133;
+    --muted: #909399;
+    --derive: #409eff;
+    --accept: #67c23a;
+    --iterate: #e6a23c;
+    --deploy: #9c27b0;
+    --revise: #f56c6c;
+    --constraint: #909399;
+    --pending: #c0c4cc;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .page { max-width: 1720px; margin: 0 auto; padding: 28px 24px 60px; }
+  header.hero {
+    background: linear-gradient(135deg, #1f2d3d 0%, #33475b 100%);
+    color: #fff;
+    border-radius: 12px;
+    padding: 24px 28px;
+    margin-bottom: 20px;
+  }
+  header.hero h1 { margin: 0 0 6px; font-size: 22px; letter-spacing: .5px; }
+  header.hero p { margin: 0; color: #c0c9d4; font-size: 13px; }
+  header.hero .kpis { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+  header.hero .kpi {
+    background: rgba(255,255,255,.10);
+    border: 1px solid rgba(255,255,255,.18);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 12px;
+    color: #e6ebf2;
+  }
+  header.hero .kpi b { color: #fff; font-size: 15px; margin-right: 4px; }
+
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 20px;
+  }
+  .panel > h2 {
+    margin: 0 0 4px;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel > h2::before {
+    content: "";
+    width: 4px; height: 16px; border-radius: 2px; background: var(--derive);
+  }
+  .panel > .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 14px; }
+
+  /* ---------- 时间轴 ---------- */
+  .timeline { display: flex; gap: 0; overflow-x: auto; padding: 8px 4px 4px; }
+  .tl-item { flex: 0 0 auto; width: 176px; position: relative; padding-top: 26px; }
+  .tl-item::before {
+    content: ""; position: absolute; top: 12px; left: 0; right: 0; height: 2px; background: var(--line);
+  }
+  .tl-item:first-child::before { left: 50%; }
+  .tl-item:last-child::before { right: 50%; }
+  .tl-dot {
+    position: absolute; top: 6px; left: 12px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #fff; border: 3px solid var(--derive);
+  }
+  .tl-item.done .tl-dot { border-color: var(--accept); }
+  .tl-item.now  .tl-dot { border-color: var(--revise); box-shadow: 0 0 0 5px rgba(245,108,108,.16); }
+  .tl-item .tl-ver { font-weight: 700; font-size: 13.5px; }
+  .tl-item .tl-title { font-size: 12.5px; color: #5a5e66; }
+  .tl-item .tl-meta { font-size: 11.5px; color: var(--muted); }
+  .tl-item .tl-badge {
+    display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 9px; margin-top: 4px;
+  }
+  .tl-badge.done { background: #f0f9eb; color: #529b2e; border: 1px solid #e1f3d8; }
+  .tl-badge.now  { background: #fef0f0; color: #c45656; border: 1px solid #fde2e2; }
+
+  /* ---------- 图例 ---------- */
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 12.5px; color: #5a5e66; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .legend i { display: inline-block; width: 26px; height: 0; border-top-width: 2px; border-top-style: solid; }
+  .legend .l-derive  { border-color: var(--derive); }
+  .legend .l-accept  { border-color: var(--accept); }
+  .legend .l-iterate { border-color: var(--iterate); }
+  .legend .l-deploy  { border-color: var(--deploy); }
+  .legend .l-revise  { border-color: var(--revise); border-top-style: dashed; }
+  .legend .l-pending { border-color: var(--pending); border-top-style: dashed; }
+  .legend .l-constraint { border-color: var(--constraint); }
+  .legend .sw { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--line); }
+
+  /* ---------- 关系图 ---------- */
+  .map-wrap { overflow-x: auto; padding-bottom: 6px; }
+  svg#graph { display: block; width: 1600px; height: 880px; }
+  #graph text { font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif; }
+
+  #graph .zone { fill: #f7fbff; stroke: #e4edf7; }
+  #graph .zone-v2 { fill: #fffaf6; stroke: #f7e8dc; }
+  #graph .zone-label { font-size: 13px; font-weight: 700; fill: #7d8794; letter-spacing: 1px; }
+  #graph .zone-label.v2 { fill: #c07a3e; }
+  #graph .lane-label { font-size: 12px; fill: #a8b0ba; }
+  #graph .lane-line { stroke: #eef2f7; stroke-width: 1; stroke-dasharray: 4 6; }
+
+  #graph .edge { fill: none; stroke-width: 2; opacity: .5; transition: opacity .18s, stroke-width .18s; }
+  #graph .edge.derive     { stroke: var(--derive); }
+  #graph .edge.accept     { stroke: var(--accept); }
+  #graph .edge.iterate    { stroke: var(--iterate); }
+  #graph .edge.deploy     { stroke: var(--deploy); }
+  #graph .edge.constraint { stroke: var(--constraint); stroke-dasharray: 5 4; }
+  #graph .edge.revise     { stroke: var(--revise); stroke-dasharray: 7 4; }
+  #graph .edge.replace    { stroke: var(--revise); stroke-dasharray: 7 4; }
+  #graph .edge.pending    { stroke: var(--pending); stroke-dasharray: 6 5; }
+
+  #graph .node { cursor: pointer; transition: opacity .18s; }
+  #graph .node rect {
+    fill: #fff; stroke: #d3dce6; stroke-width: 1.5; rx: 8;
+    transition: stroke .18s, filter .18s;
+  }
+  #graph .node:hover rect { stroke: var(--derive); filter: drop-shadow(0 3px 8px rgba(64,158,255,.25)); }
+  #graph .node .t { font-size: 13px; font-weight: 600; fill: #2c3440; }
+  #graph .node .s { font-size: 11.5px; fill: #8b939e; }
+  #graph .node.done rect { fill: #fbfdff; }
+  #graph .node.draft rect { fill: #fffdf8; stroke: #f0d9bd; }
+  #graph .node.todo rect { fill: #fbfbfc; stroke: #dfe3e8; stroke-dasharray: 6 4; }
+  #graph .node .dot { stroke: #fff; stroke-width: 2; }
+  #graph .node .dot.done { fill: var(--accept); }
+  #graph .node .dot.draft { fill: var(--revise); }
+  #graph .node .dot.todo { fill: #cfd6de; }
+  #graph .node.sel rect { stroke: var(--revise); stroke-width: 2.5; }
+
+  #graph.focus .edge { opacity: .10; }
+  #graph.focus .edge.active { opacity: 1; stroke-width: 3.2; }
+  #graph.focus .node { opacity: .28; }
+  #graph.focus .node.active { opacity: 1; }
+
+  /* ---------- 详情 ---------- */
+  .detail-empty { color: var(--muted); font-size: 13px; }
+  .detail-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .detail-head .path {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13.5px; font-weight: 700; color: #1f2d3d;
+    background: #f2f6fc; border: 1px solid #e4edf7; border-radius: 6px; padding: 3px 10px;
+  }
+  .badge { font-size: 11.5px; padding: 2px 9px; border-radius: 10px; border: 1px solid; }
+  .badge.done  { background: #f0f9eb; color: #529b2e; border-color: #e1f3d8; }
+  .badge.draft { background: #fef0f0; color: #c45656; border-color: #fde2e2; }
+  .badge.todo  { background: #f4f4f5; color: #909399; border-color: #e9e9eb; }
+  .detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px 22px; }
+  .detail-grid .k { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+  .detail-grid .v { font-size: 13px; }
+  .rel-chip {
+    display: inline-block; font-size: 12px; padding: 1px 9px; border-radius: 10px;
+    background: #f2f6fc; border: 1px solid #e4edf7; color: #4b5563; margin: 0 5px 5px 0;
+  }
+  .rel-chip.red { background: #fef0f0; border-color: #fde2e2; color: #c45656; }
+
+  /* ---------- 表格 ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: left; background: #f7f9fc; color: #5a5e66; font-weight: 600;
+    padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap;
+  }
+  tbody td { padding: 9px 12px; border-bottom: 1px solid #f0f2f5; vertical-align: top; }
+  tbody tr:hover td { background: #fafcff; }
+  td code, .mono { font-family: Consolas, "Courier New", monospace; font-size: 12.5px; color: #2c3440; }
+  .tag {
+    display: inline-block; font-size: 11.5px; padding: 1px 8px; border-radius: 4px;
+    background: #f2f6fc; border: 1px solid #e4edf7; color: #4b5563;
+  }
+  .strike { color: #c45656; text-decoration: line-through; text-decoration-color: #f0a0a0; }
+  .arrow { color: var(--muted); }
+  footer { color: var(--muted); font-size: 12.5px; text-align: center; padding-top: 8px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="hero">
+    <h1>CTMS 文档版本关系图</h1>
+    <p>合同管理与跟踪系统 · 从「合同台账」演进到「ERP 进销存」的文档脉络与依赖关系（本图为只读视图，不做任何写入）</p>
+    <div class="kpis">
+      <div class="kpi"><b>13</b>份文档</div>
+      <div class="kpi"><b>V1.0</b>已交付（AC-01~19 全绿）</div>
+      <div class="kpi"><b>V2.0</b>草案待评审（AC-V2-01~42）</div>
+      <div class="kpi"><b>46.5</b>人日 / 单人 9~10 周</div>
+    </div>
+  </header>
+
+  <section class="panel">
+    <h2>版本演进时间轴</h2>
+    <p class="hint">点击下方关系图中的节点可查看该文档的作用、依赖与被依赖关系。</p>
+    <div class="timeline" id="timeline"></div>
+  </section>
+
+  <section class="panel">
+    <h2>文档依赖关系图</h2>
+    <p class="hint">
+      左侧为已交付的 V1.0 链路（蓝底），右侧为进行中的 V2.0 链路（橙底）；红色虚线表示「修订 / 取代」这类跨版本改写关系。
+    </p>
+    <div class="legend">
+      <span><i class="l-constraint"></i>流程约束</span>
+      <span><i class="l-derive"></i>派生 / 实现</span>
+      <span><i class="l-accept"></i>验收</span>
+      <span><i class="l-iterate"></i>迭代</span>
+      <span><i class="l-deploy"></i>部署交付</span>
+      <span><i class="l-revise"></i>修订 / 取代</span>
+      <span><i class="l-pending"></i>待开发</span>
+      <span><i class="sw" style="background:#f0f9eb;border-color:#e1f3d8"></i>已交付</span>
+      <span><i class="sw" style="background:#fef0f0;border-color:#fde2e2"></i>草案待评审</span>
+      <span><i class="sw" style="background:#f4f4f5;border-color:#e9e9eb"></i>未开始</span>
+    </div>
+    <div class="map-wrap"><svg id="graph" xmlns="http://www.w3.org/2000/svg"></svg></div>
+  </section>
+
+  <section class="panel" id="detail-panel">
+    <h2>节点详情</h2>
+    <div id="detail"><p class="detail-empty">在上图中点击任意文档节点，这里会显示它与其他文档的联系。</p></div>
+  </section>
+
+  <section class="panel">
+    <h2>一、关键口径演进（V1.0 → V2.0）</h2>
+    <p class="hint">这些是被 V2.0 正式修订的决策，也是本次架构级改动的来源。</p>
+    <table>
+      <thead>
+        <tr><th style="width:180px">决策点</th><th style="width:34%">V1.0（01/02/04）</th><th style="width:34%">V2.0（11/12）</th><th>依据</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>登录与角色</td>
+          <td class="strike">不做登录、不区分角色（纯内网信任模型）</td>
+          <td>账号 + 角色 + 菜单/按钮权限 + 数据权限（组织/部门隔离）</td>
+          <td><span class="tag">D1 / C-01</span></td>
+        </tr>
+        <tr>
+          <td>审计留痕</td>
+          <td class="strike">变更历史只记时间与前后值，不记录操作人</td>
+          <td>变更历史补 <code>operator_id/operator_name</code>；新增操作日志表</td>
+          <td><span class="tag">C-02</span></td>
+        </tr>
+        <tr>
+          <td>审批</td>
+          <td>不做审批工作流</td>
+          <td>单据单级审核（草稿→待审核→已审核→已完成/作废），<b>审核触发库存过账</b></td>
+          <td><span class="tag">D5 / C-06</span></td>
+        </tr>
+        <tr>
+          <td>业务域</td>
+          <td>仅合同管理（台账 + 履约跟踪）</td>
+          <td>+ 采购管理、销售管理、库存管理、资料库（8 类单据）</td>
+          <td><span class="tag">D2 / C-03</span></td>
+        </tr>
+        <tr>
+          <td>合同往来单位</td>
+          <td>甲乙方为自由文本</td>
+          <td>按类型引用档案（PUR→乙方引供应商、SAL→甲方引客户），保留文本兜底</td>
+          <td><span class="tag">D6 / D10 / C-04</span></td>
+        </tr>
+        <tr>
+          <td>库存账</td>
+          <td class="strike">不存在库存概念</td>
+          <td>多仓库结存 + 只增流水；只记数量不记成本；结存 = 流水累计</td>
+          <td><span class="tag">D4 / C-05</span></td>
+        </tr>
+        <tr>
+          <td>财务</td>
+          <td>手工维护「累计已付」</td>
+          <td>维持不变（<b>V2.0 仍不做</b>应收应付/收付款单）</td>
+          <td><span class="tag">D7 / C-07</span></td>
+        </tr>
+        <tr>
+          <td>技术底座</td>
+          <td>SQLite + 自研迁移（原型）</td>
+          <td>维持 SQLite + 自研迁移，不引入 PostgreSQL/Alembic</td>
+          <td><span class="tag">D8 / C-08</span></td>
+        </tr>
+        <tr>
+          <td>计量单位</td>
+          <td>行项自由文本</td>
+          <td>单位字典 + 物料单一基本单位（不做多单位换算）</td>
+          <td><span class="tag">D11 / C-09</span></td>
+        </tr>
+        <tr>
+          <td>工期</td>
+          <td>原型 16.5~19 人日（实际完成）</td>
+          <td>46.5 人日 → 单人 9~10 周 / 双人 5~6 周<br><small>（PRD §15 原写 6~7.5 周，已修正）</small></td>
+          <td><span class="tag">C-11</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>二、验收场景追溯链</h2>
+    <p class="hint">V1.0 的验收场景如何被后续迭代继承、扩展；这张链在 V2.0 会全部回归（M1 的 Go 条件之一）。</p>
+    <table>
+      <thead>
+        <tr><th style="width:120px">版本</th><th style="width:150px">场景编号</th><th>覆盖范围</th><th style="width:150px">验收文档</th><th style="width:110px">结果</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>V1.0 原型</td>
+          <td class="mono">AC-01 ~ AC-11</td>
+          <td>新增/编号唯一/付款比例/状态流转/标签/组合搜索/框架绑定/质保提醒/附件/免登录与停用恢复/导出</td>
+          <td class="mono">05-prototype-acceptance.md</td>
+          <td><span class="badge done">全绿 12 checks</span></td>
+        </tr>
+        <tr>
+          <td>V1.0 正式</td>
+          <td class="mono">AC-12 ~ AC-15</td>
+          <td>变更历史时间线、标签字典维护、质保金比例换算、停用与恢复（30 天）</td>
+          <td class="mono">01-requirements.md §7</td>
+          <td><span class="badge done">P1 已实现</span></td>
+        </tr>
+        <tr>
+          <td>MVP2</td>
+          <td class="mono">AC-16 ~ AC-19</td>
+          <td>行项明细（金额=Σ行项）、模板导入、导出列可配置、框架标签与框架树视图</td>
+          <td class="mono">06-mvp2-adjustments.md</td>
+          <td><span class="badge done">已实现</span></td>
+        </tr>
+        <tr>
+          <td>MVP3</td>
+          <td class="mono">（编号冒烟）</td>
+          <td>自动编号、合同类型字典、我方主体码、类型同步标签、系统设置页、导入模板对齐</td>
+          <td class="mono">07-mvp3-adjustments.md</td>
+          <td><span class="badge done">已实现</span></td>
+        </tr>
+        <tr>
+          <td><b>V2.0 ERP</b></td>
+          <td class="mono">AC-V2-01 ~ AC-V2-42</td>
+          <td>权限与账号(1~8)、主数据(9~12)、单据流转(13~18)、库存过账(19~26)、盘点(27~30)、合同互动(31~35)、审计运维(36~42)</td>
+          <td class="mono">11-erp-requirements.md §16</td>
+          <td><span class="badge draft">待评审 / 待开发</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>三、文档关系清单</h2>
+    <table>
+      <thead>
+        <tr><th style="width:210px">来源</th><th style="width:210px">目标</th><th style="width:120px">关系</th><th>说明</th></tr>
+      </thead>
+      <tbody id="rel-table"></tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>四、V2.0 模块结构（11 / 12 的落地范围）</h2>
+    <table>
+      <thead><tr><th style="width:130px">一级模块</th><th>二级模块</th><th style="width:180px">对应任务</th></tr></thead>
+      <tbody>
+        <tr><td rowspan="7"><b>资料库</b></td><td>组织架构 / 角色管理 / 账号管理</td><td class="mono">T-V2-03 ~ 06</td></tr>
+        <tr><td>客户基本信息 / 供应商基本信息</td><td class="mono">T-V2-07</td></tr>
+        <tr><td>基础信息：商品类型（树）</td><td class="mono">T-V2-08</td></tr>
+        <tr><td>基础信息：物料编码（物料档案）</td><td class="mono">T-V2-11</td></tr>
+        <tr><td>基础信息：计量单位</td><td class="mono">T-V2-09</td></tr>
+        <tr><td>基础信息：仓库</td><td class="mono">T-V2-10</td></tr>
+        <tr><td>系统管理（字典/编号规则/参数/日志/备份）</td><td class="mono">T-V2-12</td></tr>
+        <tr><td rowspan="2"><b>采购管理</b></td><td>采购申请单</td><td class="mono">T-V2-20</td></tr>
+        <tr><td>采购单</td><td class="mono">T-V2-21</td></tr>
+        <tr><td rowspan="2"><b>销售管理</b></td><td>销售申请单</td><td class="mono">T-V2-29</td></tr>
+        <tr><td>销售订单</td><td class="mono">T-V2-30</td></tr>
+        <tr><td rowspan="4"><b>库存管理</b></td><td>入库单 / 出库单</td><td class="mono">T-V2-22 / 31</td></tr>
+        <tr><td>库存明细（结存 + 流水）</td><td class="mono">T-V2-23</td></tr>
+        <tr><td>盘点单（全盘/抽盘，差异自动生成调整单）</td><td class="mono">T-V2-32</td></tr>
+        <tr><td>过账服务（核心：幂等 / 负库存校验 / 红冲）</td><td class="mono">T-V2-19</td></tr>
+        <tr><td><b>合同管理</b></td><td>存量能力保留 + 甲乙方档案化 + 关联单据只读汇总</td><td class="mono">T-V2-13 / 14 / 26</td></tr>
+        <tr><td><b>首页</b></td><td>按角色重规划（待办 / 库存预警 / 质保提醒）</td><td class="mono">T-V2-38（M4）</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>
+    数据来源：<code>D:\dsh\hetong\docs\</code> · 本图为静态视图，与文档同目录维护（<code>docs/doc-map.html</code>）
+  </footer>
+</div>
+
+<script>
+/* ============ 节点定义（坐标与内容同源，改这里即可） ============ */
+const NODES = [
+  { id:'A00', x:140,  y:90,  w:1320, h:46, state:'done',
+    title:'00 · SDD 流程说明（规格驱动开发）',
+    sub:'规格 → 实现 → 场景验证 → commit；约束全部文档与开发动作',
+    file:'docs/00-sdd-process.md', phase:'流程总纲',
+    info:'定义本项目三层规格结构（需求规格层 / 场景验收层 / 技术设计层）、功能生命周期、DoD（场景全绿 + 无阻断 + 已 commit）、规格评审门禁与变更流程。V1.0/V2.0 都受它约束。',
+    up:['——'], down:['01 V1.0 需求规格','11 V2.0 PRD'] },
+
+  { id:'A01', x:140,  y:210, w:200, h:58, state:'done',
+    title:'01 · V1.0 需求规格', sub:'已冻结 · BR1~BR13 / AC-01~15',
+    file:'docs/01-requirements.md', phase:'V1.0 规格',
+    info:'合同管理的完整需求规格：台账字段口径、付款比例、质保到期算法、框架绑定、标签、搜索、状态机、软删除与恢复、附件。V0.95 时决策「不做登录/不区分角色」。',
+    up:['00 SDD 流程'], down:['02 系统设计','04 技术路线','03 开发计划 §1~8'] },
+
+  { id:'A04', x:380,  y:210, w:200, h:58, state:'done',
+    title:'04 · 技术路线', sub:'选型论证（FastAPI+Vue3+SQLite）',
+    file:'docs/04-tech-route.md', phase:'V1.0 规格',
+    info:'对 FastAPI+Vue3 / Django / 低代码 / Excel 四条路线做对比，结论与部署方案（Linux Docker、Windows 原生）。V2.0 沿用该结论，仅叠加认证与权限层。',
+    up:['01 V1.0 需求规格'], down:['02 系统设计（选型支撑）'] },
+
+  { id:'A11', x:1340, y:210, w:200, h:58, state:'draft',
+    title:'11 · V2.0 PRD', sub:'草案 · D1~D12 / BR-V2-01~20 / AC-V2-01~42',
+    file:'docs/11-erp-requirements.md', phase:'V2.0 规格',
+    info:'ERP 进销存改造需求规格。含 12 项决策基线（D1~D12）、对 01 的正式修订清单（§2.2 解冻声明）、资料库/采购/销售/库存/合同互动的模块需求、单据通用规则（编号、状态机、审核过账、下推）、20 条业务规则、42 条验收场景、15 项待确认默认值与 M1~M4 分期。',
+    up:['00 SDD 流程'], down:['12 V2.0 详细设计','03 开发计划 §9~12'] },
+
+  { id:'A02', x:140,  y:330, w:200, h:58, state:'done',
+    title:'02 · V1.0 系统设计', sub:'留档 · 无认证层设计（已被 V2.0 修订）',
+    file:'docs/02-system-design.md', phase:'V1.0 设计',
+    info:'V1.0 概要设计：ER（合同/标签/附件/变更历史）、状态机、页面路由、API 草案、备份与日志。其「无 USER 表、无认证层」的设计前提已被 V2.0 修订，故在文首加了指向 12 的说明。',
+    up:['01 V1.0 需求规格','04 技术路线'], down:['03 开发计划 §1~8','V1.0 代码实现'] },
+
+  { id:'A12', x:1340, y:330, w:200, h:58, state:'draft',
+    title:'12 · V2.0 详细设计', sub:'草案 · 权限/过账/DDL/接口/前端结构',
+    file:'docs/12-erp-system-design.md', phase:'V2.0 设计',
+    info:'V2.0 可施工方案：后端分层与目录、认证与三重权限校验（含代码级示例）、4 权限表+6 主数据表+2 库存表+8 主表/8 行项单据表的字段设计、db_migrate 增量清单、编号/过账/下推/审计/备份 5 个服务（含过账伪代码与盘点差异处理）、完整接口清单、25 条前端路由与 3 个通用单据组件、SQLite 并发对策、迁移上线 8 步、追溯矩阵。',
+    up:['11 V2.0 PRD'], down:['03 开发计划 §9~12','V2.0 代码（待开发）'] },
+
+  { id:'A03a', x:140, y:450, w:200, h:58, state:'done',
+    title:'03 · 开发计划 §1~8', sub:'V1.0 原型阶段（已完成 16.5~19 人日）',
+    file:'docs/03-development-plan.md', phase:'V1.0 计划',
+    info:'原型 P1 任务分解 T1~T11（脚手架/数据模型/合同 CRUD/标签/搜索/状态历史/附件/框架/质保看板/导出/打磨）、甘特图、并行切分、Git 版本纪律与变更登记表。',
+    up:['01 V1.0 需求规格','02 V1.0 系统设计'], down:['V1.0 代码实现'] },
+
+  { id:'A03b', x:1340, y:450, w:200, h:58, state:'draft',
+    title:'03 · 开发计划 §9~12', sub:'V2.0 · T-V2-01~42 / 46.5 人日',
+    file:'docs/03-development-plan.md', phase:'V2.0 计划',
+    info:'V1.0 技术债处理方式、42 个任务（含依赖/验收 AC/人日）、M1~M4 里程碑与 Go/No-Go 条件、单人周次排期（W1~W9）、V2.0 变更登记 C-01~C-11、风险盯防、开发环境与命令、工期修正记录。',
+    up:['11 V2.0 PRD','12 V2.0 详细设计'], down:['V2.0 代码（待开发）'] },
+
+  { id:'ACODE', x:140, y:570, w:200, h:58, state:'done',
+    title:'app/ + web/ 代码', sub:'V1.0 已交付 · 28 接口 / 3 路由',
+    file:'app/ 、web/', phase:'V1.0 交付',
+    info:'FastAPI + SQLAlchemy + SQLite 后端（合同/行项/标签/附件/变更历史/导入导出/看板/设置/编号）与 Vue3 + Element Plus 前端（看板、合同台账、系统设置）。V2.0 将在其上叠加权限层与进销存模块。',
+    up:['02 V1.0 系统设计','03 开发计划 §1~8'], down:['05 原型验收','08/09/10 部署文档'] },
+
+  { id:'A05', x:620,  y:570, w:200, h:58, state:'done',
+    title:'05 · 原型验收报告', sub:'AC-01~11 全绿（12 checks）',
+    file:'docs/05-prototype-acceptance.md', phase:'V1.0 交付',
+    info:'按 01 §7 验收场景逐条冒烟（app/tests/smoke_p0.py 可重复执行）+ 前端生产构建，记录每个 AC 对应的 Git 提交号与运行环境。',
+    up:['V1.0 代码实现'], down:['06 MVP2（回归基线）'] },
+
+  { id:'A06', x:860,  y:570, w:200, h:58, state:'done',
+    title:'06 · MVP2 调整', sub:'行项/导入/导出配置/框架 · AC-16~19',
+    file:'docs/06-mvp2-adjustments.md', phase:'V1.0 迭代',
+    info:'五组调整：标的物→行项明细（金额=Σ行项）、按模板导入（仅新建）、导出列可配置并记住选择、框架合同自动标签、框架树视图。含数据模型增量（contract_items、kv_settings、contract_tag.auto）与已知取舍。',
+    up:['05 原型验收'], down:['07 MVP3'] },
+
+  { id:'A07', x:1100, y:570, w:200, h:58, state:'done',
+    title:'07 · MVP3 迭代', sub:'自动编号/类型字典/主体码/设置页',
+    file:'docs/07-mvp3-adjustments.md', phase:'V1.0 迭代',
+    info:'合同自动编号（类型码+主体码+年月+6 位序号，年度递增、跨年重置）、合同类型字典（SAL/PUR/COO/LAB/FIN/NDA/OTH）、我方主体码、类型同步标签、系统设置页收纳、导入模板对齐。V2.0 的编号引擎与类型/主体字典都由它演化而来。',
+    up:['06 MVP2'], down:['08/09/10 部署文档','（V2.0 编号服务沿用其规则）'] },
+
+  { id:'AV2', x:1340, y:570, w:200, h:58, state:'todo',
+    title:'V2.0 代码实现', sub:'未开始 · 待终端环境修复后启动 T-V2-01',
+    file:'app/ 、web/（V2.0 增量）', phase:'V2.0 交付',
+    info:'尚未编写。启动前置条件：DSH 的 pwsh 工具当前全部失败（exit 3221225794 / STATUS_DLL_INIT_FAILED），无法安装依赖、启动服务或构建前端。',
+    up:['03 开发计划 §9~12'], down:['——'] },
+
+  { id:'A08', x:620,  y:690, w:200, h:58, state:'done',
+    title:'08 · 部署手册', sub:'Docker Compose / Windows 原生',
+    file:'docs/08-deployment.md', phase:'V1.0 部署',
+    info:'服务构成、环境变量、Linux Docker Compose 与 Windows（NSSM + Nginx/IIS）两套方案、PostgreSQL 切换步骤（可选）、健康检查、升级发布流程、恢复演练。',
+    up:['V1.0 代码实现'], down:['——'] },
+
+  { id:'A09', x:860,  y:690, w:200, h:58, state:'done',
+    title:'09 · 宝塔面板部署', sub:'BT Panel + Supervisor + Nginx',
+    file:'docs/09-baota-deploy.md', phase:'V1.0 部署',
+    info:'面向宝塔面板的落地步骤：环境安装、端口放行、代码上传、前端构建、Python 虚拟环境与依赖、Supervisor 常驻、Nginx 站点与反代、HTTPS、每日备份计划任务、升级发布与排查清单。',
+    up:['V1.0 代码实现'], down:['——'] },
+
+  { id:'A10', x:1100, y:690, w:200, h:58, state:'done',
+    title:'10 · 单容器 Docker', sub:'镜像导出/导入启动',
+    file:'docs/10-docker-single.md', phase:'V1.0 部署',
+    info:'后端托管前端静态产物的单容器方案：在本地构建镜像并导出 tar，上传到目标服务器导入启动，含数据卷备份恢复与升级流程。',
+    up:['V1.0 代码实现'], down:['——'] }
+];
+
+/* ============ 边定义（路径已按坐标手工定位，避免穿模） ============ */
+const EDGES = [
+  { from:'A00',  to:'A01',  type:'constraint', d:'M240,136 V210' },
+  { from:'A00',  to:'A11',  type:'constraint', d:'M1440,136 V210' },
+  { from:'A01',  to:'A02',  type:'derive',     d:'M240,268 V330' },
+  { from:'A01',  to:'A04',  type:'derive',     d:'M340,239 H380' },
+  { from:'A02',  to:'A03a', type:'derive',     d:'M240,388 V450' },
+  { from:'A03a', to:'ACODE',type:'derive',     d:'M240,508 V570' },
+  { from:'ACODE',to:'A05',  type:'accept',     d:'M340,599 H620' },
+  { from:'A05',  to:'A06',  type:'iterate',    d:'M820,599 H860' },
+  { from:'A06',  to:'A07',  type:'iterate',    d:'M1060,599 H1100' },
+  { from:'A11',  to:'A12',  type:'derive',     d:'M1440,268 V330' },
+  { from:'A12',  to:'A03b', type:'derive',     d:'M1440,388 V450' },
+  { from:'A03b', to:'AV2',  type:'pending',    d:'M1440,508 V570' },
+  { from:'A11',  to:'A01',  type:'revise',     d:'M1390,268 V290 H300 V268' },
+  { from:'A12',  to:'A02',  type:'replace',    d:'M1500,388 V410 H300 V388' },
+  { from:'ACODE',to:'A08',  type:'deploy',     d:'M240,628 V660 H720 V690' },
+  { from:'ACODE',to:'A09',  type:'deploy',     d:'M240,628 V660 H960 V690' },
+  { from:'ACODE',to:'A10',  type:'deploy',     d:'M240,628 V660 H1200 V690' }
+];
+
+const LANES = [
+  { y:113, label:'流程约束' },
+  { y:239, label:'需求规格层' },
+  { y:359, label:'技术设计层' },
+  { y:479, label:'开发计划' },
+  { y:599, label:'交付与验收' },
+  { y:719, label:'部署交付' }
+];
+
+const TYPE_LABEL = {
+  constraint:'流程约束', derive:'派生 / 实现', accept:'验收', iterate:'迭代',
+  deploy:'部署交付', revise:'修订', replace:'取代', pending:'待开发'
+};
+
+/* ============ 时间轴 ============ */
+const TIMELINE = [
+  { ver:'V0.9', title:'取消登录与角色', meta:'01 / 02 / 04 定稿', state:'done' },
+  { ver:'V1.0', title:'需求规格冻结',   meta:'Q1~Q8 全部确认', state:'done' },
+  { ver:'P1',   title:'原型交付与验收', meta:'AC-01~11 全绿', state:'done' },
+  { ver:'MVP2', title:'行项 / 导入 / 框架', meta:'AC-16~19', state:'done' },
+  { ver:'MVP3', title:'自动编号 / 字典 / 设置页', meta:'编号冒烟通过', state:'done' },
+  { ver:'部署', title:'08 / 09 / 10 三套方案', meta:'Docker · 宝塔 · 单容器', state:'done' },
+  { ver:'V2.0', title:'ERP 进销存改造', meta:'11 / 12 / 03§9 草案待评审', state:'now' }
+];
+
+function renderTimeline() {
+  const box = document.getElementById('timeline');
+  box.innerHTML = TIMELINE.map(t => `
+    <div class="tl-item ${t.state}">
+      <div class="tl-dot"></div>
+      <div class="tl-ver">${t.ver}</div>
+      <div class="tl-title">${t.title}</div>
+      <div class="tl-meta">${t.meta}</div>
+      <span class="tl-badge ${t.state}">${t.state === 'now' ? '进行中' : '已完成'}</span>
+    </div>`).join('');
+}
+
+/* ============ 关系图 ============ */
+function renderGraph() {
+  const svg = document.getElementById('graph');
+  const marker = (type, color) => `
+    <marker id="arrow-${type}" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="${color}"/>
+    </marker>`;
+
+  let defs = `<defs>
+    ${marker('constraint','#909399')}
+    ${marker('derive','#409eff')}
+    ${marker('accept','#67c23a')}
+    ${marker('iterate','#e6a23c')}
+    ${marker('deploy','#9c27b0')}
+    ${marker('revise','#f56c6c')}
+    ${marker('replace','#f56c6c')}
+    ${marker('pending','#c0c4cc')}
+  </defs>`;
+
+  let bg = `
+    <rect class="zone" x="120" y="70" width="1140" height="700" rx="14"/>
+    <rect class="zone zone-v2" x="1320" y="70" width="240" height="700" rx="14"/>
+    <text class="zone-label" x="140" y="62">V1.0（已交付）</text>
+    <text class="zone-label v2" x="1340" y="62">V2.0（进行中）</text>`;
+
+  let lanes = LANES.map(l => `
+    <line class="lane-line" x1="120" y1="${l.y - 34}" x2="1560" y2="${l.y - 34}"/>
+    <text class="lane-label" x="26" y="${l.y + 4}">${l.label}</text>`).join('');
+
+  let edges = EDGES.map((e, i) => `
+    <path class="edge ${e.type}" data-i="${i}" data-from="${e.from}" data-to="${e.to}"
+          d="${e.d}" marker-end="url(#arrow-${e.type})"/>`).join('');
+
+  let nodes = NODES.map(n => {
+    const lines = n.sub.length > 30 ? splitSub(n.sub) : [n.sub];
+    return `
+    <g class="node ${n.state}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
+      <rect width="${n.w}" height="${n.h}" rx="8"/>
+      <circle class="dot ${n.state}" cx="${n.w - 14}" cy="14" r="5"/>
+      <text class="t" x="12" y="23">${n.title}</text>
+      ${lines.map((ln, k) => `<text class="s" x="12" y="${40 + k * 15}">${ln}</text>`).join('')}
+    </g>`;
+  }).join('');
+
+  svg.innerHTML = defs + bg + lanes + edges + nodes;
+  svg.addEventListener('click', onGraphClick);
+}
+
+/* 副标题过长时按 ~30 字换行（仅拆一次，保持两行内） */
+function splitSub(s) {
+  if (s.length <= 30) return [s];
+  let cut = s.lastIndexOf(' ', 30);
+  if (cut < 12) cut = 30;
+  return [s.slice(0, cut), s.slice(cut).trim()];
+}
+
+function onGraphClick(ev) {
+  const g = ev.target.closest('.node');
+  if (!g) { clearFocus(); return; }
+  selectNode(g.dataset.id);
+}
+
+function clearFocus() {
+  const svg = document.getElementById('graph');
+  svg.classList.remove('focus');
+  svg.querySelectorAll('.node.active, .edge.active').forEach(el => el.classList.remove('active'));
+  svg.querySelectorAll('.node.sel').forEach(el => el.classList.remove('sel'));
+  document.getElementById('detail').innerHTML =
+    '<p class="detail-empty">在上图中点击任意文档节点，这里会显示它与其他文档的联系。</p>';
+}
+
+function selectNode(id) {
+  const svg = document.getElementById('graph');
+  const node = NODES.find(n => n.id === id);
+  if (!node) return;
+
+  svg.classList.add('focus');
+  svg.querySelectorAll('.node').forEach(el => el.classList.toggle('active', el.dataset.id === id));
+  svg.querySelectorAll('.node').forEach(el => el.classList.toggle('sel', el.dataset.id === id));
+  svg.querySelectorAll('.edge').forEach(el => {
+    el.classList.toggle('active', el.dataset.from === id || el.dataset.to === id);
+  });
+  renderDetail(node);
+}
+
+function renderDetail(node) {
+  const stateText = { done:'已交付 / 已冻结', draft:'草案 · 待评审', todo:'未开始' }[node.state];
+  const chips = (arr) => arr.map(t => `<span class="rel-chip">${t}</span>`).join('');
+  const up = node.up.filter(x => x !== '——');
+  const down = node.down.filter(x => x !== '——');
+
+  document.getElementById('detail').innerHTML = `
+    <div class="detail-head">
+      <span class="path">${node.file}</span>
+      <span class="badge ${node.state}">${stateText}</span>
+      <span class="tag">${node.phase}</span>
+    </div>
+    <div class="detail-grid">
+      <div>
+        <div class="k">作用与关键内容</div>
+        <div class="v">${node.info}</div>
+      </div>
+      <div>
+        <div class="k">依赖于（上游）</div>
+        <div class="v">${up.length ? chips(up) : '<span class="detail-empty">—</span>'}</div>
+        <div class="k" style="margin-top:10px">被谁依赖 / 引向（下游）</div>
+        <div class="v">${down.length ? chips(down) : '<span class="detail-empty">—</span>'}</div>
+      </div>
+    </div>`;
+}
+
+/* ============ 关系清单表 ============ */
+function renderRelTable() {
+  const byId = Object.fromEntries(NODES.map(n => [n.id, n]));
+  const rows = EDGES.map(e => {
+    const a = byId[e.from], b = byId[e.to];
+    const name = (n) => `${n.title.split(' · ')[0]}${n.title.includes(' · ') ? ' · ' + n.title.split(' · ')[1] : ''}`;
+    const isRed = e.type === 'revise' || e.type === 'replace';
+    const desc = {
+      constraint:'流程与规范约束全部文档',
+      derive:'由上游派生出下游内容',
+      accept:'对代码实现做场景验收',
+      iterate:'在上游基础上增量迭代',
+      deploy:'基于代码交付物的部署方案',
+      revise:'<b class="strike">正式修订上游决策</b>（解冻声明）',
+      replace:'<b class="strike">取代上游的设计地位</b>（02 → 留档）',
+      pending:'计划已定，代码尚未开始'
+    }[e.type];
+    return `<tr>
+      <td class="mono">${name(a)}</td>
+      <td class="mono">${name(b)}</td>
+      <td><span class="tag" style="${isRed ? 'color:#c45656;border-color:#fde2e2;background:#fef0f0' : ''}">${TYPE_LABEL[e.type]}</span></td>
+      <td>${desc}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('rel-table').innerHTML = rows;
+}
+
+renderTimeline();
+renderGraph();
+renderRelTable();
+</script>
+</body>
+</html>

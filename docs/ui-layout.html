@@ -1,0 +1,1353 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CTMS V2.0 前端页面布局线框（ERP 进销存）</title>
+<style>
+  :root{
+    --pri:#409eff; --suc:#67c23a; --wrn:#e6a23c; --dgr:#f56c6c; --info:#909399;
+    --txt:#303133; --txt2:#606266; --txt3:#909399;
+    --bd:#dcdfe6; --bd2:#e4e7ed; --bd3:#ebeef5; --bg:#f5f7fa;
+    --side:#1f2d3d; --side2:#263445; --side-txt:#c0c4cc;
+    --r:4px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:#eef1f6; color:var(--txt); font-size:13px;
+    font-family:"Microsoft YaHei","PingFang SC","Helvetica Neue",Arial,sans-serif;
+  }
+  code{font-family:Consolas,"Courier New",monospace;}
+
+  /* ================= 外层：预览器骨架 ================= */
+  .top{
+    background:linear-gradient(135deg,#1f2d3d,#33475b); color:#fff;
+    padding:18px 24px;
+  }
+  .top h1{margin:0 0 4px; font-size:18px; letter-spacing:.5px;}
+  .top p{margin:0; font-size:12.5px; color:#c0c9d4;}
+  .top .badge{
+    display:inline-block; margin-left:8px; padding:1px 8px; border-radius:10px; font-size:11.5px;
+    background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.22);
+  }
+  .app{display:flex; gap:16px; padding:16px 24px 40px; align-items:flex-start;}
+  .cat{
+    flex:0 0 232px; position:sticky; top:16px; background:#fff; border:1px solid var(--bd2);
+    border-radius:6px; padding:10px; max-height:calc(100vh - 32px); overflow:auto;
+  }
+  .cat h3{
+    margin:10px 6px 6px; font-size:11.5px; color:var(--txt3); font-weight:600; letter-spacing:.6px;
+  }
+  .cat h3:first-child{margin-top:2px;}
+  .cat a{
+    display:flex; align-items:center; gap:8px; padding:7px 9px; border-radius:var(--r);
+    color:var(--txt2); text-decoration:none; font-size:12.5px; cursor:pointer;
+  }
+  .cat a:hover{background:#f5f7fa;}
+  .cat a.on{background:#ecf5ff; color:var(--pri); font-weight:600;}
+  .cat a .n{color:var(--txt3); font-size:11px; font-family:Consolas,monospace;}
+  .cat a.on .n{color:var(--pri);}
+
+  .stage{flex:1 1 auto; min-width:0;}
+  .stage-hd{
+    background:#fff; border:1px solid var(--bd2); border-radius:6px; padding:14px 18px; margin-bottom:12px;
+  }
+  .stage-hd .row1{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;}
+  .stage-hd h2{margin:0; font-size:15.5px;}
+  .stage-hd .path{font-family:Consolas,monospace; font-size:12.5px; color:var(--pri); background:#ecf5ff; padding:2px 8px; border-radius:var(--r);}
+  .stage-hd .perm{font-family:Consolas,monospace; font-size:11.5px; color:var(--txt3);}
+  .stage-hd ul{margin:10px 0 0; padding-left:18px; color:var(--txt2); font-size:12.5px; line-height:1.75;}
+  .stage-hd ul b{color:var(--txt);}
+
+  .holder{position:relative; width:100%;}
+  .frame{
+    position:absolute; top:0; left:0; width:1440px; transform-origin:top left;
+    background:#fff; border:1px solid #d9dee6; border-radius:6px; overflow:hidden;
+    box-shadow:0 8px 26px rgba(31,45,61,.10);
+  }
+
+  /* ================= 线框内部：外壳 ================= */
+  .wf{display:flex; min-height:900px; background:var(--bg);}
+  .wf-side{
+    flex:0 0 220px; background:var(--side); color:var(--side-txt); padding-bottom:20px;
+  }
+  .wf-brand{
+    height:56px; display:flex; align-items:center; gap:9px; padding:0 16px;
+    color:#fff; font-size:14px; font-weight:600; letter-spacing:.5px; border-bottom:1px solid #2b3a4d;
+  }
+  .wf-brand .logo{width:20px;height:20px;border-radius:4px;background:var(--pri);}
+  .wf-menu{padding:8px 0;}
+  .wf-mi{
+    height:40px; display:flex; align-items:center; gap:9px; padding:0 16px; font-size:13px;
+    border-left:3px solid transparent;
+  }
+  .wf-mi .ico{width:13px;height:13px;border-radius:3px;background:#4a5a6d;flex:0 0 auto;}
+  .wf-mi .arw{margin-left:auto; font-size:10px; color:#7d8794;}
+  .wf-mi.sub{height:34px; padding-left:38px; font-size:12.5px; color:#a9b3c0;}
+  .wf-mi.sub .ico{width:9px;height:9px;background:#54637a;border-radius:2px;}
+  .wf-mi.sub2{height:32px; padding-left:54px; font-size:12.5px; color:#98a2af;}
+  .wf-mi.sub2 .ico{width:8px;height:8px;background:#54637a;border-radius:2px;}
+  .wf-mi.on{background:var(--side2); color:#fff; border-left-color:var(--pri); font-weight:600;}
+  .wf-mi.on .ico{background:var(--pri);}
+
+  .wf-body{flex:1 1 auto; display:flex; flex-direction:column; min-width:0;}
+  .wf-top{
+    height:56px; background:#fff; border-bottom:1px solid var(--bd2);
+    display:flex; align-items:center; padding:0 20px; gap:14px;
+  }
+  .wf-crumb{font-size:12.5px; color:var(--txt3);}
+  .wf-crumb b{color:var(--txt2); font-weight:400;}
+  .wf-top .sp{flex:1 1 auto;}
+  .wf-user{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--txt2);}
+  .wf-avatar{width:26px;height:26px;border-radius:50%;background:#ecf5ff;border:1px solid #d9ecff;
+             display:flex;align-items:center;justify-content:center;color:var(--pri);font-size:11px;}
+  .wf-main{flex:1 1 auto; padding:16px;}
+
+  /* ================= 线框组件 ================= */
+  .card{
+    background:#fff; border:1px solid var(--bd2); border-radius:var(--r); padding:16px; margin-bottom:12px;
+  }
+  .card.tight{padding:0; overflow:hidden;}
+  .card-hd{
+    display:flex; align-items:center; gap:10px; margin-bottom:14px;
+  }
+  .card.tight .card-hd{margin:0; padding:12px 16px; border-bottom:1px solid var(--bd3);}
+  .card-hd .t{font-size:13.5px; font-weight:600;}
+  .card-hd .sp{flex:1 1 auto;}
+  .card-hd .sub{font-size:12px; color:var(--txt3);}
+
+  .btn{
+    display:inline-flex; align-items:center; gap:5px; height:32px; padding:0 14px; border-radius:var(--r);
+    border:1px solid var(--bd); background:#fff; color:var(--txt2); font-size:12.5px; white-space:nowrap;
+  }
+  .btn.pri{background:var(--pri); border-color:var(--pri); color:#fff;}
+  .btn.suc{background:var(--suc); border-color:var(--suc); color:#fff;}
+  .btn.wrn{background:var(--wrn); border-color:var(--wrn); color:#fff;}
+  .btn.dgr{background:var(--dgr); border-color:var(--dgr); color:#fff;}
+  .btn.sm{height:26px; padding:0 10px; font-size:12px;}
+  .btn.text{border-color:transparent; background:transparent; color:var(--pri); padding:0 6px;}
+  .btn.text.dgr{color:var(--dgr);}
+
+  .inp, .sel{
+    display:inline-flex; align-items:center; height:32px; padding:0 10px; border-radius:var(--r);
+    border:1px solid var(--bd); background:#fff; color:var(--txt3); font-size:12.5px;
+  }
+  .inp.ph{color:#c0c4cc;}
+  .sel .arw{margin-left:auto; font-size:10px; color:#c0c4cc; padding-left:10px;}
+  .field{display:flex; align-items:center; gap:8px; margin-bottom:12px;}
+  .field>label{width:88px; text-align:right; color:var(--txt2); font-size:12.5px; flex:0 0 auto;}
+  .field>label.req::before{content:"*"; color:var(--dgr); margin-right:3px;}
+  .field .ctl{flex:1 1 auto; min-width:0;}
+  .field .ctl .inp, .field .ctl .sel{width:100%;}
+  .form-grid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 24px;}
+  .form-grid.c3{grid-template-columns:repeat(3,minmax(0,1fr));}
+  .form-grid .field>label{width:82px;}
+
+  .filter{display:flex; flex-wrap:wrap; gap:10px 18px; align-items:center;}
+  .filter .f{display:flex; align-items:center; gap:7px;}
+  .filter .f>label{color:var(--txt2); font-size:12.5px; white-space:nowrap;}
+  .filter .sp{flex:1 1 auto;}
+
+  table.wf-tb{width:100%; border-collapse:collapse; font-size:12.5px;}
+  table.wf-tb th{
+    background:#f5f7fa; color:var(--txt2); font-weight:600; text-align:left;
+    padding:9px 12px; border-bottom:1px solid var(--bd3); white-space:nowrap;
+  }
+  table.wf-tb td{
+    padding:9px 12px; border-bottom:1px solid var(--bd3); color:var(--txt2); white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis;
+  }
+  table.wf-tb tr:nth-child(even) td{background:#fafbfc;}
+  table.wf-tb .num{text-align:right; font-family:Consolas,monospace;}
+  table.wf-tb .c{text-align:center;}
+  table.wf-tb .mono{font-family:Consolas,monospace; color:var(--txt);}
+
+  .tag{
+    display:inline-block; height:22px; line-height:20px; padding:0 8px; border-radius:3px; font-size:11.5px;
+    background:#f4f4f5; border:1px solid #e9e9eb; color:#909399;
+  }
+  .tag.pri{background:#ecf5ff; border-color:#d9ecff; color:var(--pri);}
+  .tag.suc{background:#f0f9eb; border-color:#e1f3d8; color:var(--suc);}
+  .tag.wrn{background:#fdf6ec; border-color:#faecd8; color:var(--wrn);}
+  .tag.dgr{background:#fef0f0; border-color:#fde2e2; color:var(--dgr);}
+  .tag.gray{background:#f4f4f5; border-color:#e9e9eb; color:#909399;}
+
+  .pager{display:flex; align-items:center; gap:8px; padding:12px 16px; font-size:12.5px; color:var(--txt2);}
+  .pager .sp{flex:1 1 auto;}
+  .pager .pg{
+    display:inline-flex; align-items:center; justify-content:center; min-width:28px; height:28px;
+    padding:0 8px; border:1px solid var(--bd); border-radius:var(--r); background:#fff; color:var(--txt2);
+  }
+  .pager .pg.on{background:var(--pri); border-color:var(--pri); color:#fff;}
+
+  .stats{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:12px;}
+  .stat{background:#fff; border:1px solid var(--bd2); border-radius:var(--r); padding:14px 16px;}
+  .stat .k{font-size:12.5px; color:var(--txt3);}
+  .stat .v{font-size:24px; font-weight:700; margin:4px 0 2px; letter-spacing:.5px;}
+  .stat .d{font-size:11.5px; color:var(--txt3);}
+  .stat.pri .v{color:var(--pri);} .stat.wrn .v{color:var(--wrn);}
+  .stat.dgr .v{color:var(--dgr);} .stat.suc .v{color:var(--suc);}
+
+  .cols{display:grid; gap:12px;}
+  .cols.c2{grid-template-columns:1fr 1fr;}
+  .cols.c2w{grid-template-columns:1.4fr 1fr;}
+  .cols.side{grid-template-columns:280px 1fr;}
+  .cols.side2{grid-template-columns:300px 1fr;}
+
+  .tree{padding:4px 0; font-size:12.5px; color:var(--txt2);}
+  .tree .tn{display:flex; align-items:center; gap:6px; height:30px; padding:0 8px; border-radius:var(--r);}
+  .tree .tn.on{background:#ecf5ff; color:var(--pri); font-weight:600;}
+  .tree .tn.l2{padding-left:24px;}
+  .tree .tn.l3{padding-left:40px;}
+  .tree .tri{font-size:9px; color:var(--txt3); width:10px;}
+
+  .tabs{display:flex; gap:0; border-bottom:1px solid var(--bd2); margin-bottom:14px; flex-wrap:wrap;}
+  .tabs .tb{
+    padding:9px 16px; font-size:13px; color:var(--txt2); border-bottom:2px solid transparent; margin-bottom:-1px;
+  }
+  .tabs .tb.on{color:var(--pri); border-bottom-color:var(--pri); font-weight:600;}
+  .tabs.mini .tb{padding:7px 12px; font-size:12.5px;}
+
+  .tl{position:relative; padding-left:18px;}
+  .tl::before{content:""; position:absolute; left:5px; top:6px; bottom:6px; width:1px; background:var(--bd2);}
+  .tl .it{position:relative; padding-bottom:14px;}
+  .tl .it::before{
+    content:""; position:absolute; left:-16px; top:5px; width:7px; height:7px; border-radius:50%;
+    background:#fff; border:2px solid var(--pri);
+  }
+  .tl .it .h{font-size:12.5px; color:var(--txt);}
+  .tl .it .m{font-size:11.5px; color:var(--txt3); margin-top:2px;}
+
+  .kv{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 24px; font-size:12.5px;}
+  .kv.c3{grid-template-columns:repeat(3,minmax(0,1fr));}
+  .kv .i{display:flex; gap:8px;}
+  .kv .i .k{color:var(--txt3); flex:0 0 84px; text-align:right;}
+  .kv .i .v{color:var(--txt);}
+
+  .ph{background:#fafbfc; border:1px dashed #dfe4ea; border-radius:var(--r); color:#b4bcc6; font-size:12px;
+      display:flex; align-items:center; justify-content:center;}
+
+  .toolbar{display:flex; align-items:center; gap:10px; margin-bottom:12px;}
+  .toolbar .sp{flex:1 1 auto;}
+  .toolbar .cnt{font-size:12.5px; color:var(--txt3);}
+  .toolbar .cnt b{color:var(--pri); font-weight:600;}
+
+  .actionbar{
+    display:flex; align-items:center; gap:10px; padding:12px 16px; background:#fff;
+    border-top:1px solid var(--bd2); position:sticky; bottom:0;
+  }
+  .actionbar .sp{flex:1 1 auto;}
+
+  .mask{
+    position:absolute; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:flex-start;
+    justify-content:center; padding-top:120px;
+  }
+  .dialog{width:560px; background:#fff; border-radius:6px; overflow:hidden; box-shadow:0 12px 32px rgba(0,0,0,.2);}
+  .dialog .dh{padding:14px 18px; font-size:14px; font-weight:600; border-bottom:1px solid var(--bd3);}
+  .dialog .db{padding:18px;}
+  .dialog .df{padding:12px 18px; border-top:1px solid var(--bd3); display:flex; justify-content:flex-end; gap:10px;}
+
+  .drawer{
+    position:absolute; top:0; right:0; bottom:0; width:520px; background:#fff;
+    border-left:1px solid var(--bd2); box-shadow:-8px 0 24px rgba(31,45,61,.10);
+  }
+  .drawer .dh{padding:14px 18px; font-size:14px; font-weight:600; border-bottom:1px solid var(--bd3);
+              display:flex; align-items:center;}
+  .drawer .dh .sp{flex:1 1 auto;}
+  .drawer .db{padding:14px 18px;}
+
+  .perm-tree{border:1px solid var(--bd3); border-radius:var(--r); padding:12px 14px; max-height:300px; overflow:auto;}
+  .perm-grp{margin-bottom:10px;}
+  .perm-grp .gt{font-size:12.5px; font-weight:600; color:var(--txt); margin-bottom:6px; display:flex; align-items:center; gap:7px;}
+  .perm-grp .items{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px 12px; padding-left:22px;}
+  .perm-grp .items .it{display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--txt2);}
+  .cbx{width:13px; height:13px; border:1px solid var(--bd); border-radius:2px; background:#fff; flex:0 0 auto;}
+  .cbx.on{background:var(--pri); border-color:var(--pri); position:relative;}
+  .cbx.on::after{content:"✓"; color:#fff; font-size:10px; position:absolute; top:-3px; left:1px;}
+  .cbx.half{background:var(--pri); border-color:var(--pri); position:relative;}
+  .cbx.half::after{content:""; position:absolute; left:2px; right:2px; top:5px; height:2px; background:#fff;}
+
+  /* 独立页（无侧栏） */
+  .solo{min-height:900px; display:flex; align-items:center; justify-content:center;
+        background:linear-gradient(135deg,#1f2d3d,#33475b);}
+  .solo .box{width:400px; background:#fff; border-radius:8px; padding:32px 34px; box-shadow:0 18px 40px rgba(0,0,0,.25);}
+  .solo .box .lg{display:flex; align-items:center; gap:10px; margin-bottom:6px;}
+  .solo .box .lg .logo{width:26px;height:26px;border-radius:6px;background:var(--pri);}
+  .solo .box h2{margin:0; font-size:17px;}
+  .solo .box .sub{color:var(--txt3); font-size:12.5px; margin:0 0 22px;}
+  .solo .box .inp{width:100%; margin-bottom:12px; height:38px;}
+  .solo .box .btn.full{width:100%; height:38px; justify-content:center; margin-top:8px; font-size:13.5px;}
+  .solo .box .foot{margin-top:16px; font-size:11.5px; color:var(--txt3); text-align:center;}
+  .solo .err{justify-content:center; align-items:center;}
+  .solo .err .code{font-size:64px; font-weight:800; color:#5a6b7d; line-height:1; letter-spacing:4px;}
+  .solo .err .msg{font-size:14px; margin:14px 0 4px;}
+  .solo .err .det{font-size:12.5px; color:#8b96a3; margin-bottom:20px;}
+
+  /* 规范页 */
+  .spec-grid{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px;}
+  .spec{background:#fff; border:1px solid var(--bd2); border-radius:var(--r); padding:14px 16px;}
+  .spec h4{margin:0 0 10px; font-size:13px;}
+  .spec dl{margin:0; font-size:12.5px; color:var(--txt2);}
+  .spec dl div{display:flex; gap:8px; padding:3px 0; border-bottom:1px dashed #f0f2f5;}
+  .spec dl div:last-child{border-bottom:0;}
+  .spec dt{flex:0 0 108px; color:var(--txt3); font-family:Consolas,monospace; font-size:12px;}
+  .spec dd{margin:0;}
+  .sw-row{display:flex; gap:6px; flex-wrap:wrap;}
+  .sw{width:52px; height:34px; border-radius:var(--r); display:flex; align-items:flex-end; justify-content:center;
+      font-size:9.5px; color:#fff; padding-bottom:3px;}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <h1>CTMS V2.0 前端页面布局线框 <span class="badge">ERP 进销存 · 静态示意</span></h1>
+  <p>依据 <code>12-erp-system-design.md</code> §7 前端设计绘制：只表达结构、层级与尺寸，不含任何交互与真实数据。所有页面按 1440px 视口等比缩放。</p>
+</div>
+
+<div class="app">
+  <nav class="cat" id="cat"></nav>
+  <div class="stage">
+    <div class="stage-hd">
+      <div class="row1">
+        <h2 id="pg-name">—</h2>
+        <span class="path" id="pg-path">—</span>
+        <span class="perm" id="pg-perm"></span>
+      </div>
+      <ul id="pg-tips"></ul>
+    </div>
+    <div class="holder" id="holder"><div class="frame" id="frame"></div></div>
+  </div>
+</div>
+
+<script>
+/* =======================================================================
+   线框基础件
+   ======================================================================= */
+const inp  = (t, w) => `<span class="inp ph"${w?` style="width:${w}px"`:''}>${t}</span>`;
+const inpV = (t, w) => `<span class="inp"${w?` style="width:${w}px"`:''}>${t}</span>`;
+const sel  = (t, w) => `<span class="sel"${w?` style="width:${w}px"`:''}>${t}<span class="arw">▾</span></span>`;
+const btn  = (t, type='', cls='') => `<span class="btn ${type} ${cls}">${t}</span>`;
+const tag  = (t, type='gray') => `<span class="tag ${type}">${t}</span>`;
+const field= (label, ctl, req) => `<div class="field"><label class="${req?'req':''}">${label}</label><div class="ctl">${ctl}</div></div>`;
+const fitem= (label, ctl) => `<div class="f"><label>${label}</label>${ctl}</div>`;
+
+function table(cols, rows, cls=''){
+  const cg = cols.map(c=>`<col${c.w?` style="width:${c.w}"`:''}>`).join('');
+  const th = cols.map(c=>`<th${c.cls?` class="${c.cls}"`:''}>${c.t}</th>`).join('');
+  const tb = rows.map(r=>`<tr>${r.map((c,i)=>`<td${cols[i].cls?` class="${cols[i].cls}"`:''}>${c}</td>`).join('')}</tr>`).join('');
+  return `<table class="wf-tb ${cls}"><colgroup>${cg}</colgroup><thead><tr>${th}</tr></thead><tbody>${tb}</tbody></table>`;
+}
+const pager = (total=128) => `
+  <div class="pager"><span>共 <b style="color:#409eff">${total}</b> 条</span><span class="sp"></span>
+    ${sel('20 条/页', 96)}
+    <span class="pg">‹</span><span class="pg on">1</span><span class="pg">2</span><span class="pg">3</span><span class="pg">…</span><span class="pg">7</span><span class="pg">›</span>
+  </div>`;
+
+/* ---------------- 侧边菜单（V2.0 信息架构） ---------------- */
+const MENU = [
+  { t:'首页看板', k:'dashboard' },
+  { t:'合同管理', k:'contract' },
+  { t:'采购管理', k:'purchase', open:true, ch:[
+      { t:'采购申请单', k:'pr' }, { t:'采购单', k:'po' } ]},
+  { t:'销售管理', k:'sales', open:true, ch:[
+      { t:'销售申请单', k:'sr' }, { t:'销售订单', k:'so' } ]},
+  { t:'库存管理', k:'stock', open:true, ch:[
+      { t:'入库单', k:'in' }, { t:'出库单', k:'out' },
+      { t:'库存明细', k:'balance' }, { t:'盘点单', k:'take' } ]},
+  { t:'资料库', k:'master', open:true, ch:[
+      { t:'组织架构', k:'org' }, { t:'角色管理', k:'role' }, { t:'账号管理', k:'user' },
+      { t:'客户信息', k:'cust' }, { t:'供应商信息', k:'supp' },
+      { t:'基础信息', k:'base', open:true, ch2:[
+          { t:'商品类型', k:'ptype' }, { t:'物料档案', k:'prod' },
+          { t:'计量单位', k:'uom' }, { t:'仓库', k:'wh' } ]},
+      { t:'系统管理', k:'system' } ]}
+];
+
+function side(active){
+  const item = (m, lvl) => {
+    const cls = ['wf-mi', lvl===1?'sub':(lvl===2?'sub2':'')].filter(Boolean).join(' ');
+    return `<div class="${cls} ${m.k===active?'on':''}"><i class="ico"></i><span>${m.t}</span>`
+         + (m.ch||m.ch2 ? '<span class="arw">▾</span>' : '') + `</div>`;
+  };
+  const html = MENU.map(m => {
+    let s = item(m, 0);
+    if (m.ch) s += m.ch.map(c => {
+      let s2 = item(c, 1);
+      if (c.ch2) s2 += c.ch2.map(x => item(x, 2)).join('');
+      return s2;
+    }).join('');
+    return s;
+  }).join('');
+  return `<aside class="wf-side">
+    <div class="wf-brand"><span class="logo"></span>CTMS ERP</div>
+    <div class="wf-menu">${html}</div>
+  </aside>`;
+}
+
+const topbar = (crumb, user='张三 · 采购主管') => `
+  <header class="wf-top">
+    <div class="wf-crumb">${crumb}</div>
+    <div class="sp"></div>
+    <div class="wf-user"><span class="tag">智澈公司</span><span class="wf-avatar">张</span>${user}
+      <span class="btn text sm">改密</span><span class="btn text sm">登出</span></div>
+  </header>`;
+
+/* 带侧栏的标准外壳 */
+const shell = (active, crumb, main) => `<div class="wf">
+  ${side(active)}
+  <div class="wf-body">${topbar(crumb)}<div class="wf-main">${main}</div></div>
+</div>`;
+
+/* =======================================================================
+   页面定义
+   ======================================================================= */
+const PAGES = [];
+
+/* ---------- 1. 登录页 ---------- */
+PAGES.push({
+  id:'login', group:'框架与规范', name:'登录页', path:'/login',
+  perm:'公开',
+  tips:[
+    '无侧栏无顶栏的<b>独立居中卡片布局</b>，卡片宽 400px，垂直居中（视口 100vh）。',
+    '字段：用户名、密码（高度 38px 较表单内控件更大），底部整宽主按钮。',
+    '首登强制改密时，登录成功后跳转同布局的「修改密码」页（结构一致，仅字段换为旧密码/新密码/确认密码）。',
+    '失败提示以表单下方的红色文字呈现，不做弹窗。'
+  ],
+  html: () => `<div class="solo"><div class="box">
+    <div class="lg"><span class="logo"></span><h2>CTMS ERP</h2></div>
+    <p class="sub">合同管理 · 进销存一体化（内网）</p>
+    <div class="field" style="display:block">
+      <label class="req" style="width:auto;text-align:left;display:block;margin-bottom:6px">用户名</label>
+      <div class="ctl">${inp('请输入登录名')}</div>
+    </div>
+    <div class="field" style="display:block">
+      <label class="req" style="width:auto;text-align:left;display:block;margin-bottom:6px">密码</label>
+      <div class="ctl">${inp('请输入密码')}</div>
+    </div>
+    <div class="btn pri full">登 录</div>
+    <div class="foot">内网系统 · 忘记密码请联系系统管理员重置</div>
+  </div></div>`
+});
+
+/* ---------- 2. 403 ---------- */
+PAGES.push({
+  id:'403', group:'框架与规范', name:'无权限页（403）', path:'/403',
+  perm:'—',
+  tips:[
+    '独立布局，无侧栏，居中展示 <b>错误码 403 + 说明 + 返回按钮</b>。',
+    '触发场景：路由 meta.perm 不在用户权限集内，或后端接口返回 403。',
+    '页面上同时展示「所需权限点」便于管理员排查（如 purchase.order.approve）。'
+  ],
+  html: () => `<div class="solo err" style="flex-direction:column">
+    <div class="code">403</div>
+    <div class="msg">你没有访问该页面的权限</div>
+    <div class="det">所需权限点：<code style="color:#8b96a3">purchase.order.approve</code> · 如需开通请联系系统管理员</div>
+    <div style="display:flex;gap:10px">${btn('返回首页','pri')}${btn('返回上一页')}</div>
+  </div>`
+});
+
+/* ---------- 3. 首页看板 ---------- */
+PAGES.push({
+  id:'dashboard', group:'业务页面', name:'首页看板（按角色重规划）', path:'/',
+  perm:'dashboard.view',
+  tips:[
+    '顶部 <b>4 个统计卡</b>（等宽 grid，间距 12px，卡高约 88px），数字 24px 加粗并按语义着色。',
+    '第二行 <b>左右双栏</b>：左「待我审核」（1.4fr）+ 右「库存预警」（1fr）。',
+    '第三行通栏「质保即将到期」，与 V1.0 看板能力衔接。',
+    '看板内容按登录角色的数据范围裁剪——仓管看不到合同质保，只看到出入库待办。'
+  ],
+  html: () => shell('dashboard','首页看板',
+    `<div class="stats">
+      ${stat('在管合同','126','本月新增 6','pri')}
+      ${stat('待我审核','8','采购 5 · 销售 3','wrn')}
+      ${stat('库存预警','12','低于安全库存','dgr')}
+      ${stat('质保即将到期','4','30 天内','suc')}
+    </div>
+    <div class="cols c2w">
+      <div class="card tight" style="margin-bottom:0">
+        <div class="card-hd"><span class="t">待我审核</span><span class="sub">按提交时间升序</span>
+          <span class="sp"></span>${btn('全部待办','','sm')}</div>
+        ${table([{t:'单据类型',w:'110px'},{t:'单号',w:'150px'},{t:'提交人',w:'80px'},
+                 {t:'金额',w:'110px',cls:'num'},{t:'提交时间',w:'110px'},{t:'操作',w:'90px'}],
+          [['采购单','PO202609000013','李四','¥ 86,400.00','09-12 10:22',btn('审核','text sm')],
+           ['采购申请','PR202609000041','王五','¥ 12,000.00','09-12 09:40',btn('审核','text sm')],
+           ['销售订单','SO202609000026','赵六','¥ 42,800.00','09-11 17:05',btn('审核','text sm')],
+           ['入库单','IN202609000088','孙七','¥ 31,200.00','09-11 15:12',btn('审核','text sm')],
+           ['出库单','OUT202609000052','周八','¥ 18,900.00','09-11 11:30',btn('审核','text sm')]])}
+      </div>
+      <div class="card tight" style="margin-bottom:0">
+        <div class="card-hd"><span class="t">库存预警</span><span class="sub">低于安全库存</span>
+          <span class="sp"></span>${btn('库存明细','','sm')}</div>
+        ${table([{t:'物料',w:'auto'},{t:'仓库',w:'80px'},{t:'结存',w:'70px',cls:'num'},{t:'安全',w:'60px',cls:'num'}],
+          [['A4 复印纸','甲仓','12','50'],['硒鼓 CF-280A','甲仓','3','10'],
+           ['网线超六类','乙仓','0','100'],['标签纸 100×80','甲仓','8','20'],
+           ['色带 ERC-09','乙仓','5','15']])}
+      </div>
+    </div>
+    <div class="card tight" style="margin-top:12px">
+      <div class="card-hd"><span class="t">质保即将到期</span><span class="sub">30 天内未释放</span>
+        <span class="sp"></span>${btn('合同台账','','sm')}</div>
+      ${table([{t:'合同编号',w:'180px'},{t:'合同名称',w:'auto'},{t:'对方单位',w:'180px'},
+               {t:'质保到期',w:'110px'},{t:'剩余',w:'80px',cls:'c'},{t:'操作',w:'90px'}],
+        [['PURZC202509000003','X 设备采购（一期）','YY 供应商','2026-05-31','18 天',btn('查看','text sm')],
+         ['SALZC202508000011','XX 设备销售（客户 M）','客户 M 公司','2026-06-08','26 天',btn('查看','text sm')],
+         ['PURZC202507000021','配套耗材采购','ZZ 供应商','2026-06-15','33 天',btn('查看','text sm')]])}
+    </div>`)
+});
+function stat(k,v,d,type){ return `<div class="stat ${type}"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d}</div></div>`; }
+
+/* ---------- 4. 合同台账（V1.0 保留） ---------- */
+PAGES.push({
+  id:'contract', group:'业务页面', name:'合同台账（V1.0 能力保留 + 关联单据）', path:'/contracts',
+  perm:'contract.view',
+  tips:[
+    '沿用 V1.0 台账结构：<b>筛选卡片 + 表格 + 分页</b>，工具栏保留导入/导出入口。',
+    'V2.0 变化：类型为 PUR 时「乙方」列显示供应商档案名；工具栏新增「关联单据」列/入口。',
+    '状态列使用统一状态标签色（草稿灰 / 待审核橙 / 已审核蓝 / 已完成绿 / 已作废红）。',
+    '合同详情页（未单独出图）新增只读「关联单据」区块：采购单/销售订单/出入库单清单 + 已执行数量金额。'
+  ],
+  html: () => shell('contract','合同管理 / 合同台账',
+    `<div class="card">
+      <div class="filter">
+        ${fitem('关键词', inp('合同编号 / 名称 / 对方单位', 200))}
+        ${fitem('类型', sel('全部', 130))}
+        ${fitem('状态', sel('全部', 120))}
+        ${fitem('视图', sel('平铺', 100))}
+        ${fitem('经办人', inp('', 100))}
+        ${fitem('签订日期', inp('2026-01-01 ~ 2026-12-31', 190))}
+        <span class="sp"></span>
+        <div style="display:flex;gap:8px">${btn('查询','pri')}${btn('重置')}</div>
+      </div>
+      <div class="filter" style="margin-top:10px">
+        ${fitem('标签', `${tag('采购','pri')} ${tag('项目A','pri')} ${btn('+ 添加标签','text sm')}`)}
+        <label style="display:flex;align-items:center;gap:6px;color:#606266"><span class="cbx"></span>即将质保到期</label>
+        <label style="display:flex;align-items:center;gap:6px;color:#606266"><span class="cbx"></span>质保已到期</label>
+        <label style="display:flex;align-items:center;gap:6px;color:#606266"><span class="cbx"></span>显示已停用</label>
+      </div>
+    </div>
+    <div class="card tight">
+      <div class="toolbar" style="padding:12px 16px 0">
+        <span class="cnt">共 <b>126</b> 条</span><span class="sp"></span>
+        ${btn('批量导入')}${btn('导出 Excel')}${btn('+ 新增合同','pri')}
+      </div>
+      ${table([{t:'合同编号',w:'170px'},{t:'合同名称',w:'auto'},{t:'类型',w:'90px'},
+               {t:'甲方（客户）',w:'130px'},{t:'乙方（供应商）',w:'130px'},{t:'金额',w:'110px',cls:'num'},
+               {t:'已付比例',w:'90px',cls:'num'},{t:'关联单据',w:'90px',cls:'c'},{t:'状态',w:'90px'},
+               {t:'经办人',w:'80px'},{t:'操作',w:'170px'}],
+        [['PURZC202509000003','X 设备采购（一期）','采购/支出','—','YY 供应商','¥120,000.00','50.0%',
+          '<span style="color:#409eff">3 张</span>',tag('付款中','pri'),'张三',
+          btn('详情','text sm')+btn('编辑','text sm')+btn('停用','text sm dgr')],
+         ['SALZC202508000011','XX 设备销售（客户 M）','销售/收入','客户 M 公司','—','¥30,000.00','100.0%',
+          '<span style="color:#409eff">2 张</span>',tag('到货','suc'),'李四',
+          btn('详情','text sm')+btn('编辑','text sm')+btn('停用','text sm dgr')],
+         ['PURZC202507000021','配套耗材采购','采购/支出','—','ZZ 供应商','¥80,000.00','0.0%',
+          '—',tag('内部审批中','wrn'),'王五',
+          btn('详情','text sm')+btn('编辑','text sm')+btn('停用','text sm dgr')],
+         ['COOZC202506000004','2026 年度战略合作框架','合作/战略','———','———','¥500,000.00','0.0%',
+          '—',tag('已签订','pri'),'张三',
+          btn('详情','text sm')+btn('编辑','text sm')+btn('停用','text sm dgr')]])}
+      ${pager(126)}
+    </div>`)
+});
+
+/* ---------- 5. 通用列表页范式（采购单） ---------- */
+PAGES.push({
+  id:'list', group:'业务页面', name:'通用列表页范式（以采购单为例）', path:'/purchase/orders',
+  perm:'purchase.order.view',
+  tips:[
+    '这是 <b>8 类单据共用的列表范式</b>：筛选卡片 → 工具栏（计数 + 导出 + 新增）→ 表格 → 分页。',
+    '筛选区两行：第一行单据维度（单号/日期/状态/对方单位），第二行业务维度（物料/关联合同/经办人）+ 快捷筛（待我审核 / 我创建的）。',
+    '行内「操作」列按<b>状态 + 权限</b>动态渲染：草稿显示编辑/提交/作废，待审核显示审核/驳回，已审核显示下推入库/反审核。',
+    '表格默认列宽固定、单号等列使用等宽字体；行高 36px，斑马纹，金额右对齐。',
+    '导出按钮导出「当前筛选结果」而非当前页。'
+  ],
+  html: () => shell('po','采购管理 / 采购单',
+    `<div class="card">
+      <div class="filter">
+        ${fitem('采购单号', inp('', 150))}
+        ${fitem('下单日期', inp('2026-09-01 ~ 2026-09-30', 190))}
+        ${fitem('状态', sel('全部', 120))}
+        ${fitem('供应商', sel('请选择', 150))}
+        ${fitem('采购部门', sel('全部', 120))}
+        <span class="sp"></span>
+        <div style="display:flex;gap:8px">${btn('查询','pri')}${btn('重置')}</div>
+      </div>
+      <div class="filter" style="margin-top:10px">
+        ${fitem('物料', inp('编码 / 名称', 160))}
+        ${fitem('关联合同', inp('', 150))}
+        ${fitem('经办人', inp('', 100))}
+        <label style="display:flex;align-items:center;gap:6px;color:#606266"><span class="cbx"></span>待我审核</label>
+        <label style="display:flex;align-items:center;gap:6px;color:#606266"><span class="cbx"></span>我创建的</label>
+      </div>
+    </div>
+    <div class="card tight">
+      <div class="toolbar" style="padding:12px 16px 0">
+        <span class="cnt">共 <b>34</b> 条</span><span class="sp"></span>
+        ${btn('导出 Excel')}${btn('+ 新增采购单','pri')}
+      </div>
+      ${table([{t:'采购单号',w:'160px'},{t:'下单日期',w:'100px'},{t:'供应商',w:'auto'},
+               {t:'关联合同',w:'150px'},{t:'金额',w:'110px',cls:'num'},
+               {t:'已入库',w:'100px',cls:'c'},{t:'状态',w:'95px'},{t:'经办人',w:'80px'},
+               {t:'操作',w:'260px'}],
+        [['PO202609000013','2026-09-12','YY 供应商','PURZC202509…','¥86,400.00','40 / 100',tag('待审核','wrn'),'李四',
+          btn('查看','text sm')+btn('审核','text sm')+btn('驳回','text sm')+btn('作废','text sm dgr')],
+         ['PO202609000012','2026-09-10','ZZ 供应商','—','¥12,000.00','0 / 20',tag('草稿','gray'),'王五',
+          btn('查看','text sm')+btn('编辑','text sm')+btn('提交','text sm')+btn('作废','text sm dgr')],
+         ['PO202609000011','2026-09-08','YY 供应商','PURZC202507…','¥31,200.00','60 / 60',tag('已完成','suc'),'李四',
+          btn('查看','text sm')+btn('打印','text sm')],
+         ['PO202609000010','2026-09-05','WW 供应商','—','¥5,600.00','20 / 20',tag('已审核','pri'),'张三',
+          btn('查看','text sm')+btn('下推入库','text sm')+btn('打印','text sm')],
+         ['PO202609000009','2026-09-02','YY 供应商','—','¥48,000.00','—',tag('已作废','dgr'),'李四',
+          btn('查看','text sm')]])}
+      ${pager(34)}
+    </div>`)
+});
+
+/* ---------- 6. 单据表单页范式（采购单新增） ---------- */
+PAGES.push({
+  id:'form', group:'业务页面', name:'通用单据表单范式（新增采购单）', path:'/purchase/orders/new',
+  perm:'purchase.order.create',
+  tips:[
+    '<b>8 类单据共用此表单范式</b>：表头卡（两列/三列自适应网格）+ 行项卡（可编辑表格）+ 底部固定操作条。',
+    '表头：单号由后端生成并置灰只读；带 * 为必填；关联合同为下拉（仅列出 PUR 类合同，可空）。',
+    '行项表格：物料选择器带出编码/名称/规格/单位快照（只读灰字），数量×单价→金额自动计算，单价 4 位小数、金额 2 位小数。',
+    '行项右侧固定「删除」列；表格下方左侧「+ 添加行」，右侧实时合计（大写金额）。',
+    '底部操作条 sticky 常驻：保存草稿 / 保存并提交 / 返回。'
+  ],
+  html: () => shell('po','采购管理 / 采购单 / 新增',
+    `<div class="card">
+      <div class="card-hd"><span class="t">基本信息</span><span class="sp"></span>
+        <span class="sub">单号保存时自动生成，规则：PO + 年月 + 6 位序号</span></div>
+      <div class="form-grid c3">
+        ${field('采购单号', inpV('PO202609000014'), 0)}
+        ${field('下单日期', inpV('2026-09-13'), 1)}
+        ${field('采购部门', sel('采购部', 0), 1)}
+        ${field('供应商', sel('YY 供应商', 0), 1)}
+        ${field('关联合同', sel('请选择（仅采购类）', 0))}
+        ${field('预计到货', inp('2026-09-20'))}
+        ${field('收货仓库', sel('甲仓库', 0), 1)}
+        ${field('结算方式', sel('月结 30 天', 0))}
+        ${field('经办人', inpV('张三'))}
+        ${field('币种', sel('CNY', 0))}
+      </div>
+      ${field('备注', inp('', 0))}
+    </div>
+
+    <div class="card tight">
+      <div class="card-hd"><span class="t">行项明细</span><span class="sub">数量精度取物料基本单位小数位</span>
+        <span class="sp"></span>${btn('从采购申请导入','','sm')}</div>
+      ${table([{t:'#',w:'48px',cls:'c'},{t:'物料编码',w:'120px'},{t:'物料名称',w:'auto'},
+               {t:'规格型号',w:'130px'},{t:'单位',w:'70px',cls:'c'},
+               {t:'数量',w:'110px',cls:'num'},{t:'单价',w:'120px',cls:'num'},
+               {t:'金额',w:'120px',cls:'num'},{t:'已入库',w:'90px',cls:'c'},
+               {t:'备注',w:'140px'},{t:'操作',w:'70px',cls:'c'}],
+        [['1','01010001','A4 复印纸','70g / 500 张','包','<span class="inp" style="height:26px;padding:0 6px">200</span>',
+          '<span class="inp" style="height:26px;padding:0 6px">18.5000</span>','3,700.00','0','',btn('删除','text sm dgr')],
+         ['2','01020003','硒鼓 CF-280A','原装','个','<span class="inp" style="height:26px;padding:0 6px">20</span>',
+          '<span class="inp" style="height:26px;padding:0 6px">420.0000</span>','8,400.00','0','',btn('删除','text sm dgr')],
+         ['3','','<span style="color:#c0c4cc">请选择物料</span>','—','—',
+          '<span class="inp" style="height:26px;padding:0 6px"></span>',
+          '<span class="inp" style="height:26px;padding:0 6px"></span>','0.00','—','',btn('删除','text sm dgr')]])}
+      <div style="display:flex;align-items:center;padding:12px 16px">
+        ${btn('+ 添加行')}<span class="sp" style="flex:1"></span>
+        <span style="font-size:12.5px;color:#606266">合计金额：<b style="font-size:16px;color:#f56c6c">¥12,100.00</b>
+        <span style="color:#909399;margin-left:10px">（大写：壹万贰仟壹佰元整）</span></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd"><span class="t">附件</span><span class="sub">≤20MB，PDF / Word / Excel / 图片</span></div>
+      <div class="ph" style="height:76px">＋ 点击或拖拽上传（询价单、比价记录等）</div>
+    </div>
+
+    <div class="actionbar" style="margin:-16px;margin-top:12px">
+      ${btn('返回')}<span class="sp"></span>${btn('保存草稿')}${btn('保存并提交','pri')}
+    </div>`)
+});
+
+/* ---------- 7. 单据详情页范式（销售订单详情） ---------- */
+PAGES.push({
+  id:'detail', group:'业务页面', name:'通用单据详情范式（销售订单）', path:'/sales/orders/:id',
+  perm:'sales.order.view',
+  tips:[
+    '详情页 = <b>头部动作条 + 基本信息卡 + 行项卡 + 变更历史 + 附件</b>。',
+    '头部：单号（大号等宽字体）+ 状态标签 + 右侧动作按钮组，按钮按状态机与权限渲染。',
+    '「执行进度」用行内进度条表达（已出库 40/100），让单据执行情况一眼可见。',
+    '变更历史时间线记录操作人（V2.0 起），旧数据操作人显示「—」。',
+    '来源单据与下游单据以链接形式互相跳转（本页展示来源销售申请 + 下推出库单）。'
+  ],
+  html: () => shell('so','销售管理 / 销售订单 / 详情',
+    `<div class="card">
+      <div class="card-hd" style="margin-bottom:0">
+        <span class="t" style="font-family:Consolas,monospace;font-size:16px">SO202609000026</span>
+        ${tag('待审核','wrn')} ${tag('关联合同 SALZC202508000011','pri')}
+        <span class="sp"></span>
+        ${btn('打印')}${btn('下推出库')}${btn('驳回')}${btn('审核通过','pri')}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd"><span class="t">基本信息</span><span class="sp"></span>
+        <span class="sub">来源：<span style="color:#409eff">SR202609000018</span></span></div>
+      <div class="kv c3">
+        <div class="i"><span class="k">订单日期</span><span class="v">2026-09-11</span></div>
+        <div class="i"><span class="k">客户</span><span class="v">客户 M 公司</span></div>
+        <div class="i"><span class="k">销售部门</span><span class="v">销售部</span></div>
+        <div class="i"><span class="k">交付日期</span><span class="v">2026-09-25</span></div>
+        <div class="i"><span class="k">联系人</span><span class="v">刘经理 / 138****0000</span></div>
+        <div class="i"><span class="k">发货仓库</span><span class="v">甲仓库</span></div>
+        <div class="i" style="grid-column:span 2"><span class="k">收货地址</span><span class="v">XX 市 XX 区 XX 路 88 号</span></div>
+        <div class="i"><span class="k">经办人</span><span class="v">李四</span></div>
+        <div class="i"><span class="k">订单金额</span><span class="v" style="color:#f56c6c;font-weight:600">¥42,800.00</span></div>
+        <div class="i"><span class="k">已出库</span><span class="v">40 / 100（40%）
+          <span style="display:inline-block;width:70px;height:6px;background:#ebeef5;border-radius:3px;vertical-align:middle;margin-left:6px">
+          <span style="display:block;width:40%;height:6px;background:#409eff;border-radius:3px"></span></span></span></div>
+        <div class="i"><span class="k">状态</span><span class="v">${tag('待审核','wrn')}</span></div>
+        <div class="i"><span class="k">备注</span><span class="v">—</span></div>
+      </div>
+    </div>
+
+    <div class="card tight">
+      <div class="card-hd"><span class="t">行项明细</span><span class="sp"></span>
+        <span class="sub">行项为快照，档案改名不影响历史单据</span></div>
+      ${table([{t:'#',w:'48px',cls:'c'},{t:'物料编码',w:'120px'},{t:'物料名称',w:'auto'},
+               {t:'规格型号',w:'130px'},{t:'单位',w:'70px',cls:'c'},{t:'数量',w:'90px',cls:'num'},
+               {t:'单价',w:'110px',cls:'num'},{t:'金额',w:'120px',cls:'num'},
+               {t:'已出库',w:'100px',cls:'c'},{t:'来源行',w:'110px',cls:'c'}],
+        [['1','01010001','A4 复印纸','70g / 500 张','包','100','18.5000','1,850.00','40 / 100','SR-1'],
+         ['2','01020003','硒鼓 CF-280A','原装','个','100','409.5000','40,950.00','0 / 100','SR-2']])}
+    </div>
+
+    <div class="cols c2">
+      <div class="card" style="margin-bottom:0">
+        <div class="card-hd"><span class="t">变更历史</span></div>
+        <div class="tl">
+          <div class="it"><div class="h">审核驳回：附件不全，请补充客户签章件</div>
+            <div class="m">2026-09-12 09:20 · 王五（销售主管）</div></div>
+          <div class="it"><div class="h">提交审核</div>
+            <div class="m">2026-09-12 08:55 · 李四（销售员）</div></div>
+          <div class="it"><div class="h">金额 40,000.00 → 42,800.00</div>
+            <div class="m">2026-09-11 17:30 · 李四（销售员）</div></div>
+          <div class="it"><div class="h">创建单据（草稿）</div>
+            <div class="m">2026-09-11 17:02 · 李四（销售员）</div></div>
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:0">
+        <div class="card-hd"><span class="t">附件</span><span class="sp"></span>${btn('上传','','sm')}</div>
+        ${table([{t:'文件名',w:'auto'},{t:'大小',w:'80px'},{t:'上传人',w:'80px'},{t:'操作',w:'80px'}],
+          [['客户订单扫描件.pdf','1.2 MB','李四',btn('预览','text sm')],
+           ['报价单.xlsx','86 KB','李四',btn('下载','text sm')]])}
+      </div>
+    </div>`)
+});
+
+/* ---------- 8. 库存明细（结存 + 流水抽屉） ---------- */
+PAGES.push({
+  id:'balance', group:'库存页面', name:'库存明细（结存 + 流水下钻）', path:'/stock/balances',
+  perm:'stock.balance.view',
+  tips:[
+    '默认视图是<b>结存列表</b>（物料 × 仓库 一行），支持仓库/类型/关键字/低库存筛选。',
+    '低于安全库存的整行以浅红底 + 红色数量高亮（预警）。',
+    '点击行尾「流水」滑出右侧<b>抽屉</b>（宽 520px），展示该物料+仓库的全部流水。',
+    '流水抽屉：来源单号可点击跳转对应单据；数量变动正数绿色带 +、负数红色带 −。',
+    '结存数量只读——界面不提供任何直接改库存的入口（只能由单据过账驱动）。'
+  ],
+  html: () => {
+    const main = shell('balance','库存管理 / 库存明细',
+      `<div class="card">
+        <div class="filter">
+          ${fitem('仓库', sel('全部仓库', 140))}
+          ${fitem('商品类型', sel('全部', 140))}
+          ${fitem('物料', inp('编码 / 名称', 180))}
+          <label style="display:flex;align-items:center;gap:6px;color:#606266"><span class="cbx on"></span>仅看低于安全库存</label>
+          <span class="sp"></span>
+          <div style="display:flex;gap:8px">${btn('查询','pri')}${btn('重置')}${btn('导出 Excel')}</div>
+        </div>
+      </div>
+      <div class="card tight">
+        <div class="toolbar" style="padding:12px 16px 0"><span class="cnt">共 <b>86</b> 条（其中预警 <b style="color:#f56c6c">12</b> 条）</span>
+          <span class="sp"></span>${btn('库存重算校验','','sm')}</div>
+        ${table([{t:'物料编码',w:'120px'},{t:'物料名称',w:'auto'},{t:'规格型号',w:'130px'},
+                 {t:'商品类型',w:'110px'},{t:'单位',w:'70px',cls:'c'},{t:'仓库',w:'100px'},
+                 {t:'结存数量',w:'110px',cls:'num'},{t:'安全库存',w:'100px',cls:'num'},
+                 {t:'最近变动',w:'150px'},{t:'操作',w:'90px',cls:'c'}],
+          [['01010001','A4 复印纸','70g / 500 张','办公用品','包','甲仓库','1,240','50','2026-09-12 10:22',btn('流水','text sm')],
+           ['01010001','A4 复印纸','70g / 500 张','办公用品','包','乙仓库','86','50','2026-09-10 15:40',btn('流水','text sm')],
+           ['01020003','硒鼓 CF-280A','原装','办公用品','个','甲仓库',
+            '<span style="color:#f56c6c;font-weight:600">3</span>','10','2026-09-11 09:10',btn('流水','text sm')],
+           ['01030007','网线 超六类','305m / 箱','网络耗材','箱','乙仓库',
+            '<span style="color:#f56c6c;font-weight:600">0</span>','100','2026-09-08 11:05',btn('流水','text sm')],
+           ['01040002','标签纸 100×80','1000 张/卷','耗材','卷','甲仓库',
+            '<span style="color:#f56c6c;font-weight:600">8</span>','20','2026-09-09 16:30',btn('流水','text sm')]])}
+        ${pager(86)}
+      </div>`);
+
+    /* 抽屉叠在页面右侧 */
+    return `<div style="position:relative">${main}
+      <div class="mask" style="background:rgba(0,0,0,.18);align-items:stretch;padding:0;justify-content:flex-end">
+        <div class="drawer">
+          <div class="dh">库存流水 · 硒鼓 CF-280A @ 甲仓库
+            <span class="sp"></span>${btn('关闭','','sm')}</div>
+          <div class="db">
+            <div class="kv" style="grid-template-columns:repeat(2,1fr);margin-bottom:14px">
+              <div class="i"><span class="k">当前结存</span><span class="v" style="color:#f56c6c;font-weight:600">3 个</span></div>
+              <div class="i"><span class="k">安全库存</span><span class="v">10 个</span></div>
+            </div>
+            ${table([{t:'时间',w:'120px'},{t:'业务类型',w:'100px'},{t:'来源单号',w:'150px'},
+                     {t:'变动',w:'80px',cls:'num'},{t:'结存',w:'80px',cls:'num'},{t:'操作人',w:'70px'}],
+              [['09-11 09:10','销售出库','<span style="color:#409eff">OUT202609000052</span>',
+                '<span style="color:#f56c6c">−4</span>','3','孙七'],
+               ['09-09 14:22','采购入库','<span style="color:#409eff">IN202609000081</span>',
+                '<span style="color:#67c23a">+20</span>','7','孙七'],
+               ['09-05 10:05','盘亏出库','<span style="color:#409eff">OUT202609000047</span>',
+                '<span style="color:#f56c6c">−1</span>','−13','孙七'],
+               ['09-01 08:40','红冲-采购入库','<span style="color:#409eff">IN202609000076</span>',
+                '<span style="color:#f56c6c">−12</span>','−12','张三'],
+               ['08-28 16:10','采购入库','<span style="color:#409eff">IN202609000076</span>',
+                '<span style="color:#67c23a">+12</span>','0','张三']])}
+            <div style="margin-top:12px;font-size:12px;color:#909399;line-height:1.7">
+              提示：结存数量恒等于本列表变动量的累计值；如不一致，请执行「库存重算校验」。
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+});
+
+/* ---------- 9. 盘点单 ---------- */
+PAGES.push({
+  id:'take', group:'库存页面', name:'盘点单（账面 / 实盘 / 差异）', path:'/stock/takes/:id',
+  perm:'stock.take.view',
+  tips:[
+    '表头含<b>盘点方式</b>（全盘 / 抽盘）——全盘按仓库全部有结存物料自动生成行项。',
+    '行项三列核心：<b>账面数量（只读灰底）→ 实盘数量（可录入）→ 差异数量（自动计算，正绿负红）</b>。',
+    '差异 ≠ 0 的行出现「差异原因」输入框（红色提示），审核时必须填写。',
+    '审核通过的提示区说明系统将自动生成盘盈入库单 / 盘亏出库单，并给出生成的单号。',
+    '抽盘时行项可手工追加，或按商品类型/关键字批量生成。'
+  ],
+  html: () => shell('take','库存管理 / 盘点单 / 详情',
+    `<div class="card">
+      <div class="card-hd" style="margin-bottom:0">
+        <span class="t" style="font-family:Consolas,monospace;font-size:16px">ST202609000004</span>
+        ${tag('待审核','wrn')} ${tag('全盘','pri')} ${tag('甲仓库','pri')}
+        <span class="sp"></span>
+        ${btn('打印')}${btn('作废','dgr')}${btn('审核通过（生成调整单）','pri')}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="form-grid c3">
+        ${field('盘点日期', inpV('2026-09-13'), 1)}
+        ${field('仓库', inpV('甲仓库'), 1)}
+        ${field('盘点方式', sel('全盘', 0), 1)}
+        ${field('盘点时点', inpV('2026-09-13 09:00'))}
+        ${field('盘点人', inpV('孙七'))}
+        ${field('行项数', inpV('128 行（自动生成）'))}
+      </div>
+      ${field('范围说明', inp('全仓盘点，含零结存但有流水的物料', 0))}
+    </div>
+
+    <div class="card tight">
+      <div class="card-hd"><span class="t">盘点明细</span>
+        <span class="sub">账面数量为生成时的结存快照</span><span class="sp"></span>
+        ${btn('批量生成行（按类型/关键字）','','sm')}${btn('+ 追加行','','sm')}</div>
+      ${table([{t:'#',w:'48px',cls:'c'},{t:'物料编码',w:'120px'},{t:'物料名称',w:'auto'},
+               {t:'规格型号',w:'130px'},{t:'单位',w:'70px',cls:'c'},
+               {t:'账面数量',w:'100px',cls:'num'},{t:'实盘数量',w:'120px',cls:'num'},
+               {t:'差异',w:'90px',cls:'num'},{t:'差异原因',w:'220px'},{t:'备注',w:'120px'}],
+        [['1','01010001','A4 复印纸','70g / 500 张','包','1,240',
+          '<span class="inp" style="height:26px;padding:0 6px">1,240</span>','<span style="color:#909399">0</span>','—',''],
+         ['2','01020003','硒鼓 CF-280A','原装','个','3',
+          '<span class="inp" style="height:26px;padding:0 6px">5</span>','<span style="color:#67c23a;font-weight:600">+2</span>',
+          '<span class="inp" style="height:26px;padding:0 6px;border-color:#f56c6c">上月漏登记入库</span>',''],
+         ['3','01030007','网线 超六类','305m / 箱','箱','0',
+          '<span class="inp" style="height:26px;padding:0 6px">0</span>','<span style="color:#909399">0</span>','—',''],
+         ['4','01040002','标签纸 100×80','1000 张/卷','卷','8',
+          '<span class="inp" style="height:26px;padding:0 6px">6</span>','<span style="color:#f56c6c;font-weight:600">−2</span>',
+          '<span class="inp" style="height:26px;padding:0 6px;border-color:#f56c6c">领用未开单</span>',''],
+         ['5','01050011','色带 ERC-09','—','个','5',
+          '<span class="inp" style="height:26px;padding:0 6px"></span>','<span style="color:#c0c4cc">—</span>','—','未盘'],
+         ['6','','<span style="color:#c0c4cc">点击选择物料（抽盘追加）</span>','—','—','—','','—','','']])}
+      <div style="display:flex;align-items:center;padding:12px 16px;font-size:12.5px;color:#606266">
+        已盘 4 / 128 行 · 差异行 <b style="color:#f56c6c">2</b> 行（盘盈 1 · 盘亏 1）
+      </div>
+    </div>
+
+    <div class="card" style="border-color:#faecd8;background:#fdf6ec">
+      <div class="card-hd" style="margin-bottom:6px"><span class="t">审核后系统将自动执行</span></div>
+      <div style="font-size:12.5px;color:#96690f;line-height:1.9">
+        1. 按差异生成库存流水（+2 → 盘盈入库；−2 → 盘亏出库）；<br>
+        2. 自动生成 <b>盘盈入库单</b> 与 <b>盘亏出库单</b>（来源为本盘点单），保证每笔库存变动都有单据可追溯；<br>
+        3. 生成后本单显示对应单号，反审核需先反审核这两张单。
+      </div>
+    </div>`)
+});
+
+/* ---------- 10. 组织架构（树 + 表单） ---------- */
+PAGES.push({
+  id:'org', group:'资料库页面', name:'组织架构 / 商品类型（树 + 表单范式）', path:'/master/orgs',
+  perm:'master.org.view',
+  tips:[
+    '此范式被<b>组织架构</b>与<b>商品类型</b>两页共用：左侧树（280px）+ 右侧详情表单。',
+    '树支持搜索、层级缩进（公司/部门/岗位三级）、节点右侧显示账号数。',
+    '删除受约束：存在下级或有归属账号时不可删除，只能停用（界面上删除按钮置灰 + tooltip 说明原因）。',
+    '商品类型页同构，仅节点类型改为分类层级，并增加「物料必须挂在末级分类」的提示。'
+  ],
+  html: () => shell('org','资料库 / 组织架构',
+    `<div class="cols side">
+      <div class="card" style="margin-bottom:0">
+        <div class="card-hd"><span class="t">组织树</span><span class="sp"></span>${btn('+ 新增','','sm')}</div>
+        ${inp('搜索节点名称', 0)}
+        <div class="tree" style="margin-top:10px">
+          <div class="tn on"><span class="tri">▾</span>智澈公司 <span style="margin-left:auto;color:#909399;font-size:11.5px">18</span></div>
+          <div class="tn l2"><span class="tri">▾</span>采购部 <span style="margin-left:auto;color:#909399;font-size:11.5px">5</span></div>
+          <div class="tn l3"><span class="tri"></span>采购一组 <span style="margin-left:auto;color:#909399;font-size:11.5px">3</span></div>
+          <div class="tn l3"><span class="tri"></span>采购二组 <span style="margin-left:auto;color:#909399;font-size:11.5px">2</span></div>
+          <div class="tn l2"><span class="tri">▾</span>销售部 <span style="margin-left:auto;color:#909399;font-size:11.5px">4</span></div>
+          <div class="tn l3"><span class="tri"></span>销售一组 <span style="margin-left:auto;color:#909399;font-size:11.5px">4</span></div>
+          <div class="tn l2"><span class="tri">▸</span>仓储部 <span style="margin-left:auto;color:#909399;font-size:11.5px">3</span></div>
+          <div class="tn l2"><span class="tri">▸</span>财务部 <span style="margin-left:auto;color:#909399;font-size:11.5px">2</span></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <div class="card-hd"><span class="t">节点信息</span><span class="sp"></span>
+            <span class="sub">编码：CG-01 · 层级：3</span></div>
+          <div class="form-grid">
+            ${field('上级节点', sel('采购部', 0), 1)}
+            ${field('节点名称', inpV('采购一组'), 1)}
+            ${field('节点编码', inpV('CG-01'))}
+            ${field('节点类型', sel('部门', 0), 1)}
+            ${field('负责人', sel('张三', 0))}
+            ${field('联系电话', inp('', 0))}
+            ${field('排序', inpV('10'))}
+            ${field('启用', inpV('是'))}
+          </div>
+          ${btn('保存','pri')} ${btn('取消')} <span style="margin-left:10px">${btn('停用','dgr')}</span>
+          <span style="margin-left:10px;font-size:12px;color:#f56c6c">该节点下存在 3 个账号，不可删除，仅可停用</span>
+        </div>
+
+        <div class="card tight" style="margin-bottom:0">
+          <div class="card-hd"><span class="t">该节点下的账号</span><span class="sp"></span>${btn('+ 新增账号','','sm')}</div>
+          ${table([{t:'登录名',w:'140px'},{t:'姓名',w:'100px'},{t:'角色',w:'auto'},
+                   {t:'状态',w:'90px'},{t:'最近登录',w:'160px'},{t:'操作',w:'120px'}],
+            [['buyer01','张三','采购主管 / 采购员',tag('启用','suc'),'2026-09-13 08:52',btn('编辑','text sm')],
+             ['buyer02','李四','采购员',tag('启用','suc'),'2026-09-12 17:30',btn('编辑','text sm')],
+             ['buyer03','王五','采购员',tag('停用','gray'),'2026-08-30 09:00',btn('编辑','text sm')]])}
+        </div>
+      </div>
+    </div>`)
+});
+
+/* ---------- 11. 角色管理（列表 + 权限树） ---------- */
+PAGES.push({
+  id:'role', group:'资料库页面', name:'角色管理（权限树 + 数据范围）', path:'/master/roles',
+  perm:'master.role.view',
+  tips:[
+    '左侧角色列表（300px），右侧「基本信息 + 权限树 + 数据范围」表单。',
+    '权限树按<b>模块分组、菜单与按钮两级</b>，三列排布；分组标题的复选框支持全选/半选态。',
+    '底部「数据范围」为单选下拉：本人 / 本部门 / 本部门及下级 / 全部（与菜单权限正交）。',
+    '内置角色（系统管理员）不可删除；系统管理员角色的「系统管理」分组不可摘除。',
+    '权限点由后端清单生成，前端只消费——避免前后端两套定义。'
+  ],
+  html: () => shell('role','资料库 / 角色管理',
+    `<div class="cols side2">
+      <div class="card" style="margin-bottom:0">
+        <div class="card-hd"><span class="t">角色列表</span><span class="sp"></span>${btn('+ 新增','','sm')}</div>
+        ${inp('搜索角色名称', 0)}
+        <div class="tree" style="margin-top:10px">
+          <div class="tn on">系统管理员 <span class="tag pri" style="margin-left:auto">内置</span></div>
+          <div class="tn">采购主管 <span style="margin-left:auto;color:#909399;font-size:11.5px">2 人</span></div>
+          <div class="tn">采购员 <span style="margin-left:auto;color:#909399;font-size:11.5px">5 人</span></div>
+          <div class="tn">销售主管 <span style="margin-left:auto;color:#909399;font-size:11.5px">1 人</span></div>
+          <div class="tn">销售员 <span style="margin-left:auto;color:#909399;font-size:11.5px">4 人</span></div>
+          <div class="tn">仓管员 <span style="margin-left:auto;color:#909399;font-size:11.5px">3 人</span></div>
+          <div class="tn">财务 <span style="margin-left:auto;color:#909399;font-size:11.5px">2 人</span></div>
+          <div class="tn">只读/管理层 <span style="margin-left:auto;color:#909399;font-size:11.5px">3 人</span></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <div class="card-hd"><span class="t">角色信息</span><span class="sp"></span>
+            <span class="sub">该角色当前 5 个账号</span></div>
+          <div class="form-grid">
+            ${field('角色编码', inpV('purchase_manager'), 1)}
+            ${field('角色名称', inpV('采购主管'), 1)}
+            ${field('数据范围', sel('本部门及下级', 0), 1)}
+            ${field('启用', inpV('是'))}
+          </div>
+          ${field('备注', inp('负责采购单据审核', 0))}
+        </div>
+
+        <div class="card">
+          <div class="card-hd"><span class="t">权限配置</span>
+            <span class="sub">菜单权限控制可见性，按钮权限控制动作</span>
+            <span class="sp"></span>${btn('全选')}${btn('清空')}</div>
+          <div class="perm-tree">
+            ${permGroup('合同管理', [
+              ['contract.view','查看',1],['contract.create','新增',1],['contract.edit','编辑',1],
+              ['contract.delete','停用/恢复',0],['contract.import','导入',0],
+              ['contract.export','导出',1],['contract.log.view','变更历史',1]], 1)}
+            ${permGroup('采购管理', [
+              ['purchase.request.view','申请查看',1],['purchase.request.create','申请新增',1],
+              ['purchase.request.edit','申请编辑',1],['purchase.request.submit','申请提交',1],
+              ['purchase.request.approve','申请审核',1],['purchase.request.void','申请作废',1],
+              ['purchase.order.view','采购单查看',1],['purchase.order.create','采购单新增',1],
+              ['purchase.order.edit','采购单编辑',1],['purchase.order.submit','采购单提交',1],
+              ['purchase.order.approve','采购单审核',1],['purchase.order.void','采购单作废',1],
+              ['purchase.order.push','下推入库',1],['purchase.order.export','采购单导出',1]], 1)}
+            ${permGroup('销售管理', [
+              ['sales.order.view','订单查看',1],['sales.order.approve','订单审核',0],
+              ['sales.request.view','申请查看',1],['sales.request.approve','申请审核',0]], 1)}
+            ${permGroup('库存管理', [
+              ['stock.balance.view','库存明细',1],['stock.ledger.view','库存流水',1],
+              ['stock.in.view','入库单查看',1],['stock.out.view','出库单查看',1],
+              ['stock.take.view','盘点单查看',0],['stock.in.approve','入库审核(过账)',0],
+              ['stock.out.approve','出库审核(过账)',0]], 1)}
+            ${permGroup('资料库 / 系统管理', [
+              ['master.product.view','物料查看',1],['master.ptype.view','商品类型查看',1],
+              ['master.customer.view','客户查看',1],['master.supplier.view','供应商查看',1],
+              ['system.dict.view','数据字典',0],['system.log.view','操作日志',0]], 1)}
+          </div>
+          <div style="margin-top:12px;font-size:12px;color:#909399">
+            已选 32 个权限点 · 多角色取并集，数据范围取最宽
+          </div>
+          <div style="margin-top:14px">${btn('保存权限','pri')} ${btn('重置')}</div>
+        </div>
+      </div>
+    </div>`)
+});
+function permGroup(name, items, checked){
+  const its = items.map(([code,label,on]) =>
+    `<div class="it"><span class="cbx ${on?'on':''}"></span>${label}<span style="color:#c0c4cc;font-size:11px">${code.split('.').pop()}</span></div>`).join('');
+  return `<div class="perm-grp">
+    <div class="gt"><span class="cbx ${checked?'on':''}"></span>${name}
+      <span style="color:#c0c4cc;font-size:11px;font-weight:400">${items.length} 项</span></div>
+    <div class="items">${its}</div>
+  </div>`;
+}
+
+/* ---------- 12. 账号管理（列表 + 弹窗） ---------- */
+PAGES.push({
+  id:'user', group:'资料库页面', name:'账号管理（列表 + 新增弹窗）', path:'/master/users',
+  perm:'master.user.view',
+  tips:[
+    '标准列表页 + <b>居中弹窗表单</b>（宽 560px）：新增/编辑/重置密码共用弹窗容器。',
+    '列表列：登录名、姓名、所属组织、角色（多标签）、状态、最近登录、操作。',
+    '重置密码后账号下次登录强制改密；停用账号立即失效但数据保留。',
+    '约束：不可停用自己、不可停用最后一个超级管理员（操作按钮置灰 + 提示）。'
+  ],
+  html: () => {
+    const main = shell('user','资料库 / 账号管理',
+      `<div class="card">
+        <div class="filter">
+          ${fitem('登录名/姓名', inp('', 160))}
+          ${fitem('所属组织', sel('全部', 150))}
+          ${fitem('角色', sel('全部', 140))}
+          ${fitem('状态', sel('全部', 110))}
+          <span class="sp"></span>
+          <div style="display:flex;gap:8px">${btn('查询','pri')}${btn('重置')}</div>
+        </div>
+      </div>
+      <div class="card tight">
+        <div class="toolbar" style="padding:12px 16px 0"><span class="cnt">共 <b>20</b> 条</span>
+          <span class="sp"></span>${btn('+ 新增账号','pri')}</div>
+        ${table([{t:'登录名',w:'140px'},{t:'姓名',w:'100px'},{t:'所属组织',w:'160px'},
+                 {t:'角色',w:'auto'},{t:'状态',w:'90px'},{t:'最近登录',w:'160px'},{t:'操作',w:'240px'}],
+          [['admin','系统管理员','智澈公司','<span class="tag pri">系统管理员</span>',tag('启用','suc'),'2026-09-13 09:10',
+            btn('编辑','text sm')+btn('重置密码','text sm')],
+           ['buyer01','张三','采购部 / 采购一组','<span class="tag pri">采购主管</span> <span class="tag">采购员</span>',tag('启用','suc'),'2026-09-13 08:52',
+            btn('编辑','text sm')+btn('重置密码','text sm')+btn('停用','text sm dgr')],
+           ['keeper01','孙七','仓储部','<span class="tag pri">仓管员</span>',tag('启用','suc'),'2026-09-13 08:30',
+            btn('编辑','text sm')+btn('重置密码','text sm')+btn('停用','text sm dgr')],
+           ['viewer01','总经理','智澈公司','<span class="tag">只读/管理层</span>',tag('启用','suc'),'2026-09-12 20:10',
+            btn('编辑','text sm')+btn('重置密码','text sm')+btn('停用','text sm dgr')],
+           ['buyer03','王五','采购部 / 采购一组','<span class="tag">采购员</span>',tag('停用','gray'),'2026-08-30 09:00',
+            btn('编辑','text sm')+btn('启用','text sm')]])}
+        ${pager(20)}
+      </div>`);
+
+    return `<div style="position:relative">${main}
+      <div class="mask">
+        <div class="dialog">
+          <div class="dh">新增账号</div>
+          <div class="db">
+            <div class="form-grid">
+              ${field('登录名', inp('字母/数字，唯一', 0), 1)}
+              ${field('真实姓名', inp('', 0), 1)}
+              ${field('所属组织', sel('请选择部门', 0), 1)}
+              ${field('手机', inp('', 0))}
+              ${field('邮箱', inp('', 0))}
+              ${field('初始密码', inp('≥8 位，含字母与数字', 0), 1)}
+            </div>
+            ${field('角色', `${tag('采购员','pri')} ${tag('仓管员','pri')} ${btn('+ 选择角色','text sm')}`, 1)}
+            <div style="margin-left:96px;font-size:12px;color:#909399;line-height:1.7">
+              首次登录将强制修改密码；多角色权限取并集、数据范围取最宽。
+            </div>
+          </div>
+          <div class="df">${btn('取消')}${btn('确定','pri')}</div>
+        </div>
+      </div>
+    </div>`;
+  }
+});
+
+/* ---------- 13. 物料档案 ---------- */
+PAGES.push({
+  id:'prod', group:'资料库页面', name:'基础信息 / 物料档案', path:'/master/products',
+  perm:'master.product.view',
+  tips:[
+    '主数据列表页范式：筛选（编码/名称/商品类型/单位/状态）+ 表格 + 分页，字段较业务单据更偏档案属性。',
+    '物料编码支持「自动生成（类型码 + 4 位流水）」或手工录入，创建后不可修改。',
+    '「基本单位」决定数量小数位——选择后以灰字提示该单位支持的小数位。',
+    '停用物料不参与新单据选择，但历史单据保留快照名称。',
+    '右侧提示区说明「物料必须挂在商品类型末级分类」。'
+  ],
+  html: () => shell('prod','资料库 / 基础信息 / 物料档案',
+    `<div class="card">
+      <div class="filter">
+        ${fitem('物料编码/名称', inp('', 180))}
+        ${fitem('商品类型', sel('全部（仅末级可选）', 190))}
+        ${fitem('基本单位', sel('全部', 120))}
+        ${fitem('状态', sel('启用', 110))}
+        ${fitem('低于安全库存', `${sel('不限', 120)}`)}
+        <span class="sp"></span>
+        <div style="display:flex;gap:8px">${btn('查询','pri')}${btn('重置')}</div>
+      </div>
+    </div>
+    <div class="card tight">
+      <div class="toolbar" style="padding:12px 16px 0"><span class="cnt">共 <b>64</b> 条</span>
+        <span class="sp"></span>${btn('导出 Excel')}${btn('+ 新增物料','pri')}</div>
+      ${table([{t:'物料编码',w:'130px'},{t:'物料名称',w:'auto'},{t:'规格型号',w:'150px'},
+               {t:'商品类型',w:'150px'},{t:'基本单位',w:'100px',cls:'c'},{t:'参考单价',w:'110px',cls:'num'},
+               {t:'安全库存',w:'100px',cls:'num'},{t:'品牌',w:'100px'},{t:'状态',w:'90px'},
+               {t:'操作',w:'140px'}],
+        [['01010001','A4 复印纸','70g / 500 张','办公用品 / 纸张','包（2 位小数）','18.5000','50','Double A',tag('启用','suc'),
+          btn('编辑','text sm')+btn('停用','text sm dgr')],
+         ['01020003','硒鼓 CF-280A','原装','办公用品 / 打印机耗材','个（0 位小数）','420.0000','10','HP',tag('启用','suc'),
+          btn('编辑','text sm')+btn('停用','text sm dgr')],
+         ['01030007','网线 超六类','305m / 箱','网络耗材 / 线缆','箱（0 位小数）','680.0000','100','AMP',tag('启用','suc'),
+          btn('编辑','text sm')+btn('停用','text sm dgr')],
+         ['01040002','标签纸 100×80','1000 张/卷','办公用品 / 耗材','卷（0 位小数）','26.0000','20','—',tag('启用','suc'),
+          btn('编辑','text sm')+btn('停用','text sm dgr')],
+         ['01050011','色带 ERC-09','—','办公用品 / 打印机耗材','个（0 位小数）','35.0000','15','Epson',tag('停用','gray'),
+          btn('编辑','text sm')+btn('启用','text sm')]])}
+      ${pager(64)}
+    </div>
+
+    <div class="card" style="border-color:#faecd8;background:#fdf6ec">
+      <div style="font-size:12.5px;color:#96690f;line-height:1.9">
+        <b>物料档案规则：</b>① 物料必须挂在商品类型的<b>末级分类</b>下，否则无法保存；
+        ② 计量单位只做字典，一个物料绑定<b>单一基本单位</b>，不做多单位换算；
+        ③ 物料编码创建后不可修改，停用物料不影响历史单据显示。
+      </div>
+    </div>`)
+});
+
+/* ---------- 14. 系统管理（页签收纳） ---------- */
+PAGES.push({
+  id:'system', group:'资料库页面', name:'系统管理（页签收纳）', path:'/system',
+  perm:'system.dict.view',
+  tips:[
+    '把 V1.0 分散的「系统设置」收敛为一个页面 + <b>7 个页签</b>：数据字典 / 编号规则 / 系统参数 / 操作日志 / 变更历史 / 数据备份 / 关于。',
+    '数据字典内部再分二级页签（合同类型 / 我方主体码 / 标签管理 / 行项类型），保留 V1.0 全部能力。',
+    '系统参数为键值表单（含「是否允许负库存」「是否允许创建人自审」等开关）。',
+    '操作日志与变更历史为只读查询页，支持时间范围 + 操作人 + 动作筛选。'
+  ],
+  html: () => shell('system','资料库 / 系统管理',
+    `<div class="card tight">
+      <div class="tabs" style="padding:0 16px;margin:0">
+        <div class="tb on">数据字典</div><div class="tb">编号规则</div><div class="tb">系统参数</div>
+        <div class="tb">操作日志</div><div class="tb">变更历史</div><div class="tb">数据备份</div><div class="tb">关于</div>
+      </div>
+      <div class="tabs mini" style="padding:0 16px;margin:0;border-bottom:1px dashed #ebeef5">
+        <div class="tb on">合同类型</div><div class="tb">我方主体码</div><div class="tb">标签管理</div><div class="tb">行项类型</div>
+      </div>
+      <div style="padding:16px">
+        <div class="toolbar"><span class="cnt">合同类型字典（类型码参与自动编号）</span><span class="sp"></span>
+          ${btn('+ 新增类型','pri')}</div>
+        ${table([{t:'代码',w:'100px'},{t:'类型名称',w:'auto'},{t:'说明',w:'auto'},
+                 {t:'启用',w:'90px',cls:'c'},{t:'操作',w:'120px'}],
+          [['SAL','销售/收入','面向客户收款',tag('启用','suc'),btn('编辑','text sm')],
+           ['PUR','采购/支出','面向供应商付款',tag('启用','suc'),btn('编辑','text sm')],
+           ['COO','合作/战略协议','不涉及直接金钱往来的框架协议',tag('启用','suc'),btn('编辑','text sm')],
+           ['LAB','劳动/人事','员工劳动合同',tag('启用','suc'),btn('编辑','text sm')],
+           ['FIN','金融/投融资','贷款、股权等',tag('启用','suc'),btn('编辑','text sm')],
+           ['NDA','保密协议','单签或互签保密文件',tag('启用','suc'),btn('编辑','text sm')],
+           ['OTH','其他(历史)','旧版"其他"历史数据，不参与自动编号',tag('停用','gray'),btn('编辑','text sm')]])}
+        <div style="margin-top:14px;font-size:12px;color:#909399">
+          提示：类型代码 3 位大写字母，参与合同编号生成（如 PURZC202609000001）；「其他(历史)」不可启用。
+        </div>
+      </div>
+    </div>
+
+    <div class="cols c2">
+      <div class="card" style="margin-bottom:0">
+        <div class="card-hd"><span class="t">系统参数（预览）</span></div>
+        <div class="form-grid" style="grid-template-columns:1fr">
+          ${field('质保提醒窗口', inpV('30 天'))}
+          ${field('允许负库存', `${sel('否', 90)} <span style="font-size:12px;color:#909399;margin-left:8px">开启后出库不再拦截</span>`)}
+          ${field('允许创建人自审', `${sel('否', 90)}`)}
+          ${field('数量小数位', inpV('按单位（默认 2）'))}
+          ${field('单价 / 金额小数位', inpV('4 / 2'))}
+          ${field('密码最小长度', inpV('8'))}
+        </div>
+        ${btn('保存参数','pri')}
+      </div>
+      <div class="card tight" style="margin-bottom:0">
+        <div class="card-hd"><span class="t">操作日志（预览）</span><span class="sp"></span>${btn('导出','','sm')}</div>
+        ${table([{t:'时间',w:'130px'},{t:'操作人',w:'100px'},{t:'模块',w:'80px'},
+                 {t:'动作',w:'80px'},{t:'对象',w:'auto'},{t:'结果',w:'70px'}],
+          [['09-13 09:10','系统管理员','auth','login','admin','成功'],
+           ['09-13 08:55','张三','purchase','approve','PO202609000013','成功'],
+           ['09-13 08:52','李四','stock','approve','IN202609000088','成功'],
+           ['09-13 08:40','李四','stock','approve','OUT202609000052',
+            '<span style="color:#f56c6c">失败</span>'],
+           ['09-12 17:30','张三','system','perm_change','角色：采购员','成功']])}
+      </div>
+    </div>`)
+});
+
+/* ---------- 15. 布局规范 ---------- */
+PAGES.push({
+  id:'spec', group:'框架与规范', name:'布局规范与尺寸标注', path:'—',
+  perm:'—',
+  tips:[
+    '本页给开发对齐用：<b>尺寸、间距、层级、状态色</b>的统一定义。',
+    '所有列表/表单/详情页面复用同一套容器与间距，避免逐页调样式。',
+    '状态标签色：草稿灰 / 待审核橙 / 已审核蓝 / 已完成绿 / 已作废红（与 11 §10.2 状态机一一对应）。'
+  ],
+  html: () => `<div class="wf"><div class="wf-body"><div class="wf-top">
+      <div class="wf-crumb">前端规范 / 布局与尺寸</div><div class="sp"></div>
+      <div class="wf-user">静态示意页（无侧栏）</div>
+    </div>
+    <div class="wf-main">
+      <div class="spec-grid">
+        <div class="spec"><h4>整体框架</h4><dl>
+          <div><dt>视口基准</dt><dd>1440 × 900（内网 Chrome/Edge）</dd></div>
+          <div><dt>侧栏宽度</dt><dd>220px（固定，深色 #1f2d3d）</dd></div>
+          <div><dt>顶栏高度</dt><dd>56px（白底 + 1px 下边框）</dd></div>
+          <div><dt>主区留白</dt><dd>padding 16px，背景 #f5f7fa</dd></div>
+          <div><dt>内容最大宽</dt><dd>不限（自适应），卡片纵向间距 12px</dd></div>
+        </dl></div>
+
+        <div class="spec"><h4>侧边菜单</h4><dl>
+          <div><dt>一级项</dt><dd>高 40px，字号 13px</dd></div>
+          <div><dt>二级项</dt><dd>高 34px，缩进 38px，字号 12.5px</dd></div>
+          <div><dt>三级项</dt><dd>高 32px，缩进 54px，字号 12.5px</dd></div>
+          <div><dt>选中态</dt><dd>左 3px 蓝条 + 背景 #263445 + 白字</dd></div>
+          <div><dt>图标</dt><dd>13px 圆角方块（线框占位）</dd></div>
+        </dl></div>
+
+        <div class="spec"><h4>卡片与表格</h4><dl>
+          <div><dt>卡片</dt><dd>圆角 4px，边框 #e4e7ed，内边距 16px</dd></div>
+          <div><dt>卡片头</dt><dd>标题 13.5px 600；右侧操作按钮组</dd></div>
+          <div><dt>表头</dt><dd>背景 #f5f7fa，字色 #606266，padding 9/12</dd></div>
+          <div><dt>表格行</dt><dd>高 36px，下边框 #ebeef5，偶数行 #fafbfc</dd></div>
+          <div><dt>数字列</dt><dd>右对齐 + 等宽字体</dd></div>
+        </dl></div>
+
+        <div class="spec"><h4>表单控件</h4><dl>
+          <div><dt>控件高</dt><dd>32px（登录页 38px）</dd></div>
+          <div><dt>标签宽</dt><dd>88px 右对齐；三列表单 82px</dd></div>
+          <div><dt>必填标记</dt><dd>标签前红色 *</dd></div>
+          <div><dt>表单网格</dt><dd>两列（间隔 24px）/ 三列</dd></div>
+          <div><dt>底部操作条</dt><dd>sticky 常驻，右对齐主按钮</dd></div>
+        </dl></div>
+
+        <div class="spec"><h4>单据状态色（11 §10.2）</h4><dl>
+          <div><dt>草稿</dt><dd>${tag('草稿','gray')}</dd></div>
+          <div><dt>待审核</dt><dd>${tag('待审核','wrn')}</dd></div>
+          <div><dt>已审核</dt><dd>${tag('已审核','pri')}</dd></div>
+          <div><dt>已完成</dt><dd>${tag('已完成','suc')}</dd></div>
+          <div><dt>已作废</dt><dd>${tag('已作废','dgr')}</dd></div>
+        </dl></div>
+
+        <div class="spec"><h4>通用组件（12 §7.3）</h4><dl>
+          <div><dt>DocListPage</dt><dd>8 类单据共用列表壳</dd></div>
+          <div><dt>DocFormPage</dt><dd>表头 + 行项 + 底部操作条</dd></div>
+          <div><dt>DocItemsTable</dt><dd>行项编辑表格（含合计）</dd></div>
+          <div><dt>ProductPicker</dt><dd>物料选择弹窗</dd></div>
+          <div><dt>PartyPicker</dt><dd>客户 / 供应商选择器</dd></div>
+          <div><dt>动作弹窗</dt><dd>审核 / 驳回 / 作废 / 反审核（原因必填）</dd></div>
+        </dl></div>
+      </div>
+
+      <div class="spec-grid" style="margin-top:12px">
+        <div class="spec"><h4>主色与语义色</h4>
+          <div class="sw-row">
+            <div class="sw" style="background:#409eff">主色</div>
+            <div class="sw" style="background:#67c23a">成功</div>
+            <div class="sw" style="background:#e6a23c">警告</div>
+            <div class="sw" style="background:#f56c6c">危险</div>
+            <div class="sw" style="background:#909399">信息</div>
+            <div class="sw" style="background:#1f2d3d">侧栏</div>
+            <div class="sw" style="background:#f5f7fa;color:#909399">背景</div>
+          </div>
+        </div>
+        <div class="spec"><h4>权限可见性</h4><dl>
+          <div><dt>菜单</dt><dd>渲染后端 <code>/api/auth/me</code> 返回的 menus 树</dd></div>
+          <div><dt>路由</dt><dd>meta.perm 不在 perms 内 → 跳 /403</dd></div>
+          <div><dt>按钮</dt><dd>v-perm 指令（仅体验，后端强制校验）</dd></div>
+        </dl></div>
+        <div class="spec"><h4>本图说明</h4><dl>
+          <div><dt>性质</dt><dd>静态线框，无交互、无真实数据</dd></div>
+          <div><dt>依据</dt><dd>12-erp-system-design.md §7</dd></div>
+          <div><dt>页数</dt><dd>15 个页面 / 范式</dd></div>
+          <div><dt>用途</dt><dd>开发前对齐结构，评审后再写组件</dd></div>
+        </dl></div>
+      </div>
+    </div></div></div>`
+});
+
+/* =======================================================================
+   渲染与交互（仅预览器本身）
+   ======================================================================= */
+const GROUPS = ['框架与规范','业务页面','库存页面','资料库页面'];
+let current = PAGES[0].id;
+
+function renderCat(){
+  const cat = document.getElementById('cat');
+  cat.innerHTML = GROUPS.map(g => {
+    const items = PAGES.filter(p => p.group === g);
+    if (!items.length) return '';
+    return `<h3>${g}</h3>` + items.map(p =>
+      `<a data-id="${p.id}" class="${p.id===current?'on':''}">
+         <span>${p.name.split('（')[0]}</span><span class="n" style="margin-left:auto">${p.path}</span></a>`).join('');
+  }).join('');
+}
+
+function renderPage(id){
+  const p = PAGES.find(x => x.id === id) || PAGES[0];
+  current = p.id;
+  document.getElementById('pg-name').textContent = p.name;
+  document.getElementById('pg-path').textContent = p.path;
+  document.getElementById('pg-perm').textContent = p.perm === '—' ? '' : '权限：' + p.perm;
+  document.getElementById('pg-tips').innerHTML = p.tips.map(t => `<li>${t}</li>`).join('');
+  document.getElementById('frame').innerHTML = p.html();
+  renderCat();
+  fit();
+}
+
+function fit(){
+  const holder = document.getElementById('holder');
+  const frame  = document.getElementById('frame');
+  const s = Math.min(1, holder.clientWidth / 1440);
+  frame.style.transform = `scale(${s})`;
+  holder.style.height = (frame.offsetHeight * s + 2) + 'px';
+}
+
+document.getElementById('cat').addEventListener('click', e => {
+  const a = e.target.closest('a');
+  if (!a) return;
+  renderPage(a.dataset.id);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+window.addEventListener('resize', fit);
+renderPage(current);
+</script>
+</body>
+</html>
