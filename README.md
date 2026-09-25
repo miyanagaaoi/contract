@@ -30,6 +30,7 @@
 | [16-permission-matrix.md](docs/16-permission-matrix.md) | **权限矩阵复核记录**：8 个内置角色的权限点、菜单裁剪与接口 200/403 实测矩阵 | 全体 |
 | [17-uat-plan.md](docs/17-uat-plan.md) | **UAT 计划与验收记录**：三类用户按 AC 逐条演示的场景清单、异议记录与签字页 | 全体、业务用户 |
 | [18-m3-acceptance.md](docs/18-m3-acceptance.md) | **V2.0 · M3 验收报告**：销售线、盘点、导出与打印的验收证据与交付物 | 全体 |
+| [19-go-live-checklist.md](docs/19-go-live-checklist.md) | **V2.0 上线清单**：里程碑与 tag、升级步骤（含迁移动作）、上线后验证、回滚与运维 | 运维、决策人 |
 
 ## 关键决策记录（本轮已确认）
 
