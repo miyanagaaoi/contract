@@ -782,3 +782,36 @@ class TestDocExport:
         exported = {row[0] for row in rows[1:]}
         assert mine["doc_no"] in exported
         assert theirs["doc_no"] not in exported, "采购员不得导出他人（范围外）单据"
+
+
+# ===================== T-V2-37 单据 A4 打印 =====================
+
+class TestDocPrint:
+    def test_print_html_contains_header_and_items(self, box):
+        product = box.product(ptype_id=box.ptype()["id"], uom_id=box.uom()["id"])
+        warehouse, keeper = box.warehouse(), box.headers(KEEPER)
+        doc = box.create_doc("/api/stock/in-orders", keeper, {
+            "warehouse_id": warehouse["id"], "in_type": "采购入库",
+            "items": _req_items(box, product, 6), "remark": "打印验收"})
+
+        resp = box.client.get(f"/api/stock/in-orders/{doc['id']}/print", headers=keeper)
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"].startswith("text/html")
+        html = resp.text
+        assert "<!DOCTYPE html>" in html
+        for expected in (doc["doc_no"], "入库单", warehouse["name"], product["code"],
+                         product["name"], "打印验收", "合计", "window.print()"):
+            assert expected in html, f"打印页缺少：{expected}"
+
+    def test_print_respects_permission_and_scope(self, box):
+        product = box.product(ptype_id=box.ptype()["id"], uom_id=box.uom()["id"])
+        buyer = box.headers(BUYER)
+        doc = box.create_doc("/api/purchase/requests", buyer, {"items": _req_items(box, product, 1)})
+        # 未登录
+        assert box.client.get(f"/api/purchase/requests/{doc['id']}/print").status_code == 401
+        # 采购员本人可打印；仓管员无采购申请查看权限 → 403
+        assert box.client.get(f"/api/purchase/requests/{doc['id']}/print",
+                              headers=buyer).status_code == 200
+        keeper = box.headers(KEEPER)
+        denied = box.client.get(f"/api/purchase/requests/{doc['id']}/print", headers=keeper)
+        assert denied.status_code == 403

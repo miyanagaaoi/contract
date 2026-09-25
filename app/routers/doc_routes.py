@@ -14,6 +14,7 @@ register_doc_routes(router, prefix="/api/purchase/requests", kind="purchase_requ
 from __future__ import annotations
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -249,3 +250,17 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
     def _logs(doc_id: int, _user: User = Depends(view_perm), db: Session = Depends(get_db)):
         doc = _guard(db, doc_service.get_doc, db, model, doc_id)
         return doc_service.list_logs(db, doc)
+
+    @router.get(prefix + "/{doc_id}/print", summary=f"{label}打印（A4）", response_class=HTMLResponse)
+    def _print(doc_id: int, user: User = Depends(view_perm), db: Session = Depends(get_db)):
+        """返回可直接打印的 A4 HTML（T-V2-37 / BR-V2-16）。
+
+        前端以 blob 方式打开（令牌在请求头，不能放进 URL）；页面顶部自带"打印/另存为 PDF"按钮。
+        """
+        from ..services.print_service import build_doc_print_html
+
+        doc = _guard(db, doc_service.get_doc, db, model, doc_id)
+        scoped = apply_data_scope(db.query(model).filter(model.id == doc.id), model, user, db)
+        if scoped.first() is None:
+            raise HTTPException(status_code=403, detail="无权打印该单据（超出数据范围）")
+        return HTMLResponse(content=build_doc_print_html(db, doc))
