@@ -417,6 +417,16 @@ class TestProduct:
         assert first["code"] != second["code"]
         assert int(second["code"][len("RAW"):]) == int(first["code"][len("RAW"):]) + 1
 
+    def test_auto_code_with_numeric_prefix_not_duplicated(self, box):
+        """类型码含数字时（如 L476）不得把前缀数字并进序号（曾生成 L4764760002）。"""
+        code = f"L{uuid.uuid4().int % 900 + 100}"
+        leaf = box.ptype(code=code)
+        uom = box.uom()
+        first = box.product(ptype_id=leaf["id"], uom_id=uom["id"])
+        second = box.product(ptype_id=leaf["id"], uom_id=uom["id"])
+        assert first["code"] == f"{code}0001", first["code"]
+        assert second["code"] == f"{code}0002", second["code"]
+
     def test_manual_code_kept(self, box):
         leaf = box.ptype()
         uom = box.uom()

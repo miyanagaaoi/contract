@@ -1,22 +1,30 @@
-"""CTMS 原型 P0 全套验收冒烟（AC-01 ~ AC-11）。
+"""CTMS 原型 P0 全套验收冒烟（AC-01 ~ AC-11，含 V2.0 认证回归）。
 
-用法：先启动后端（uvicorn app.main:app --host 127.0.0.1 --port 8000），再运行本脚本：
-    .venv\\Scripts\\python app\\tests\\smoke_p0.py
+用法：先启动后端，再运行本脚本：
+    app\\.venv\\Scripts\\python.exe app\\tests\\smoke_p0.py
 
+可选环境变量：`CTMS_SMOKE_BASE`（默认 http://127.0.0.1:8010/api）。
+
+V2.0 变更：所有接口需登录令牌（T-V2-06b 收口），脚本改为以管理员账号登录取 token 后调用；
+其他断言与 V1.0 验收保持一致，属于 M1 的"合同模块无回归"证据。
 脚本幂等：每次运行使用时间戳唯一编号，结束时软删除自建合同。
 """
 import calendar
 import io
 import json
+import os
 import time
-import urllib.request
 import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import date
-from urllib.parse import urlencode
 
 from openpyxl import load_workbook
 
-BASE = "http://127.0.0.1:8000/api"
+BASE = os.environ.get("CTMS_SMOKE_BASE", "http://127.0.0.1:8010/api")
+ADMIN_USER = "admin"
+ADMIN_PWD = "admin12345"
+TOKEN: str | None = None
 PASSED: list[str] = []
 
 
@@ -25,13 +33,21 @@ def _report(name: str):
     print(f"  [PASS] {name}")
 
 
+def _headers(extra: dict | None = None) -> dict:
+    headers = {"Content-Type": "application/json"}
+    if TOKEN:
+        headers["Authorization"] = f"Bearer {TOKEN}"
+    if extra:
+        headers.update(extra)
+    return headers
+
+
 def req(method, path, body=None, params=None, expect=(200,)):
     url = BASE + path
     if params:
-        url += "?" + urlencode(params)
+        url += "?" + urllib.parse.urlencode(params)
     data = json.dumps(body, ensure_ascii=True).encode("utf-8") if body is not None else None
-    r = urllib.request.Request(url, data=data, method=method,
-                               headers={"Content-Type": "application/json"})
+    r = urllib.request.Request(url, data=data, method=method, headers=_headers())
     try:
         with urllib.request.urlopen(r) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8") or "null")
@@ -46,11 +62,19 @@ def req(method, path, body=None, params=None, expect=(200,)):
         return e.code, payload
 
 
+def login() -> None:
+    """V2.0：取得管理员令牌（未登录时所有业务接口均 401）。"""
+    global TOKEN
+    code, data = req("POST", "/auth/login", {"username": ADMIN_USER, "password": ADMIN_PWD})
+    assert code == 200 and data.get("token"), "管理员登录失败：请先执行 python -m app.init_db"
+    TOKEN = data["token"]
+
+
 def download(params=None) -> bytes:
     url = BASE + "/export/contracts.xlsx"
     if params:
-        url += "?" + urlencode(params)
-    with urllib.request.urlopen(url) as resp:
+        url += "?" + urllib.parse.urlencode(params)
+    with urllib.request.urlopen(urllib.request.Request(url, headers=_headers())) as resp:
         return resp.read()
 
 
@@ -68,7 +92,16 @@ def cleanup(cids: list[int]):
 def main():
     ts = int(time.time()) % 1000000
     cleaned: list[int] = []
+    print(f"P0/V1.0 合同模块回归 → {BASE}")
     try:
+        # ---------- AC-02 未登录拦截（V2.0 新增边界） ----------
+        saved, globals()["TOKEN"] = TOKEN, None
+        code, _ = req("GET", "/contracts", expect=(401,))
+        assert code == 401
+        globals()["TOKEN"] = saved
+        login()
+        _report("AC-02b V2.0 未登录访问合同接口 → 401")
+
         # ---------- AC-01/AC-02 新增与编号唯一 ----------
         no_a = f"CG-2025-P0A{ts:06d}"
         _, c = req("POST", "/contracts", {
@@ -131,7 +164,9 @@ def main():
         assert any(lg["field_name"] == "备注" and lg["new_value"] == "首付款已安排" for lg in logs)
         ts_list = [lg["created_at"] for lg in logs]
         assert ts_list == sorted(ts_list, reverse=True)
-        _report("AC-04 状态流转 / AC-12 历史倒序含备注")
+        # V2.0：变更历史带操作人（AC-V2-37）
+        assert any(lg["operator_name"] for lg in logs), "V2.0 变更历史应记录操作人"
+        _report("AC-04 状态流转 / AC-12 历史倒序含备注与操作人")
 
         # ---------- AC-08/AC-14 质保与看板 ----------
         today = date.today()
@@ -156,11 +191,12 @@ def main():
         body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"P0验收.pdf\"\r\n"
                 f"Content-Type: application/pdf\r\n\r\n").encode("utf-8") + content.encode("utf-8") + f"\r\n--{boundary}--\r\n".encode("utf-8")
         r = urllib.request.Request(f"{BASE}/contracts/{cid_a}/attachments", data=body, method="POST",
-                                   headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+                                   headers=_headers({"Content-Type": f"multipart/form-data; boundary={boundary}"}))
         with urllib.request.urlopen(r) as resp:
             att = json.loads(resp.read().decode("utf-8"))
         assert att["file_name"] == "P0验收.pdf"
-        with urllib.request.urlopen(f"{BASE}/attachments/{att['id']}/download") as resp:
+        with urllib.request.urlopen(urllib.request.Request(
+                f"{BASE}/attachments/{att['id']}/download", headers=_headers())) as resp:
             assert resp.read().decode("utf-8") == content
         req("DELETE", f"/contracts/{cid_a}/attachments/{att['id']}", params={"reason": "冒烟删除"})
         _report("AC-09 附件上传/下载/删除留痕")
@@ -175,7 +211,7 @@ def main():
         assert code == 200
         _, c = req("GET", f"/contracts/{cid_a}")
         assert c["deleted"] is False
-        _report("AC-10 免登录直开接口语义 + 停用/30天内恢复")
+        _report("AC-10 停用/30天内恢复（含停用后列表默认不可见）")
 
         # ---------- AC-11 Excel 导出与筛选一致 ----------
         data = download({"keyword": "P0甲方AAA", "sign_from": "2025-01-01", "sign_to": "2025-12-31", "tags": tag_ids})

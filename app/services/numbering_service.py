@@ -39,7 +39,11 @@ def _target(kind: str):
 
 def _next_by_prefix(db: Session, model, column, *, prefix: str, reset: str,
                     seq_len: int, ref_date: date | None = None) -> str:
-    """按前缀取号：查库内最大序号 +1（前缀与年月共同构成比较键）。"""
+    """按前缀取号：查库内最大序号 +1（前缀与年月共同构成比较键）。
+
+    注意：序号必须从**前缀之后**的部分提取——前缀本身可能含数字（如商品类型码 `L476`），
+    若直接对整个编码取尾部数字，会把前缀里的数字并进序号，生成 `L4764760002` 这类错误编码。
+    """
     pattern = f"{prefix}{ref_date:%Y%m}" if reset == "month" else prefix
     row = (
         db.query(column)
@@ -49,7 +53,8 @@ def _next_by_prefix(db: Session, model, column, *, prefix: str, reset: str,
     )
     seq = 1
     if row is not None and row[0]:
-        matched = _TRAILING_DIGITS.search(str(row[0]))
+        suffix = str(row[0])[len(pattern):]
+        matched = _TRAILING_DIGITS.search(suffix)
         if matched:
             seq = int(matched.group(1)) + 1
     return f"{pattern}{str(seq).zfill(max(1, int(seq_len)))}"

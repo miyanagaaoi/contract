@@ -159,7 +159,7 @@ gantt
 
 ### 9.3 任务分解（WBS）
 
-#### M1 权限与主数据地基（对应 `11` §15；AC-V2-01~12）
+#### M1 权限与主数据地基（对应 `11` §15；AC-V2-01~12）— ✅ **已完成**（验收报告：`13-m1-acceptance.md`）
 
 | 任务 | 内容要点 | 依赖 | 验收 | 人日 |
 |---|---|---|---|---|
@@ -180,6 +180,11 @@ gantt
 | T-V2-15 | 前端布局重构：`AppLayout` + `SideMenu`（消费后端菜单树）+ `TopBar` + 路由表 + 登录页 + 403 页 | 02 | 全部页面可导航 | 1.0 |
 | T-V2-16 | M1 回归验收：AC-V2-01~12 + V1.0 合同模块 AC-01~15 全量回归 | 全部 | 验收报告 | 1.0 |
 | | | | **小计** | **13.5** |
+
+> **M1 完成记录（2026）**：T-V2-01~16 全部落地，验收证据
+> `pytest 203 passed` + `smoke_m1.py 15/15` + `smoke_p0.py 13/13` + 前端 `npm run build` 通过；
+> 详细交付物、缺陷修复与人工验收清单见 `13-m1-acceptance.md`。
+> 遗留：前端 UI 目视验收需人工执行（本轮浏览器自动化组件不可用），不影响进入 M2。
 
 #### M2 采购线与库存过账（AC-V2-13~26、31~32、40~42）
 
@@ -290,20 +295,24 @@ $env:CTMS_SERVE_STATIC=1; $env:CTMS_WEB_DIST="D:\dsh\hetong\web\dist"
 
 **环境变量**：`CTMS_DB_URL`、`CTMS_JWT_SECRET`、`CTMS_JWT_HOURS`(8)、`CTMS_AUTH_ENABLED`(1)、`CTMS_SERVE_STATIC`/`CTMS_WEB_DIST`。
 
-#### ⚠️ 当前环境阻塞（需人工处理）
+#### ✅ 环境阻塞已解除（原记录留档）
 
-本次工作期间，DSH 的 `pwsh` 工具**全部调用失败**：`exit code 3221225794`（`0xC0000142`，`STATUS_DLL_INIT_FAILED`，PowerShell 进程无法初始化 DLL）。影响：
+M1 开发初期 DSH 的 `pwsh` 工具曾全部调用失败（`exit code 3221225794` / `STATUS_DLL_INIT_FAILED`），
+无法执行 `pip install` / `npm install` / 启动 uvicorn / 前端构建；**该问题已恢复**（重启宿主后 pwsh 正常）。
 
-- 无法执行 `pip install` / `npm install` / 启动 uvicorn / 前端构建；
-- 因此本轮仅完成文档与设计（`11`/`12`/`03`），**尚未编译或运行任何 V2.0 代码**。
+本轮已实际执行的命令与结果：
 
-处理建议（按优先级）：
+```powershell
+app\.venv\Scripts\python.exe -m pytest app/tests -q          # 203 passed
+cd web; npm run build                                        # 构建成功
+$env:CTMS_SERVE_STATIC=1; $env:CTMS_WEB_DIST="D:\dsh\hetong\web\dist"
+app\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8010
+$env:CTMS_SMOKE_BASE='http://127.0.0.1:8010/api'
+app\.venv\Scripts\python.exe app\tests\smoke_m1.py          # 15/15 PASS
+app\.venv\Scripts\python.exe app\tests\smoke_p0.py          # 13/13 PASS
+```
 
-1. 重启 DSH 主机/GUI 后重试 `pwsh -Command "echo ok"`；
-2. 仍失败则检查 `PATH` 是否混入异常条目、系统是否缺 VC++ 运行库、杀软是否拦截 `pwsh.exe`；
-3. 临时替代：在系统自带终端手工执行上述命令。
-
-> **T-V2-01 开始前必须先解决此问题**，否则无法验证代码可运行。
+> 仍不可用的能力：DSH 浏览器自动化（`bsk` 未安装），故前端只做到"构建通过"，UI 目视验收转人工（见 `13` §6）。
 
 ### 9.6 Git 纪律与里程碑验收
 
@@ -337,7 +346,7 @@ $env:CTMS_SERVE_STATIC=1; $env:CTMS_WEB_DIST="D:\dsh\hetong\web\dist"
 | C-08 | 技术底座保持 SQLite + 自研迁移，不引入 PostgreSQL/Alembic | 技术级 | `11` §11.3；`12` §4.5 | 已登记 |
 | C-09 | 计量单位不做多单位换算 | 口径级 | `11` §5.6.3 | 已登记 |
 | C-10 | 首页看板重规划后移至 M4 | 排期级 | `11` §15；`03` §9.4 | 已登记 |
-| C-11 | 工期预估由"6~7.5 周"修正为"单人 9~10 周 / 双人 5~6 周" | 排期级 | `11` §15；`03` §9.4 | 已登记，待同步 |
+| C-11 | 工期预估由"6~7.5 周"修正为"单人 9~10 周 / 双人 5~6 周" | 排期级 | `11` §15；`03` §9.4 | 已同步 |
 
 ---
 
@@ -357,7 +366,9 @@ $env:CTMS_SERVE_STATIC=1; $env:CTMS_WEB_DIST="D:\dsh\hetong\web\dist"
 
 ## 12. 下一步
 
-1. **评审**：`11`（PRD V2.0）+ `12`（设计 V2.0）+ 本文件 §9（估时）与 §10（变更登记）；
-2. 评审通过后：同步修正 `11` §15 工期表述（C-11）、冻结 `11`/`12`；
-3. 修复环境阻塞（§9.5）后启动 T-V2-01；
-4. 每完成一个任务即更新本文件任务状态并 commit。
+1. **M1 已交付**：验收证据与本轮缺陷修复见 `13-m1-acceptance.md`；
+2. 人工目视 UI（`13` §6 清单）通过后打 tag `v2.0-m1`，即可进入 M2；
+3. **M2 起步顺序**：T-V2-17 单据公共层（`DocMixin`/状态机/通用动作）→ T-V2-18 统一编号服务扩展 8 类单据
+   → **T-V2-19 过账服务**（关键路径，先写单测再接入单据）；
+4. 待同步文档项：`11` §15 工期表述（C-11）按 §9.4 修正为"单人 9~10 周 / 双人 5~6 周"；
+5. 每完成一个任务即更新本文件任务状态并 commit（`feat: [T-V2-xx] 功能名`）。
