@@ -1,6 +1,40 @@
 import axios from 'axios'
+import { ElMessage } from 'element-plus'
+
+export const TOKEN_KEY = 'ctms_token'
 
 export const http = axios.create({ baseURL: '/api', timeout: 20000 })
+
+// ---------- V2.0：登录态注入与统一错误处理（对应 12-erp-system-design.md §3.6） ----------
+http.interceptors.request.use((config) => {
+  const token = localStorage.getItem(TOKEN_KEY)
+  if (token) {
+    // AxiosHeaders 在 1.x 下支持属性赋值；用 any 规避类型细节
+    ;(config.headers as Record<string, string>).Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+http.interceptors.response.use(
+  (resp) => resp,
+  (error) => {
+    const status = error?.response?.status
+    const detail = error?.response?.data?.detail
+    if (status === 401) {
+      // 令牌缺失/过期/账号被停用：清本地令牌回登录页（带 redirect 便于登录后返回）
+      localStorage.removeItem(TOKEN_KEY)
+      if (!location.pathname.startsWith('/login')) {
+        const redirect = encodeURIComponent(location.pathname + location.search)
+        location.href = `/login?redirect=${redirect}`
+      }
+    } else if (status === 403) {
+      ElMessage.error(typeof detail === 'string' ? detail : '无权限执行该操作')
+    } else if (typeof detail === 'string') {
+      ElMessage.error(detail)
+    }
+    return Promise.reject(error)
+  },
+)
 
 // 宽松字典类型：原型阶段避免过度建模，字段与后端 _fmt 对齐
 export interface Dict {
