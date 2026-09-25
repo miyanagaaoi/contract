@@ -13,6 +13,7 @@ import {
   fetchContract,
   fetchContracts,
   fetchLogs,
+  fetchMasterOptions,
   fetchTags,
   getMeta,
   importContracts,
@@ -208,12 +209,51 @@ const saving = ref(false)
 const editingId = ref<number | null>(null)
 const form = reactive<Dict>({
   contract_no: '', name: '', type: '采购', party_a: '', party_b: '',
+  customer_id: null, supplier_id: null,
   sign_date: '', amount: 0, paid_amount: 0, status: '内部审批中',
   owner_name: '', remark: '', is_framework: false, parent_id: null, tags: [],
   items: [] as Dict[], subject_code: '',
   has_warranty: false, warranty_amount: null, warranty_rate: null,
   warranty_start: '', warranty_months: null,
 })
+
+// ---------- V2.0：往来单位档案化（T-V2-13 / AC-V2-33） ----------
+const customerOptions = ref<Dict[]>([])
+const supplierOptions = ref<Dict[]>([])
+
+/** 当前表单类型的标准代码（PUR/SAL/...） */
+const typeCode = computed(() => {
+  const value = String(form.type || '')
+  const defs = (meta.value.contract_type_defs || []) as Dict[]
+  const hit = defs.find((d) => d.label === value || d.code === value)
+  return String(hit?.code || '')
+})
+const isPurchaseType = computed(() => typeCode.value === 'PUR')
+const isSalesType = computed(() => typeCode.value === 'SAL')
+
+async function loadPartyOptions() {
+  try {
+    const [customers, suppliers] = await Promise.all([
+      fetchMasterOptions('customer'),
+      fetchMasterOptions('supplier'),
+    ])
+    customerOptions.value = customers
+    supplierOptions.value = suppliers
+  } catch {
+    // 档案下拉不可用时仍可纯文本录入（AC-V2-34）
+  }
+}
+
+/** 选择档案后写入名称快照（后端同样会回填，前端即时可见） */
+function onCustomerChange(id: number | null) {
+  const hit = customerOptions.value.find((c) => c.id === id)
+  if (hit) form.party_a = hit.name
+}
+
+function onSupplierChange(id: number | null) {
+  const hit = supplierOptions.value.find((s) => s.id === id)
+  if (hit) form.party_b = hit.name
+}
 
 function emptyRow(): Dict {
   return { item_type: meta.value.item_types?.[0] ?? '采购', name: '', spec: '', qty: null, unit_price: null, remark: '' }
@@ -222,6 +262,7 @@ function emptyRow(): Dict {
 function resetForm() {
   Object.assign(form, {
     contract_no: '', name: '', type: '采购', party_a: '', party_b: '',
+    customer_id: null, supplier_id: null,
     sign_date: '', amount: 0, paid_amount: 0, status: '内部审批中',
     owner_name: '', remark: '', is_framework: false, parent_id: null, tags: [],
     items: [] as Dict[], subject_code: '',
@@ -329,6 +370,7 @@ function openEdit(row: Dict) {
   Object.assign(form, {
     contract_no: row.contract_no, name: row.name, type: row.type,
     party_a: row.party_a, party_b: row.party_b,
+    customer_id: row.customer_id ?? null, supplier_id: row.supplier_id ?? null,
     sign_date: row.sign_date ?? '',
     amount: row.amount ?? 0, paid_amount: row.paid_amount ?? 0,
     status: row.status, owner_name: row.owner_name ?? '',
@@ -384,6 +426,8 @@ async function save() {
       contract_no: editingId.value ? form.contract_no : previewNo.value,
       name: form.name, type: form.type,
       party_a: form.party_a, party_b: form.party_b,
+      customer_id: isSalesType.value ? form.customer_id : null,
+      supplier_id: isPurchaseType.value ? form.supplier_id : null,
       sign_date: form.sign_date || null,
       paid_amount: form.paid_amount, status: form.status,
       owner_name: form.owner_name || '', remark: form.remark || '',
@@ -616,7 +660,7 @@ function fLabel(f: string): string {
 
 onMounted(async () => {
   meta.value = await getMeta()
-  await Promise.all([load(), loadFrameworks(), loadTags()])
+  await Promise.all([load(), loadFrameworks(), loadTags(), loadPartyOptions()])
 })
 </script>
 
@@ -691,8 +735,18 @@ onMounted(async () => {
         <el-table-column prop="contract_no" label="合同编号" width="130" />
         <el-table-column prop="name" label="合同名称" min-width="180" show-overflow-tooltip />
         <el-table-column prop="type" label="类型" width="70" />
-        <el-table-column prop="party_a" label="甲方" min-width="120" show-overflow-tooltip />
-        <el-table-column prop="party_b" label="乙方" min-width="120" show-overflow-tooltip />
+        <el-table-column label="甲方" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ row.party_a || '—' }}</span>
+            <el-tag v-if="row.customer_id" size="small" type="success" class="ml4">档案</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="乙方" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ row.party_b || '—' }}</span>
+            <el-tag v-if="row.supplier_id" size="small" type="warning" class="ml4">档案</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="金额" width="110" align="right">
           <template #default="{ row }">{{ fmtMoney(row.amount) }}</template>
         </el-table-column>
@@ -760,8 +814,32 @@ onMounted(async () => {
           </el-form-item></el-col>
           <el-col :span="6"><el-form-item label="签订日期"><el-date-picker v-model="form.sign_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item></el-col>
           <el-col :span="6"><el-form-item label="经办人"><el-input v-model="form.owner_name" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="甲方"><el-input v-model="form.party_a" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="乙方"><el-input v-model="form.party_b" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="甲方">
+            <el-select v-if="isSalesType" v-model="form.customer_id" filterable clearable
+                       placeholder="选择客户档案（销售合同）" style="width: 100%"
+                       @change="onCustomerChange">
+              <el-option v-for="c in customerOptions" :key="c.id"
+                         :label="`${c.name}（${c.code}）`" :value="c.id" />
+            </el-select>
+            <el-input v-else v-model="form.party_a" placeholder="甲方（其他类型可用纯文本）" />
+          </el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="乙方">
+            <el-select v-if="isPurchaseType" v-model="form.supplier_id" filterable clearable
+                       placeholder="选择供应商档案（采购合同）" style="width: 100%"
+                       @change="onSupplierChange">
+              <el-option v-for="s in supplierOptions" :key="s.id"
+                         :label="`${s.name}（${s.code}）`" :value="s.id" />
+            </el-select>
+            <el-input v-else v-model="form.party_b" placeholder="乙方（其他类型可用纯文本）" />
+          </el-form-item></el-col>
+          <el-col v-if="form.customer_id || form.supplier_id" :span="24">
+            <el-form-item label="档案快照">
+              <span class="gray">
+                甲方：{{ form.party_a || '—' }}；乙方：{{ form.party_b || '—' }}
+                （档案变更不影响已保存的名称快照，可理解为签约时的对方名称）
+              </span>
+            </el-form-item>
+          </el-col>
           <el-col :span="24" v-if="!editingId">
             <el-form-item label="编号规则"><span class="gray">{{ meta.numbering_hint }}；选择类型/主体/签订日期后自动生成</span></el-form-item>
           </el-col>

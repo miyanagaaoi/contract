@@ -2,6 +2,14 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import { useAuthStore } from '@/stores/auth'
 
+/**
+ * 路由表（T-V2-15）。
+ *
+ * - 主区页面统一挂在 `AppLayout` 下（侧栏 + 顶栏 + 主区）；
+ * - 登录 / 改密 / 403 为独立全屏页；
+ * - `meta.perm` 与后端 `app/permissions.py` 的权限点一致，供路由守卫与菜单裁剪使用；
+ * - 旧路径 `/settings` 重定向到 `/system`（AC-V2-38：原设置功能全部保留，入口收敛到系统管理）。
+ */
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -21,19 +29,83 @@ const router = createRouter({
       meta: { title: '无权限', public: true },
     },
     {
-      path: '/', name: 'dashboard',
-      component: () => import('@/views/DashboardView.vue'),
-      meta: { title: '首页看板', perm: 'dashboard.view' },
-    },
-    {
-      path: '/contracts', name: 'contracts',
-      component: () => import('@/views/ContractsView.vue'),
-      meta: { title: '合同台账', perm: 'contract.view' },
-    },
-    {
-      path: '/settings', name: 'settings',
-      component: () => import('@/views/SettingsView.vue'),
-      meta: { title: '系统设置', perm: 'system.dict.view' },
+      path: '/', component: () => import('@/layout/AppLayout.vue'),
+      children: [
+        {
+          path: '', name: 'dashboard',
+          component: () => import('@/views/DashboardView.vue'),
+          meta: { title: '首页看板', perm: 'dashboard.view' },
+        },
+        {
+          path: 'contracts', name: 'contracts',
+          component: () => import('@/views/ContractsView.vue'),
+          meta: { title: '合同台账', perm: 'contract.view' },
+        },
+
+        // ---- 资料库：往来单位 ----
+        {
+          path: 'master/customers', name: 'master-customers',
+          component: () => import('@/views/master/CustomerView.vue'),
+          meta: { title: '客户信息', perm: 'master.customer.view' },
+        },
+        {
+          path: 'master/suppliers', name: 'master-suppliers',
+          component: () => import('@/views/master/SupplierView.vue'),
+          meta: { title: '供应商信息', perm: 'master.supplier.view' },
+        },
+        {
+          path: 'master/party-drafts', name: 'master-party-drafts',
+          component: () => import('@/views/master/PartyDraftView.vue'),
+          meta: { title: '历史档案认领', perm: 'contract.edit' },
+        },
+
+        // ---- 资料库：基础信息 ----
+        {
+          path: 'master/product-types', name: 'master-product-types',
+          component: () => import('@/views/master/ProductTypeView.vue'),
+          meta: { title: '商品类型', perm: 'master.ptype.view' },
+        },
+        {
+          path: 'master/products', name: 'master-products',
+          component: () => import('@/views/master/ProductView.vue'),
+          meta: { title: '物料档案', perm: 'master.product.view' },
+        },
+        {
+          path: 'master/uoms', name: 'master-uoms',
+          component: () => import('@/views/master/UomView.vue'),
+          meta: { title: '计量单位', perm: 'master.uom.view' },
+        },
+        {
+          path: 'master/warehouses', name: 'master-warehouses',
+          component: () => import('@/views/master/WarehouseView.vue'),
+          meta: { title: '仓库', perm: 'master.wh.view' },
+        },
+
+        // ---- 资料库：权限主数据 ----
+        {
+          path: 'master/orgs', name: 'master-orgs',
+          component: () => import('@/views/master/OrgView.vue'),
+          meta: { title: '组织架构', perm: 'master.org.view' },
+        },
+        {
+          path: 'master/roles', name: 'master-roles',
+          component: () => import('@/views/master/RoleView.vue'),
+          meta: { title: '角色管理', perm: 'master.role.view' },
+        },
+        {
+          path: 'master/users', name: 'master-users',
+          component: () => import('@/views/master/UserView.vue'),
+          meta: { title: '账号管理', perm: 'master.user.view' },
+        },
+
+        // ---- 系统管理 ----
+        {
+          path: 'system', name: 'system',
+          component: () => import('@/views/system/SystemView.vue'),
+          meta: { title: '系统管理', perm: 'system.dict.view' },
+        },
+        { path: 'settings', redirect: '/system' },
+      ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
