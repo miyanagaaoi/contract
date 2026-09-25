@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
+
+import RelatedDocs from '@/components/doc/RelatedDocs.vue'
 import {
   attachmentUrl,
   canPreview,
@@ -557,12 +559,15 @@ const detail = ref<Dict>({})
 const logs = ref<Dict[]>([])
 const atts = ref<Dict[]>([])
 const uploading = ref(false)
+/** 关联单据区块（T-V2-24：采购线下游单据；接口未就绪时容错显示「—」） */
+const relatedRef = ref<InstanceType<typeof RelatedDocs> | null>(null)
 
 async function view(row: Dict) {
   detail.value = await fetchContract(row.id)
   logs.value = await fetchLogs(row.id)
   atts.value = await fetchAttachments(row.id)
   drawerVisible.value = true
+  nextTick(() => relatedRef.value?.load())
 }
 
 async function onUpload(file: File) {
@@ -1103,6 +1108,9 @@ onMounted(async () => {
           </el-table>
           <el-empty v-else description="暂无子合同" :image-size="60" />
         </template>
+
+        <!-- 关联单据（T-V2-24）：采购线只读区块；接口未就绪时显示「—」 -->
+        <RelatedDocs ref="relatedRef" :contract-id="Number(detail.id)" />
 
         <el-divider content-position="left">附件（T7 · 上传/下载/预览，PDF 与图片可预览）</el-divider>
         <div class="mb">

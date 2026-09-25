@@ -30,6 +30,7 @@ from .routers import (
     master,
     meta,
     purchase,
+    sales,
     settings,
     stock,
     system,
@@ -71,6 +72,7 @@ app.include_router(tags.router)
 app.include_router(settings.router)
 app.include_router(contracts.router)
 app.include_router(purchase.router)
+app.include_router(sales.router)
 app.include_router(stock.router)
 app.include_router(attachments.router)
 app.include_router(export.router)

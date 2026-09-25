@@ -105,6 +105,76 @@ const router = createRouter({
           meta: { title: '系统管理', perm: 'system.dict.view' },
         },
         { path: 'settings', redirect: '/system' },
+
+        // ---- 采购管理（T-V2-24） ----
+        {
+          path: 'purchase/requests', name: 'purchase-requests',
+          component: () => import('@/views/purchase/RequestList.vue'),
+          meta: { title: '采购申请单', perm: 'purchase.request.view' },
+        },
+        {
+          path: 'purchase/requests/new', name: 'purchase-request-form',
+          component: () => import('@/views/purchase/RequestForm.vue'),
+          meta: { title: '新增采购申请单', perm: 'purchase.request.create' },
+        },
+        {
+          path: 'purchase/requests/:id/edit', name: 'purchase-request-edit',
+          component: () => import('@/views/purchase/RequestForm.vue'),
+          meta: { title: '编辑采购申请单', perm: 'purchase.request.edit' },
+        },
+        {
+          path: 'purchase/requests/:id', name: 'purchase-request-detail',
+          component: () => import('@/views/purchase/RequestForm.vue'),
+          meta: { title: '采购申请单详情', perm: 'purchase.request.view' },
+        },
+
+        {
+          path: 'purchase/orders', name: 'purchase-orders',
+          component: () => import('@/views/purchase/OrderList.vue'),
+          meta: { title: '采购单', perm: 'purchase.order.view' },
+        },
+        {
+          path: 'purchase/orders/new', name: 'purchase-order-form',
+          component: () => import('@/views/purchase/OrderForm.vue'),
+          meta: { title: '新增采购单', perm: 'purchase.order.create' },
+        },
+        {
+          path: 'purchase/orders/:id/edit', name: 'purchase-order-edit',
+          component: () => import('@/views/purchase/OrderForm.vue'),
+          meta: { title: '编辑采购单', perm: 'purchase.order.edit' },
+        },
+        {
+          path: 'purchase/orders/:id', name: 'purchase-order-detail',
+          component: () => import('@/views/purchase/OrderForm.vue'),
+          meta: { title: '采购单详情', perm: 'purchase.order.view' },
+        },
+
+        // ---- 库存管理：入库单与库存明细（T-V2-25） ----
+        {
+          path: 'stock/in-orders', name: 'stock-in-orders',
+          component: () => import('@/views/stock/InList.vue'),
+          meta: { title: '入库单', perm: 'stock.in.view' },
+        },
+        {
+          path: 'stock/in-orders/new', name: 'stock-in-form',
+          component: () => import('@/views/stock/InForm.vue'),
+          meta: { title: '新增入库单', perm: 'stock.in.create' },
+        },
+        {
+          path: 'stock/in-orders/:id/edit', name: 'stock-in-edit',
+          component: () => import('@/views/stock/InForm.vue'),
+          meta: { title: '编辑入库单', perm: 'stock.in.edit' },
+        },
+        {
+          path: 'stock/in-orders/:id', name: 'stock-in-detail',
+          component: () => import('@/views/stock/InForm.vue'),
+          meta: { title: '入库单详情', perm: 'stock.in.view' },
+        },
+        {
+          path: 'stock/balances', name: 'stock-balances',
+          component: () => import('@/views/stock/BalanceView.vue'),
+          meta: { title: '库存明细', perm: 'stock.balance.view' },
+        },
       ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/' },

@@ -91,13 +91,16 @@ def post_stock_doc(db: Session, doc, *, user, reverse: bool = False,
         written += 1
 
     doc.posted = not reverse
-    # 回写来源单据的已执行数量（采购单 received_qty / 销售订单 shipped_qty）
+    # 回写来源单据的已执行数量：采购单 received_qty / 销售订单 shipped_qty
+    # （两个函数都按 source_doc_type 自行判断，不匹配则直接返回，故可同时调用）
     from . import push_service
 
     if reverse:
         push_service.rollback_received_qty(db, doc)
+        push_service.rollback_shipped_qty(db, doc)
     else:
         push_service.backfill_received_qty(db, doc)
+        push_service.backfill_shipped_qty(db, doc)
 
     audit_service.log(db, user, module="stock",
                       action="unapprove" if reverse else "approve",
