@@ -2,10 +2,13 @@
 
 > 内网版合同台账与履约跟踪系统：采购 / 财务 / 项目管理 3~4 人使用。
 > 开发方法：SDD（Specification-Driven Development，规格驱动开发）。
-> 当前阶段：**V2.0（ERP 进销存改造）M1 权限与主数据地基、M2 采购线与库存过账均已交付**
-> （M1：`pytest` + 冒烟 15/15；M2：冒烟 11/11、全量测试 232 passed；
-> 见 [13-m1-acceptance.md](docs/13-m1-acceptance.md)、[14-m2-acceptance.md](docs/14-m2-acceptance.md)）；
-> 下一步：M3 销售前端与导出 → M4 打印/看板/UAT。
+> 当前阶段：**V2.0（ERP 进销存）开发全部完成，等待业务用户 UAT 确认**。
+> 里程碑：`v2.0-m1`（权限与主数据）、`v2.0-m2`（采购线与库存过账）、`v2.0-m3`（销售、盘点、导出、打印）已打标签；
+> `v2.0` 发布标签待 UAT 通过后打。
+> 验证基线：`pytest` 244 passed；端到端冒烟 15/15 + 11/11 + 11/11 + 13/13；权限矩阵与备份恢复演练均通过
+> —— 详见 [20-v2-acceptance-summary.md](docs/20-v2-acceptance-summary.md)（AC 逐条证据映射）。
+> 下一步：业务用户按 [17-uat-plan.md](docs/17-uat-plan.md) 逐条演示并签字；上线按
+> [19-go-live-checklist.md](docs/19-go-live-checklist.md) 执行。
 
 ## 文档导航
 
