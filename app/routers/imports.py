@@ -16,7 +16,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
 from sqlalchemy.orm import Session
@@ -24,7 +24,9 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..dicts import get_enabled_contract_types, get_subjects, type_code_of, type_label_of
 from ..models import STATUSES, Contract
+from ..models_auth import User
 from ..numbering import next_number
+from ..services.permission_service import require_perm
 from .contracts import create_contract
 
 router = APIRouter(prefix="/api/import", tags=["import"])
@@ -240,7 +242,7 @@ def _parse_items(sheet_rows) -> dict[int, list[dict]]:
 
 
 @router.get("/template.xlsx")
-def download_template():
+def download_template(_user: User = Depends(require_perm("contract.import"))):
     buf = io.BytesIO(build_template_bytes())
     filename = "合同导入模板.xlsx"
     headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
@@ -249,7 +251,9 @@ def download_template():
 
 
 @router.post("/contracts")
-async def import_contracts(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def import_contracts(request: Request, file: UploadFile = File(...),
+                           user: User = Depends(require_perm("contract.import")),
+                           db: Session = Depends(get_db)):
     content = await file.read()
     try:
         wb = load_workbook(io.BytesIO(content), data_only=True)
@@ -323,7 +327,10 @@ async def import_contracts(file: UploadFile = File(...), db: Session = Depends(g
             if payload["status"] not in STATUSES:
                 raise ValueError(f"无效状态：{payload['status']}")
 
-            create_contract(payload=payload, db=db)  # 复用校验/行项/标签/框架标签/类型标签逻辑
+            # 复用合同创建的全部校验/行项/标签/框架标签/类型标签逻辑。
+            # 注意：create_contract 自 V2.0 起是受权限保护的端点函数（带 request/user/db 依赖），
+            # 逐行导入时需显式传入请求上下文与操作人，否则签名不匹配。
+            create_contract(request=request, payload=payload, user=user, db=db)
             seen_no.add(no)
             if ord_no:
                 seen_ord.add(ord_no)

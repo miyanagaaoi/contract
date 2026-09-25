@@ -1,9 +1,9 @@
-"""标签字典 API（T4，对应 AC-05/13）。
+"""标签字典 API（T4，对应 AC-05/13）。V2.0 接入权限。
 
-- GET    /api/tags              标签列表（含使用次数）
-- POST   /api/tags              新增标签（全局去重 BR7）
-- PUT    /api/tags/{tag_id}     改名（挂该标签的合同展示同步更新）
-- DELETE /api/tags/{tag_id}     删除（从字典移除并解除关联）
+- GET    /api/tags              标签列表（含使用次数）—— 登录即可（合同表单要用）
+- POST   /api/tags              新增标签（全局去重 BR7）—— system.dict.edit
+- PUT    /api/tags/{tag_id}     改名（挂该标签的合同展示同步更新）—— system.dict.edit
+- DELETE /api/tags/{tag_id}     删除（从字典移除并解除关联）—— system.dict.edit
 """
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import Tag, contract_tag
+from ..models_auth import User
+from ..services.permission_service import get_current_user, require_perm
 
 router = APIRouter(prefix="/api/tags", tags=["tags"])
 
@@ -28,7 +30,7 @@ def _get_tag(db: Session, tag_id: int) -> Tag:
 
 
 @router.get("")
-def list_tags(db: Session = Depends(get_db)):
+def list_tags(_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     usage = (
         select(contract_tag.c.tag_id, func.count(contract_tag.c.contract_id))
         .group_by(contract_tag.c.tag_id)
@@ -43,7 +45,9 @@ def list_tags(db: Session = Depends(get_db)):
 
 
 @router.post("")
-def create_tag(payload: dict = Body(...), db: Session = Depends(get_db)):
+def create_tag(payload: dict = Body(...),
+               _user: User = Depends(require_perm("system.dict.edit")),
+               db: Session = Depends(get_db)):
     name = (payload.get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=422, detail="标签名称必填")
@@ -58,7 +62,9 @@ def create_tag(payload: dict = Body(...), db: Session = Depends(get_db)):
 
 
 @router.put("/{tag_id}")
-def rename_tag(tag_id: int, payload: dict = Body(...), db: Session = Depends(get_db)):
+def rename_tag(tag_id: int, payload: dict = Body(...),
+               _user: User = Depends(require_perm("system.dict.edit")),
+               db: Session = Depends(get_db)):
     name = (payload.get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=422, detail="标签名称必填")
@@ -73,7 +79,9 @@ def rename_tag(tag_id: int, payload: dict = Body(...), db: Session = Depends(get
 
 
 @router.delete("/{tag_id}")
-def delete_tag(tag_id: int, db: Session = Depends(get_db)):
+def delete_tag(tag_id: int,
+               _user: User = Depends(require_perm("system.dict.edit")),
+               db: Session = Depends(get_db)):
     tag = _get_tag(db, tag_id)
     db.execute(contract_tag.delete().where(contract_tag.c.tag_id == tag_id))
     db.delete(tag)

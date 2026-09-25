@@ -19,6 +19,8 @@ from sqlalchemy.orm import Session
 from ..config import ALLOWED_UPLOAD_EXT, MAX_UPLOAD_MB, UPLOAD_DIR
 from ..database import get_db
 from ..models import Attachment, ChangeLog, Contract
+from ..models_auth import User
+from ..services.permission_service import require_perm
 
 router = APIRouter(prefix="/api", tags=["attachments"])
 
@@ -43,7 +45,9 @@ def _log_attachment(db: Session, contract: Contract, action: str, file_name: str
 
 
 @router.get("/contracts/{contract_id}/attachments")
-def list_attachments(contract_id: int, db: Session = Depends(get_db)):
+def list_attachments(contract_id: int,
+                     _user: User = Depends(require_perm("contract.view")),
+                     db: Session = Depends(get_db)):
     _get_contract(db, contract_id)
     rows = db.query(Attachment).filter(
         Attachment.contract_id == contract_id, Attachment.deleted == False  # noqa: E712
@@ -57,7 +61,9 @@ def list_attachments(contract_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/contracts/{contract_id}/attachments")
-async def upload_attachment(contract_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_attachment(contract_id: int, file: UploadFile = File(...),
+                            _user: User = Depends(require_perm("contract.edit")),
+                            db: Session = Depends(get_db)):
     contract = _get_contract(db, contract_id)
     if contract.deleted:
         raise HTTPException(status_code=400, detail="合同已停用，不能上传附件")
@@ -102,6 +108,7 @@ async def upload_attachment(contract_id: int, file: UploadFile = File(...), db: 
 
 @router.delete("/contracts/{contract_id}/attachments/{attachment_id}")
 def delete_attachment(contract_id: int, attachment_id: int, reason: str | None = Query(None),
+                      _user: User = Depends(require_perm("contract.edit")),
                       db: Session = Depends(get_db)):
     contract = _get_contract(db, contract_id)
     att = _get_attachment(db, attachment_id)
@@ -114,7 +121,9 @@ def delete_attachment(contract_id: int, attachment_id: int, reason: str | None =
 
 
 @router.get("/attachments/{attachment_id}/download")
-def download_attachment(attachment_id: int, inline: bool = Query(False), db: Session = Depends(get_db)):
+def download_attachment(attachment_id: int, inline: bool = Query(False),
+                        _user: User = Depends(require_perm("contract.view")),
+                        db: Session = Depends(get_db)):
     att = _get_attachment(db, attachment_id)
     path = UPLOAD_DIR / att.stored_path
     if not path.exists():

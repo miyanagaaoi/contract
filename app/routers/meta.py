@@ -1,4 +1,9 @@
-"""字典元数据（供前端下拉选项）。"""
+"""字典元数据（供前端下拉选项）。V2.0：要求登录。
+
+说明：本接口是**登录即可**（不绑定具体权限点）——它被合同表单用作下拉字典，
+若收紧到某个按钮权限，采购员将无法打开合同表单。字典的**维护**权限在
+`/api/settings/*` 的写接口上（`system.dict.edit`）。
+"""
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -9,12 +14,14 @@ from ..dicts import (
     get_subjects,
 )
 from ..models import ARRIVAL_STATUSES, CURRENCIES, STATUSES
+from ..models_auth import User
+from ..services.permission_service import get_current_user
 
 router = APIRouter(prefix="/api/meta", tags=["meta"])
 
 
 @router.get("")
-def meta(db: Session = Depends(get_db)):
+def meta(_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     from ..models import Contract
     from .export import export_column_meta  # 避免模块级环依赖
 

@@ -19,6 +19,8 @@ from openpyxl.utils import get_column_letter
 
 from ..database import get_db
 from ..models import Contract
+from ..models_auth import User
+from ..services.permission_service import require_perm
 from .contracts import _filtered_query
 
 router = APIRouter(prefix="/api/export", tags=["export"])
@@ -107,6 +109,7 @@ def export_contracts(
     sign_from: str | None = Query(None),
     sign_to: str | None = Query(None),
     cols: str | None = Query(None, description="逗号分隔的导出列 key；缺省=重要列"),
+    user: User = Depends(require_perm("contract.export")),
     db: Session = Depends(get_db),
 ):
     if cols:
@@ -119,9 +122,10 @@ def export_contracts(
         wanted = list(IMPORTANT_KEYS)
     ordered = [c for c in COLUMNS if c["key"] in wanted]
 
+    # 必须传 user：否则导出会绕过数据范围，等于越权导出全公司台账
     q = _filtered_query(db, include_deleted=include_deleted, keyword=keyword, owner=owner,
                         status=status, contract_type=contract_type, is_framework=is_framework,
-                        sign_from=sign_from, sign_to=sign_to, tags=tags)
+                        sign_from=sign_from, sign_to=sign_to, tags=tags, user=user)
     contracts = q.order_by(Contract.id.desc()).all()
 
     wb = Workbook()

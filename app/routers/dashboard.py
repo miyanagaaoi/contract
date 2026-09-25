@@ -1,6 +1,6 @@
-"""首页看板 API（T9，对应 AC-08）。
+"""首页看板 API（T9，对应 AC-08）。V2.0：要求 `dashboard.view`。
 
-- GET /api/dashboard：统计卡 + 质保即将到期(30 天内)/已到期 提醒清单
+- GET /api/dashboard：统计卡 + 质保即将到期(30 天内)/已到期 提醒清单（实时计算，无定时任务）
 """
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import Contract
+from ..models_auth import User
+from ..services.permission_service import require_perm
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -35,7 +37,8 @@ def _summary(c: Contract) -> dict:
 
 
 @router.get("")
-def dashboard(db: Session = Depends(get_db)):
+def dashboard(_user: User = Depends(require_perm("dashboard.view")),
+              db: Session = Depends(get_db)):
     today = date.today()
     horizon = today + timedelta(days=_WINDOW_DAYS)
     base = db.query(Contract).filter(Contract.deleted == False)  # noqa: E712
