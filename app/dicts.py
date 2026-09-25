@@ -193,3 +193,152 @@ def subject_code_of(db: Session, code_or_name: str) -> str | None:
         if k in s:
             return v
     return None
+
+
+# ---------- V2.0：系统参数（KV 字典，键 sys_params） ----------
+
+KEY_SYS_PARAMS = "sys_params"
+KEY_NUMBER_RULES = "number_rules"
+
+DEFAULT_SYS_PARAMS: dict = {
+    "warranty_window_days": 30,     # 质保到期提醒窗口（天）
+    "allow_negative_stock": False,  # 是否允许负库存（O1 默认不允许）
+    "allow_self_approve": False,    # 是否允许创建人自审（O6 默认不允许）
+    "default_qty_decimals": 2,      # 数量默认小数位（物料单位可覆盖）
+    "default_price_decimals": 4,    # 单价小数位
+    "money_decimals": 2,            # 金额小数位
+    "pwd_min_length": 8,            # 密码最小长度
+}
+
+# 参数取值类型（set 时按此归一，防脏值）
+_SYS_PARAM_TYPES: dict[str, type] = {
+    "warranty_window_days": int,
+    "allow_negative_stock": bool,
+    "allow_self_approve": bool,
+    "default_qty_decimals": int,
+    "default_price_decimals": int,
+    "money_decimals": int,
+    "pwd_min_length": int,
+}
+
+# 单据与主数据编号规则（reset=month → 前缀+YYYYMM+序号；never → 前缀+序号）
+DEFAULT_NUMBER_RULES: dict = {
+    "purchase_request": {"prefix": "PR", "reset": "month", "seq_len": 6},
+    "purchase_order": {"prefix": "PO", "reset": "month", "seq_len": 6},
+    "sales_request": {"prefix": "SR", "reset": "month", "seq_len": 6},
+    "sales_order": {"prefix": "SO", "reset": "month", "seq_len": 6},
+    "stock_in": {"prefix": "IN", "reset": "month", "seq_len": 6},
+    "stock_out": {"prefix": "OUT", "reset": "month", "seq_len": 6},
+    "stock_take": {"prefix": "ST", "reset": "month", "seq_len": 6},
+    "customer": {"prefix": "CUS", "reset": "never", "seq_len": 4},
+    "supplier": {"prefix": "SUP", "reset": "never", "seq_len": 4},
+    "product": {"prefix": "", "reset": "never", "seq_len": 4},   # 空前缀=按商品类型码生成
+}
+
+NUMBER_RULE_LABELS: dict[str, str] = {
+    "purchase_request": "采购申请单", "purchase_order": "采购单",
+    "sales_request": "销售申请单", "sales_order": "销售订单",
+    "stock_in": "入库单", "stock_out": "出库单", "stock_take": "盘点单",
+    "customer": "客户编码", "supplier": "供应商编码", "product": "物料编码",
+}
+
+
+def _load_dict(db: Session, key: str, default: dict) -> dict:
+    """读 KV 字典：与默认值合并，保证调用方拿到的键完整。"""
+    row = db.get(KVSetting, key)
+    if row is None:
+        return dict(default)
+    try:
+        value = json.loads(row.value)
+    except (json.JSONDecodeError, TypeError):
+        return dict(default)
+    if not isinstance(value, dict):
+        return dict(default)
+    merged = dict(default)
+    merged.update(value)
+    return merged
+
+
+def _save_dict(db: Session, key: str, values: dict) -> dict:
+    row = db.get(KVSetting, key)
+    if row is None:
+        row = KVSetting(key=key, value="{}")
+        db.add(row)
+    row.value = json.dumps(values, ensure_ascii=False)
+    db.commit()
+    return values
+
+
+def _coerce_bool(raw) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)):
+        return bool(raw)
+    return str(raw).strip().lower() in ("1", "true", "yes", "on", "是")
+
+
+def get_sys_params(db: Session) -> dict:
+    """系统参数；首次读取时落库默认值，保证界面始终有值。"""
+    if db.get(KVSetting, KEY_SYS_PARAMS) is None:
+        return _save_dict(db, KEY_SYS_PARAMS, DEFAULT_SYS_PARAMS)
+    return _load_dict(db, KEY_SYS_PARAMS, DEFAULT_SYS_PARAMS)
+
+
+def set_sys_params(db: Session, values: dict) -> dict:
+    """只接受已知参数键并按类型归一；未知键忽略，非法值报 422。"""
+    current = get_sys_params(db)
+    for key, raw in (values or {}).items():
+        if key not in DEFAULT_SYS_PARAMS:
+            continue
+        caster = _SYS_PARAM_TYPES.get(key)
+        try:
+            if caster is bool:
+                current[key] = _coerce_bool(raw)
+            elif caster is int:
+                current[key] = int(raw)
+            else:
+                current[key] = raw
+        except (TypeError, ValueError):
+            raise ValueError(f"参数 {key} 取值非法：{raw!r}")
+    if current["pwd_min_length"] < 6:
+        raise ValueError("密码最小长度不得小于 6")
+    _save_dict(db, KEY_SYS_PARAMS, current)
+    return current
+
+
+def get_number_rules(db: Session) -> dict:
+    """编号规则（逐项与默认结构对齐，避免缺键）。"""
+    stored = _load_dict(db, KEY_NUMBER_RULES, DEFAULT_NUMBER_RULES)
+    out: dict = {}
+    for kind, default in DEFAULT_NUMBER_RULES.items():
+        item = dict(default)
+        raw = stored.get(kind) or {}
+        if isinstance(raw, dict):
+            item.update({k: v for k, v in raw.items() if k in default})
+        out[kind] = item
+    return out
+
+
+def set_number_rules(db: Session, values: dict) -> dict:
+    """仅允许调整前缀与序号长度；reset 策略固定（单据按月、主数据不重置）。"""
+    current = get_number_rules(db)
+    for kind, raw in (values or {}).items():
+        if kind not in current or not isinstance(raw, dict):
+            continue
+        if "prefix" in raw:
+            prefix = str(raw["prefix"] or "").strip().upper()
+            if prefix and not prefix.isalpha():
+                raise ValueError(f"{NUMBER_RULE_LABELS.get(kind, kind)} 前缀只能是大写字母")
+            if len(prefix) > 4:
+                raise ValueError(f"{NUMBER_RULE_LABELS.get(kind, kind)} 前缀最多 4 位")
+            current[kind]["prefix"] = prefix
+        if "seq_len" in raw:
+            try:
+                n = int(raw["seq_len"])
+            except (TypeError, ValueError):
+                raise ValueError(f"{NUMBER_RULE_LABELS.get(kind, kind)} 序号长度非法")
+            if not 3 <= n <= 8:
+                raise ValueError("序号长度需在 3~8 之间")
+            current[kind]["seq_len"] = n
+    _save_dict(db, KEY_NUMBER_RULES, current)
+    return current

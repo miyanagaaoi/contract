@@ -19,11 +19,17 @@ DB_FILE = DATA_DIR / "ctms.db"
 DB_URL = _env("CTMS_DB_URL") or f"sqlite:///{(DB_FILE).as_posix()}"
 
 APP_NAME = "CTMS"
-APP_VERSION = "1.0.0-rc1"  # P3 正式版候选
+APP_VERSION = "2.0.0-dev"  # V2.0 ERP 进销存（M1 开发中）
 
 # 附件限制
 MAX_UPLOAD_MB = 20
 ALLOWED_UPLOAD_EXT = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".gif", ".txt"}
+
+# ---------- V2.0：认证与权限（见 12-erp-system-design.md §3.7） ----------
+AUTH_ENABLED = (_env("CTMS_AUTH_ENABLED") or "1") == "1"   # 0 = 跳过认证，仅本地调试
+JWT_HOURS = int(_env("CTMS_JWT_HOURS") or 8)
+JWT_SECRET_FILE = DATA_DIR / ".jwt_secret"
+_JWT_SECRET = _env("CTMS_JWT_SECRET") or ""
 
 
 def is_sqlite() -> bool:
@@ -35,3 +41,19 @@ def ensure_dirs() -> None:
         d.mkdir(parents=True, exist_ok=True)
     if is_sqlite():
         DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def get_jwt_secret() -> str:
+    """JWT 签名密钥：env 优先；否则首次调用生成随机密钥并落盘（避免硬编码密钥）。"""
+    global _JWT_SECRET
+    if _JWT_SECRET:
+        return _JWT_SECRET
+    if JWT_SECRET_FILE.exists():
+        _JWT_SECRET = JWT_SECRET_FILE.read_text(encoding="utf-8").strip()
+    if not _JWT_SECRET:
+        import secrets
+
+        ensure_dirs()
+        _JWT_SECRET = secrets.token_urlsafe(48)
+        JWT_SECRET_FILE.write_text(_JWT_SECRET, encoding="utf-8")
+    return _JWT_SECRET

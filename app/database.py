@@ -24,6 +24,10 @@ if is_sqlite():
         """SQLite 默认不启用外键，这里显式开启以支持级联删除。"""
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        # V2.0：3~4 人并发下的写锁策略（见 12-erp-system-design.md §8.1）
+        cursor.execute("PRAGMA journal_mode=WAL")      # 改善读写并发
+        cursor.execute("PRAGMA busy_timeout=5000")     # 写锁等待 5s 而非立即报错
+        cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.close()
 
 

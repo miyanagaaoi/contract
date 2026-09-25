@@ -132,6 +132,60 @@ def seed_demo(db: Session) -> dict[str, int]:
     return {"contracts": 4}
 
 
+ADMIN_USERNAME = "admin"
+ADMIN_INIT_PASSWORD = "admin12345"   # 仅初始化用；首次登录强制改密
+
+
+def seed_auth(db: Session) -> dict:
+    """权限体系种子（幂等）：预置角色 + 权限点 + 初始超管 + 系统参数。
+
+    - 角色按 `permissions.ROLE_PRESETS` 创建，**仅在新建时**写入权限点，
+      避免覆盖管理员后续的角色调整；
+    - 超管账号首次创建后 `must_change_pwd=True`，首登强制改密（AC-V2-08）。
+    """
+    from .dicts import get_sys_params
+    from .models_auth import Role, RolePermission, User
+    from .permissions import ROLE_PRESETS, expand_perms
+    from .security import hash_password
+
+    roles_created = 0
+    perms_created = 0
+    for preset in ROLE_PRESETS:
+        role = db.query(Role).filter(Role.code == preset["code"]).first()
+        if role is not None:
+            continue
+        role = Role(
+            code=preset["code"], name=preset["name"], data_scope=preset["data_scope"],
+            remark=preset.get("remark"), builtin=True, enabled=True,
+        )
+        db.add(role)
+        db.flush()
+        for code in expand_perms(preset["perms"]):
+            db.add(RolePermission(role_id=role.id, perm_code=code))
+            perms_created += 1
+        roles_created += 1
+    db.commit()
+
+    admin_created = False
+    if db.query(User).filter(User.username == ADMIN_USERNAME).first() is None:
+        db.add(User(
+            username=ADMIN_USERNAME, real_name="系统管理员",
+            password_hash=hash_password(ADMIN_INIT_PASSWORD),
+            status="enabled", is_superadmin=True, must_change_pwd=True,
+            remark="初始化脚本创建；首次登录请立即修改密码",
+        ))
+        db.commit()
+        admin_created = True
+
+    get_sys_params(db)   # 首次调用落库默认系统参数
+    return {
+        "roles_created": roles_created,
+        "perms_created": perms_created,
+        "admin_created": admin_created,
+        "admin_username": ADMIN_USERNAME,
+    }
+
+
 def main() -> None:
     import argparse
 
@@ -141,12 +195,17 @@ def main() -> None:
 
     ensure_dirs()
     Base.metadata.create_all(bind=engine)  # T2：建表（原型阶段；正式版切 Alembic 迁移）
+    import app.models_auth  # noqa: F401  V2.0：让 create_all 感知权限/组织/账号表
     from .db_migrate import ensure_schema_upgrades
 
-    ensure_schema_upgrades()
+    Base.metadata.create_all(bind=engine)  # V2.0 新表（幂等）
+    upgrade = ensure_schema_upgrades()
+    print(f"[init_db] 增量迁移完成: {upgrade}")
     with SessionLocal() as db:
         result = seed_dicts(db)
         print(f"[init_db] 字典种子完成: {result}")
+        auth = seed_auth(db)
+        print(f"[init_db] 权限种子完成: {auth}")
         if args.demo:
             from .models import Contract
 
@@ -156,6 +215,8 @@ def main() -> None:
             else:
                 print("[init_db] 已存在合同数据，跳过演示数据（避免重复；如需重置请删除 app/data/ctms.db 后重跑）")
     print("[init_db] 完成")
+    if auth["admin_created"]:
+        print(f"[init_db] 初始管理员：{ADMIN_USERNAME} / {ADMIN_INIT_PASSWORD}（首次登录强制改密）")
 
 
 if __name__ == "__main__":

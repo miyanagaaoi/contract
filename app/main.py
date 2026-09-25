@@ -18,8 +18,9 @@ from fastapi.responses import FileResponse, JSONResponse
 from .config import APP_NAME, APP_VERSION, ensure_dirs
 from .database import Base, SessionLocal, engine
 from .db_migrate import ensure_schema_upgrades
-from .init_db import seed_dicts
-from .routers import attachments, contracts, dashboard, export, health, imports, meta, settings, tags
+from .init_db import seed_auth, seed_dicts
+from .routers import attachments, auth, contracts, dashboard, export, health, imports, meta, settings, tags
+from . import models_auth  # noqa: F401  V2.0：让 create_all 感知权限/组织/账号表
 
 __all__ = ["app"]
 
@@ -30,18 +31,20 @@ _SERVE_STATIC = os.environ.get("CTMS_SERVE_STATIC", "0") == "1" and _WEB_DIST is
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """启动时确保建表与字典种子存在（幂等），演示数据用 python -m app.init_db --demo 追加。"""
+    """启动时确保建表、增量迁移与种子存在（幂等）；演示数据用 python -m app.init_db --demo 追加。"""
     ensure_dirs()
     Base.metadata.create_all(bind=engine)
     ensure_schema_upgrades()
     with SessionLocal() as db:
         seed_dicts(db)
+        seed_auth(db)
     yield
 
 
 app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=lifespan)
 
 app.include_router(health.router)
+app.include_router(auth.router)
 app.include_router(meta.router)
 app.include_router(dashboard.router)
 app.include_router(tags.router)
