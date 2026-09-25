@@ -10,12 +10,14 @@
 |---|---|
 | 后端（T-V2-17~23、T-V2-26、T-V2-27） | **完成** |
 | 销售线后端（T-V2-29~31）与盘点后端（T-V2-32） | **完成**（提前于 M3 排期） |
-| 自动化测试 | `pytest app/tests -q` → **232 passed** |
+| 自动化测试 | `pytest app/tests -q` → **243 passed** |
 | M2 端到端冒烟 | `python app/tests/smoke_m2.py` → **11/11 PASS** |
 | M1 回归 | `smoke_m1.py` → **15/15 PASS** |
 | V1.0 合同模块回归 | `smoke_p0.py` → **13/13 PASS** |
-| 前端（T-V2-24/25：通用单据组件 + 采购三单据页面 + 库存明细页） | 见 §5（本轮交付，构建验证见提交记录） |
-| 服务健康 | `GET /api/health` → `{"status":"ok","db":true}` |
+| 前端（T-V2-24/25：通用单据组件 + 采购三单据页面 + 库存明细页） | **完成**：`npm run build` 通过（`✓ built in 4.58s`），新增页面 chunk 全部产出 |
+| 单据 A4 打印（T-V2-37 后端） | **完成**：`GET {prefix}/{id}/print` 返回 A4 HTML（含签字栏），测试覆盖 |
+| 导出（T-V2-35） | **完成**：7 类单据 + 库存结存/流水 Excel，导出与列表同筛选同数据范围 |
+| 服务健康 | `GET /api/health` → `{"status":"ok","db":true}`；SPA 任意路由 200 |
 
 **判定：M2 后端达到可上线条件**（关键风险 T-V2-19 过账服务已闭环）。
 
@@ -51,9 +53,24 @@
 
 ### 2.4 前端（T-V2-24/25）
 
-`web/src/components/doc/`（DocStatusTag、DocItemsTable、DocListPage、DocFormPage、ApproveDialog、PushDialog、RelatedDocs）
-与 `web/src/views/purchase/*`、`web/src/views/stock/{InList,InForm,BalanceView}.vue`，
-路由与权限点见 `web/src/router/index.ts`；合同详情抽屉新增"关联单据"只读区块。
+| 文件 | 说明 |
+|---|---|
+| `web/src/components/doc/DocStatusTag.vue` | 状态标签（草稿灰 / 待审核橙 / 已审核蓝 / 已完成绿 / 已作废红） |
+| `web/src/components/doc/ApproveDialog.vue` | 审核/驳回/作废/反审核统一弹窗（原因必填校验） |
+| `web/src/components/doc/DocItemsTable.vue` | 行项编辑（物料选择、数量×单价联动、按单位小数位限制、合计） |
+| `web/src/components/doc/DocListPage.vue` | 单据列表通用壳（筛选 + 表格 + 分页 + 按权限/状态显示动作） |
+| `web/src/components/doc/DocFormPage.vue` | 单据表单通用壳（表头 + 行项 + 保存草稿/保存并提交） |
+| `web/src/components/doc/PushDialog.vue` | 下推对话框（选供应商/仓库、可改量、默认剩余量；打开时拉最新详情避免行项 id 失配） |
+| `web/src/components/doc/RelatedDocs.vue` | 合同详情"关联单据"只读区块 |
+| `web/src/views/purchase/{RequestList,RequestForm,OrderList,OrderForm}.vue` | 采购申请单与采购单页面（含下推） |
+| `web/src/views/stock/{InList,InForm,BalanceView}.vue` | 入库单页面 + 库存明细（安全库存高亮、流水下钻、库存重算） |
+| `web/src/types/doc.ts`、`web/src/api.ts`、`web/src/router/index.ts` | 单据类型定义、API 封装、采购/入库/库存明细路由（`meta.perm` 与后端权限点一致） |
+| `web/src/views/ContractsView.vue` | 详情抽屉插入"关联单据"区块（原有逻辑未重构） |
+| `web/src/views/DashboardView.vue` | 看板重规划展示（待办/库存预警/合同概览，见 T-V2-38） |
+
+> 前端未做浏览器点击验证（本轮 DSH 浏览器自动化组件不可用），已用**构建 + 真实后端 HTTP 契约冒烟**替代：
+> 登录 → 物料下拉 → 建单 → 改单 → 提交 → 驳回（空原因 422）→ 审核（自审 422）→ 下推采购单 →
+> 下推入库单 → 审核过账 → balances/ledger/recalc/related-docs 全部 200 且字段齐全。
 
 ## 3. 验收场景执行记录
 
@@ -80,8 +97,10 @@
 | AC-V2-31 | 单据关联合同（下拉仅同方向合同） | `/api/purchase/contract-options`、`/api/sales/contract-options` | PASS |
 | AC-V2-32 | 合同详情关联单据**只读**汇总（不改合同金额） | `smoke_m2` / `test_v2_docs` | PASS |
 | AC-V2-40（附件部分） | 单据附件上传/列表/下载/删除 + 权限边界 | `smoke_m2` / `test_v2_docs` | PASS |
+| AC-V2-40（导出部分） | 7 类单据 + 库存结存/流水导出 Excel；导出条数与列同列表筛选、同数据范围 | `test_v2_docs::TestDocExport` | PASS |
+| BR-V2-16（打印） | 单据 A4 打印页（表头/行项/合计/审批与签字栏），按权限与数据范围鉴权 | `test_v2_docs::TestDocPrint` | PASS |
 
-> AC-V2-40 的"8 类单据导出 Excel"属 T-V2-35（M3）范围，本报告不含。
+> 原"M2 不含导出"的说明已作废：T-V2-35 导出扩展与 T-V2-37 打印后端已在本轮完成（属 M3/M4 提前交付）。
 
 ## 4. 本轮发现并修复的缺陷
 
@@ -95,13 +114,14 @@
 | 6 | 过账只回写采购侧 `received_qty` | 销售订单 `shipped_qty` 恒为 0 | 过账/红冲同时调用采购与销售回写（各自按来源类型判断） |
 | 7 | 下推时未指定来源行 | 报"下推行项与来源单据不匹配" | 支持按顺序映射（允许"整单下推只传数量"） |
 | 8 | `attachments`/`change_logs` 重建时索引名冲突 | 迁移直接失败 | 重建前先 `DROP INDEX`（SQLite 重命名表不重命名索引） |
+| 9 | 前端 `PushDialog` 用列表快照的行项做下推（列表不含 `items`，且行项 id 每次 PUT 重建） | 下推 422「下推行项与来源单据不匹配」 | 打开下推对话框前先拉取单据最新详情（前端已修复并复测通过） |
 
 ## 5. 未覆盖项与风险
 
 | # | 项 | 说明 | 处理 |
 |---|---|---|---|
 | 1 | 前端浏览器目视验收 | 本轮 DSH 浏览器自动化组件不可用（`bsk` 未安装）；以 `npm run build` 成功 + 页面进入产物作为替代证据 | 按 §6 清单人工点一遍 |
-| 2 | 8 类单据导出 Excel | 属 T-V2-35（M3） | M3 执行 |
+| 2 | 8 类单据导出 Excel | ~~属 T-V2-35（M3）~~ **已完成**（7 类单据 + 库存结存/流水） | 见 `test_v2_docs::TestDocExport` |
 | 3 | 打印样式、首页看板重规划 | 属 T-V2-37/T-V2-38（M4） | M4 执行 |
 | 4 | 大数据量下过账性能 | 单据行数预期 < 100 行；SQLite 写串行化 | 上线后观察，必要时批量 flush |
 
@@ -123,6 +143,8 @@
 ## 7. 下一步
 
 1. 前端目视通过后打 tag `v2.0-m2`；
-2. **M3 剩余**：销售三单据前端页面（T-V2-33）、安全库存预警筛选（T-V2-34）、8 类单据与库存导出（T-V2-35）、M3 验收（T-V2-36）；
-3. **M4**：单据 A4 打印（T-V2-37）、首页看板按角色重规划（T-V2-38）、权限矩阵复核（T-V2-39）、
-   备份恢复演练与部署手册（T-V2-40）、UAT（T-V2-41）、文档冻结（T-V2-42）。
+2. **已完成（提前交付）**：T-V2-35 导出扩展、T-V2-37 打印后端、T-V2-38 看板重规划、T-V2-40 备份恢复演练、T-V2-42 文档冻结；
+3. **M3 剩余**：销售三单据前端页面（T-V2-33，含出库单与盘点单页面）、T-V2-36 M3 回归验收；
+4. **M4 剩余**：T-V2-39 权限矩阵复核（各内置角色逐一登录核对菜单与按钮）、T-V2-41 UAT
+   （三类用户按 AC-V2-01~42 逐条演示并留存《V2.0 验收报告》）；
+5. 每完成一项即更新 `03-development-plan.md` §9 状态并 commit。
