@@ -13,7 +13,7 @@
 | M3 端到端冒烟 | `python app/tests/smoke_m3.py` → **11/11 PASS** |
 | 全量自动化测试 | `pytest app/tests -q` → **244 passed** |
 | M1/M2/V1.0 回归 | `smoke_m1` 15/15、`smoke_m2` 11/11、`smoke_p0` 13/13 |
-| M3 前端（T-V2-33：销售/出库/盘点页面） | 见 §2.3（提交记录与构建验证） |
+| M3 前端（T-V2-33：销售/出库/盘点页面） | **完成**：`npm run build` 通过（`✓ built in 4.80s`），销售/出库/盘点路由与页面 chunk 全部产出 |
 
 ## 2. 交付物
 
@@ -90,6 +90,17 @@
 ## 6. 下一步（进入 M4 收尾）
 
 1. 人工执行 `17-uat-plan.md`（三类用户 × 场景清单），填写异议与签字页；
-2. UAT 通过后按 §9.6 打 tag：`v2.0-m1` / `v2.0-m2` / `v2.0-m3` / `v2.0`；
+2. UAT 通过后按 §9.6 打 tag：`v2.0-m1` / `v2.0-m2` / `v2.0-m3`（已打）→ `v2.0`；
 3. 发布物：单容器 Docker 镜像（`10-docker-single.md`）或 Windows 原生部署（`08-deployment.md`）；
-4. 上线前最后检查：`smoke_m1/m2/m3/p0` 全绿 + `drill_backup_restore.py` 通过 + 权限矩阵无异常。
+   升级步骤与回滚方案见 `19-go-live-checklist.md`。
+
+### 6.1 M4 完成情况（本轮）
+
+| 任务 | 状态 |
+|---|---|
+| T-V2-37 单据 A4 打印 | ✅ 后端 `GET {prefix}/{id}/print` + 前端打印入口（blob 打开） |
+| T-V2-38 首页看板重规划 | ✅ 后端待办/库存预警/合同概览 + 前端展示 |
+| T-V2-39 权限矩阵复核 | ✅ `audit_role_matrix.py`（8 角色 × 26 接口全部一致，记录见 `16-permission-matrix.md`） |
+| T-V2-40 备份恢复演练 | ✅ `drill_backup_restore.py` 实测通过（记录见 `15-backup-drill.md`） |
+| T-V2-41 UAT | ⏳ 计划与演示数据已就绪（`17-uat-plan.md` + `seed_demo_v2.py`）；**执行需业务用户**签字 |
+| T-V2-42 文档更新 | ✅ `11`/`12` 冻结、`04` 补 V2.0 修订、README 与 `03` 同步；新增 `15`~`19` 六份运维/验收文档 |
