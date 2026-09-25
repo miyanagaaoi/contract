@@ -29,6 +29,7 @@
 | [15-backup-drill.md](docs/15-backup-drill.md) | **备份与恢复演练记录**：实测证据、备份机制、Windows/Docker 恢复步骤、运维建议 | 运维、决策人 |
 | [16-permission-matrix.md](docs/16-permission-matrix.md) | **权限矩阵复核记录**：8 个内置角色的权限点、菜单裁剪与接口 200/403 实测矩阵 | 全体 |
 | [17-uat-plan.md](docs/17-uat-plan.md) | **UAT 计划与验收记录**：三类用户按 AC 逐条演示的场景清单、异议记录与签字页 | 全体、业务用户 |
+| [18-m3-acceptance.md](docs/18-m3-acceptance.md) | **V2.0 · M3 验收报告**：销售线、盘点、导出与打印的验收证据与交付物 | 全体 |
 
 ## 关键决策记录（本轮已确认）
 
