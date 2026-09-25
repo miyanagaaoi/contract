@@ -10,7 +10,7 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
-import { fetchMasterOptions, pushDoc, type Dict } from '@/api'
+import { fetchDoc, fetchMasterOptions, pushDoc, type Dict } from '@/api'
 import type { DocItem, DocRecord, PushRow } from '@/types/doc'
 
 const props = withDefaults(defineProps<{
@@ -75,12 +75,35 @@ async function loadOptions() {
   }
 }
 
-/** 打开弹窗：默认全选剩余量 > 0 的行 */
+/** 打开弹窗：先拉最新详情（行项 id 会随编辑变化），再默认勾选剩余量 > 0 的行 */
 async function open(doc: DocRecord) {
   source.value = doc
   docDate.value = new Date().toISOString().slice(0, 10)
   supplierId.value = doc.suggest_supplier_id ?? doc.supplier_id ?? null
   warehouseId.value = doc.receipt_warehouse_id ?? null
+  loading.value = true
+  visible.value = true
+  try {
+    // 列表行不含行项，且行项 id 可能在编辑后变化，必须按详情取最新数据
+    const fresh = await fetchDoc(props.api, doc.id)
+    source.value = fresh
+    supplierId.value = fresh.suggest_supplier_id ?? fresh.supplier_id ?? supplierId.value
+    warehouseId.value = fresh.receipt_warehouse_id ?? warehouseId.value
+    buildRows(fresh)
+    await loadOptions()
+    setTimeout(() => {
+      for (const row of rows.value) {
+        if (row.push_qty > 0) tableRef.value?.toggleRowSelection(row, true)
+      }
+    }, 0)
+  } catch {
+    // 拦截器已提示
+  } finally {
+    loading.value = false
+  }
+}
+
+function buildRows(doc: DocRecord) {
   rows.value = (doc.items || []).map((it: DocItem) => ({
     src_item_id: it.id,
     product_name: it.product_name,
@@ -92,16 +115,9 @@ async function open(doc: DocRecord) {
     ordered_qty: it.ordered_qty,
     received_qty: it.received_qty,
     unit_price: it.unit_price,
-    push_qty: balanceOf(it as unknown as Record<string, any>),
+    push_qty: Math.max(0, Math.round((Number(it.qty || 0)
+      - Number((props.destType === 'order' ? it.ordered_qty : it.received_qty) || 0)) * 1000) / 1000),
   }))
-  visible.value = true
-  await loadOptions()
-  // 默认全选剩余可推行
-  setTimeout(() => {
-    for (const row of rows.value) {
-      if (row.push_qty > 0) tableRef.value?.toggleRowSelection(row, true)
-    }
-  }, 0)
 }
 
 async function submit() {
