@@ -47,6 +47,11 @@ cd web; npm run build
 | 服务健康 | `{"status":"ok","db":true}` | `GET /api/health` |
 | SPA 路由可达 | 采购/销售/出入库/盘点/库存明细均 200 | 路由检查 |
 
+> **最终验证汇总（本次执行）**：`pytest` 244 passed；`smoke_m1` 15/15、`smoke_m2` 11/11、`smoke_m3` 11/11、
+> `smoke_p0` 13/13；`drill_backup_restore` 通过；`audit_role_matrix` 全部一致；前端 `npm run build` 通过。
+> 代码基线：`f11218d`（V2.0 全部开发任务提交完毕；此后仅文档刷新）。
+> 里程碑 tag：`v2.0-m1`、`v2.0-m2`、`v2.0-m3` 已打；`v2.0` 待 UAT 通过后打。
+
 ## 4. AC 逐条覆盖（AC-V2-01 ~ AC-V2-42）
 
 | AC | 场景 | 证据（可复现） | 结果 |
