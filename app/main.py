@@ -19,8 +19,22 @@ from .config import APP_NAME, APP_VERSION, ensure_dirs
 from .database import Base, SessionLocal, engine
 from .db_migrate import ensure_schema_upgrades
 from .init_db import seed_auth, seed_dicts
-from .routers import attachments, auth, contracts, dashboard, export, health, imports, meta, settings, system, tags
+from .routers import (
+    attachments,
+    auth,
+    contracts,
+    dashboard,
+    export,
+    health,
+    imports,
+    master,
+    meta,
+    settings,
+    system,
+    tags,
+)
 from . import models_auth  # noqa: F401  V2.0：让 create_all 感知权限/组织/账号表
+from . import models_master  # noqa: F401  V2.0：让 create_all 感知主数据表
 
 __all__ = ["app"]
 
@@ -46,6 +60,7 @@ app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(system.router)
+app.include_router(master.router)
 app.include_router(meta.router)
 app.include_router(dashboard.router)
 app.include_router(tags.router)
