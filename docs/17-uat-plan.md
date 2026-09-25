@@ -28,13 +28,30 @@ cd D:\dsh\hetong\web; npm run build
 cd D:\dsh\hetong
 $env:CTMS_SERVE_STATIC=1; $env:CTMS_WEB_DIST="D:\dsh\hetong\web\dist"
 app\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+# 一键写入演示数据（组织 + 7 个业务账号 + 主数据 + 4 张演示合同；幂等、只新增不删除）
+app\.venv\Scripts\python.exe app\tools\seed_demo_v2.py
 ```
 
 - 访问：<http://127.0.0.1:8000>
 - 管理员：`admin / admin12345`（首次登录强制改密）
-- 演示数据：`app\.venv\Scripts\python.exe -m app.init_db --demo`（仅在库为空时写入演示合同）
+- 业务账号（密码 `ctms2026`，首次登录强制改密）：`pm01` 采购主管、`buyer01` 采购员、
+  `sm01` 销售主管、`seller01` 销售员、`wh01` 仓管员、`fin01` 财务、`view01` 管理层
+- 演示数据概览：组织"智澈公司（演示）"下 5 个部门；商品类型 3 类（叶子 钢材/纸张/检测设备）；
+  物料 3 个（`STL0001` 热轧钢板、`PPR0001` A4 复印纸、`DET0001` 便携式测厚仪）；仓库 2 个；
+  客户 2 个、供应商 2 个；合同 4 张（含 1 张框架合同 + 其子合同 + 1 张销售合同）
 
-**演示前必须准备**：1 个组织部门、3~4 个账号（按 §2 角色）、2 个商品类型 + 3 个物料、1 个仓库、1~2 个客户与供应商。
+**数据范围演示要点**（`seed_demo_v2.py` 已把演示合同归属到对应部门，便于现场演示 AC-V2-04/05）：
+
+| 账号 | 数据范围 | 预期可见 |
+|---|---|---|
+| `pm01` 采购主管 | 本部门及下级 | 采购部创建的采购合同（3 张） |
+| `sm01` 销售主管 | 本部门及下级 | 销售部创建的销售合同（1 张） |
+| `buyer01` / `seller01` | 本人 | 只有自己创建的单据/合同（演示时现场新建一张即可看到） |
+| `wh01` / `fin01` / `view01` | 全部 | 全部数据 |
+
+> 若希望从干净库开始演示：停服 → 移走 `app/data/ctms.db`（先备份）→
+> `python -m app.init_db` → `python app\tools\seed_demo_v2.py`。
 
 ## 4. 场景清单（按角色执行，逐条打勾）
 
