@@ -32,3 +32,10 @@ Thumbs.db
 # 浏览器技能插件的运行状态（勿入库）
 .browser4-cli/
 .browser4-state/
+
+# Playwright E2E 产物（报告 / 失败截图 / trace / 用例临时目录）
+web/test-results/
+web/tests/e2e-report/
+web/playwright-report/
+web/blob-report/
+web/.playwright/

@@ -96,7 +96,37 @@ npm run dev -- --host 0.0.0.0        # → http://localhost:5173
 
 - 代码位置：`app/`（后端）、`web/`（前端）；数据文件 `app/data/ctms.db`、附件 `app/uploads/`（均已 gitignore）；
 - **版本纪律**：每完成一个功能（验收场景全绿）提交一次 Git，格式 `feat: [AC-xx] 功能名`（见 `docs/03-development-plan.md` §3.1）；
-- 无登录/无角色：纯内网使用，打开即用。
+- 登录与角色：V2.0 起已启用「账号 + 角色 + 菜单/按钮权限 + 数据范围」，
+  内置角色与权限矩阵见 `docs/11-erp-requirements.md`、`docs/16-permission-matrix.md`，演示账号见 `docs/17-uat-plan.md` §4。
+
+### 方式三：前端 E2E 测试（Playwright）
+
+端到端用例位于 `web/tests/e2e/`，**直接调用本机已安装的 Google Chrome**
+（`channel: 'chrome'`，无需 `npx playwright install` 下载浏览器）；
+覆盖登录与登录态、首页看板、主数据 CRUD、权限裁剪与 403、合同台账全生命周期、
+采购「录入 → 审核 → 下推」、库存「入库 → 过账 → 结存」、系统管理与销售线。
+
+```bash
+cd web
+npm install                    # 首次（含 @playwright/test）
+npm run test:e2e               # 自动拉起 8000/5173（已在运行则复用），串行执行
+npm run test:e2e -- --headed   # 需要看到浏览器界面时
+npm run test:e2e:report        # 打开 HTML 报告
+```
+
+- 测试账号由 `app/tools/seed_e2e_users.py` **幂等**创建/重置
+  （`e2e_admin` / `e2e_viewer` / `e2e_buyer` / `e2e_keeper` / `e2e_seller`，密码统一 `e2e12345`），
+  不新增、不修改、不删除任何既有业务账号；
+- 用例共享同一个 SQLite 演示库，因此固定 `workers: 1` 串行执行，避免互相干扰；
+- 报告、失败截图与 trace 输出在 `web/tests/e2e-report/`、`web/test-results/`（均已 gitignore）；
+- 用例默认跑在演示库 `app/data/ctms.db` 上，会在其中留下 `E2E…` 前缀的档案与新建单据；
+  如需完全隔离，改用独立库后再启动（后端支持 `CTMS_DB_URL`）：
+  `set CTMS_DB_URL=sqlite:///D:/tmp/ctms_e2e.db` → `python -m app.init_db --demo` → `python app\tools\seed_e2e_users.py`；
+- 注意 `web/vite.config.ts` 的 `server.watch.ignored` **必须**排除 `.tmpdir` 临时目录：
+  编辑器 / 测试框架 / 文件工具在**原子写**时会生成 `.Foo.vue.<pid>.<uuid>.tmpdir/Foo.vue.tmp`
+  这类中间文件（可出现在任意源码目录下），写入方在 rename 前占住该文件，
+  chokidar 一旦 watch 到它就抛 `Error: EBUSY: resource busy or locked`，
+  该错误是 FSWatcher 的 `error` 事件且无人接管 —— `npm run dev` 的 Node 进程会直接退出。
 
 ## 目录结构
 
@@ -111,9 +141,11 @@ D:\dsh\hetong\
 │       07-mvp3-adjustments.md  08-deployment.md
 ├── app\                    (后端 FastAPI；.venv/data/uploads/backups 不入库)
 │   ├── main.py  config.py  database.py  models.py  dicts.py  numbering.py
-│   ├── db_migrate.py  init_db.py  tools\build_import_template.py
-│   ├── routers\ (health/meta/tags/settings/dashboard/contracts/attachments/export/imports)
-│   ├── tests\ (smoke_p0.py P0 冒烟 · test_unit.py pytest 单测)
+│   ├── db_migrate.py  init_db.py
+│   ├── tools\ (build_import_template.py · seed_demo_v2.py · seed_e2e_users.py E2E 账号)
+│   ├── routers\ (health/meta/tags/settings/dashboard/contracts/attachments/export/imports
+│   │             auth/master/system/purchase/sales/stock/doc_routes)
+│   ├── tests\ (smoke_*.py 端到端冒烟 · test_v2_*.py pytest 单测)
 │   └── requirements.txt  requirements-dev.txt  requirements-pg.txt
 ├── scripts\backup.ps1     (每日备份: SQLite+uploads, 30天保留)
 ├── deploy\                (Dockerfile / docker-compose.yml / nginx.conf)
@@ -121,7 +153,9 @@ D:\dsh\hetong\
 ├── preview-mvp2.html      (MVP2 概念预览，可留存参考)
 └── web\                    (前端 Vue3 + Vite + Element Plus)
     ├── package.json  vite.config.ts  index.html
-    └── src\main.ts  App.vue  router\  api.ts  views\ (含 SettingsView)
+    ├── playwright.config.ts        (E2E 配置：调用本机 Chrome)
+    ├── tests\e2e\ (Playwright 用例 01-auth … 09-sales + helpers.ts)
+    └── src\main.ts  App.vue  router\  api.ts  views\
 ```
 
 > 代码随规格演进：完成的功能对应一次 Git 提交，规格文档变更同步提交。

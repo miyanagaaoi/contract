@@ -22,13 +22,18 @@
 | 2. 下载备份 | 1,243,500 字节，zip 魔数 `PK` 校验通过 |
 | 3. 解压 | 20 个条目（数据库 1 + 附件 18 + `backup_info.txt` 1） |
 | 4. 完整性校验 | 备份库 `PRAGMA integrity_check` = **ok** |
-| 5. 行数一致性 | 12 张关键表**逐表一致**（见下） |
+| 5. 行数一致性 | 12 张关键表**逐表一致**（见下）；**V2.1 起为 14 张** |
 | 6. 恢复后数据可读性 | 合同 / 入库单（`approved`,`posted=1`）/ 结存 记录均可正常读出 |
 | 7. 清理 | 演练产生的备份已删除 |
 
 关键表行数（备份 vs 生产）：`contracts 68/68`、`users 8/8`、`roles 14/14`、`customers 6/6`、
 `suppliers 6/6`、`products 8/8`、`warehouses 7/7`、`purchase_orders 2/2`、`stock_in_orders 7/7`、
 `stocks 6/6`、`stock_ledger 10/10`、`change_logs 105/105` —— **全部一致**。
+
+> ⚠️ **V2.1 增量**：上表为 **V2.0 演练记录**（12 张表）。V2.1 新增 `stock_transfers`、`stock_transfer_items`
+> 两张表，关键表清单扩为 **14 张**；`23-v2.1-system-design.md` §2.6 亦为 `stock_ledger` 增加了
+> `(product_id, warehouse_id, biz_type)` 复合索引。V2.1 发版前须重跑 `drill_backup_restore.py`
+> 并确认 14 张表逐表一致、`PRAGMA integrity_check = ok`（对应 `03` §13.3 的 M4 Go 条件）。
 
 > 复现命令（先启动后端）：
 > ```powershell

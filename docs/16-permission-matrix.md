@@ -1,20 +1,20 @@
 # 16. 权限矩阵复核记录（T-V2-39）
 
-> 生成时间：2026-09-25 22:24　·　生成方式：`app/tools/audit_role_matrix.py`（自动探测）
+> 生成时间：2026-09-26 20:28　·　生成方式：`app/tools/audit_role_matrix.py`（自动探测）
 > 复核内容：内置角色的生效权限点、菜单裁剪，以及各模块接口的 200（有权）/ 403（无权）实际返回。
 
 ## 1. 角色 × 权限点
 
 | 角色 | 数据范围 | 权限点数 | 与预设一致 | 菜单入口 |
 |---|---|---|---|---|
-| 系统管理员（`sysadmin`） | ALL | 90 | ✅ | dashboard, contract, purchase, purchase-request, purchase-order, sales, sales-request, sales-order, stock, stock-in, stock-out, stock-balance, stock-take, master, m-org, m-role, m-user, m-customer, m-supplier, m-base, m-ptype, m-prod, m-uom, m-wh, m-system |
+| 系统管理员（`sysadmin`） | ALL | 97 | ✅ | dashboard, contract, purchase, purchase-request, purchase-order, sales, sales-request, sales-order, stock, stock-in, stock-out, stock-balance, stock-take, stock-transfer, master, m-org, m-role, m-user, m-customer, m-supplier, m-base, m-ptype, m-prod, m-uom, m-wh, m-system |
 | 采购主管（`purchase_manager`） | DEPT_SUB | 29 | ✅ | dashboard, contract, purchase, purchase-request, purchase-order, stock, stock-balance, master, m-customer, m-supplier, m-base, m-ptype, m-prod, m-uom, m-wh |
 | 采购员（`buyer`） | SELF | 21 | ✅ | dashboard, contract, purchase, purchase-request, purchase-order, stock, stock-balance, master, m-supplier, m-base, m-ptype, m-prod, m-uom, m-wh |
 | 销售主管（`sales_manager`） | DEPT_SUB | 29 | ✅ | dashboard, contract, sales, sales-request, sales-order, stock, stock-balance, master, m-customer, m-supplier, m-base, m-ptype, m-prod, m-uom, m-wh |
 | 销售员（`seller`） | SELF | 21 | ✅ | dashboard, contract, sales, sales-request, sales-order, stock, stock-balance, master, m-customer, m-base, m-ptype, m-prod, m-uom, m-wh |
-| 仓管员（`keeper`） | ALL | 31 | ✅ | dashboard, contract, purchase, purchase-order, sales, sales-order, stock, stock-in, stock-out, stock-balance, stock-take, master, m-base, m-ptype, m-prod, m-uom, m-wh |
-| 财务（`finance`） | ALL | 21 | ✅ | dashboard, contract, purchase, purchase-request, purchase-order, sales, sales-request, sales-order, stock, stock-in, stock-out, stock-balance, stock-take, master, m-customer, m-supplier, m-base, m-ptype, m-prod, m-uom, m-wh |
-| 只读/管理层（`viewer`） | ALL | 18 | ✅ | dashboard, contract, purchase, purchase-request, purchase-order, sales, sales-request, sales-order, stock, stock-in, stock-out, stock-balance, stock-take, master, m-customer, m-supplier, m-base, m-ptype, m-prod, m-uom, m-wh |
+| 仓管员（`keeper`） | ALL | 38 | ✅ | dashboard, contract, purchase, purchase-order, sales, sales-order, stock, stock-in, stock-out, stock-balance, stock-take, stock-transfer, master, m-base, m-ptype, m-prod, m-uom, m-wh |
+| 财务（`finance`） | ALL | 22 | ✅ | dashboard, contract, purchase, purchase-request, purchase-order, sales, sales-request, sales-order, stock, stock-in, stock-out, stock-balance, stock-take, stock-transfer, master, m-customer, m-supplier, m-base, m-ptype, m-prod, m-uom, m-wh |
+| 只读/管理层（`viewer`） | ALL | 19 | ✅ | dashboard, contract, purchase, purchase-request, purchase-order, sales, sales-request, sales-order, stock, stock-in, stock-out, stock-balance, stock-take, stock-transfer, master, m-customer, m-supplier, m-base, m-ptype, m-prod, m-uom, m-wh |
 
 ## 2. 接口探测矩阵
 

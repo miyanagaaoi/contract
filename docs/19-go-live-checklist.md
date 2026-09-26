@@ -113,3 +113,106 @@ app\.venv\Scripts\python.exe app\tests\drill_backup_restore.py   # 备份可生�
 2. 单据打印为固定 A4 模板（表头/行项/合计/签字栏），不支持自定义模板；
 3. 库存只记数量、不记成本；不含财务模块（应收应付、收付款、开票）——见 `11` §14；
 4. 多单位换算、批次/保质期不在本期范围。
+
+---
+
+## 8. V2.1 升级步骤（V2.0 → V2.1）
+
+> 适用：把环境从 **V2.0 升级到 V2.1（增量升级）**。
+> 依据：`22-v2.1-requirements.md`、`23-v2.1-system-design.md`、`21-v2.1-upgrade-doc-plan.md`。
+> ⚠️ V2.1 存在**两条互斥路径**，执行前必须先判定库内数据性质。
+
+### 8.1 路径判定（第一步，不可跳过）
+
+| 库内数据性质 | 走哪条路径 | 后果 |
+|---|---|---|
+| **仅有演示/验收数据** | **路径 A：清库重建**（§8.3） | 旧数据全部丢弃；演示合同重建为"含绑定物料行项"的新数据 |
+| **含真实业务数据** | **路径 B：仅增量迁移**（§8.2） | 数据保留；但**旧合同的合同行项为空且未绑定物料**，"提取合同明细"对旧合同不可用（Q1 已接受的取舍） |
+
+> 🚫 **强制门禁**：走路径 A 前，必须取得业务方对"库内数据可弃"的**书面确认**。这是**不可逆操作**，且不属于"迁移失败可回滚"的范畴（回滚代码无法恢复被清空的业务数据）。
+
+### 8.2 增量迁移（路径 A 与 B 共同的前半段）
+
+```powershell
+# 1) 停服
+Stop-Process -Name python -ErrorAction SilentlyContinue
+
+# 2) 备份（关键）
+Copy-Item app\data\ctms.db "D:\backup\ctms_before_v21_$(Get-Date -Format yyyyMMdd_HHmmss).db"
+Copy-Item app\uploads "D:\backup\uploads_before_v21" -Recurse -Force
+
+# 3) 取新版本代码
+git fetch --all; git checkout v2.1
+
+# 4) 数据库迁移（幂等：加列 + 建表 + 种子权限/编号规则）
+app\.venv\Scripts\python.exe -m app.init_db
+
+# 4.1) ⚠️ 必做：把内置角色权限同步为 V2.1 预设
+#      为什么必须单独执行：`init_db` 只会**新增**缺失的权限点，**不会**更新既有角色的
+#      权限分配。而 V2.1 新增了 7 个 `stock.transfer.*` 权限点——不同步的话，
+#      **既有角色（含仓管员）登录后看不到"调拨单"菜单**（会被前端路由守卫拦下）。
+app\.venv\Scripts\python.exe -m app.init_db --sync-roles
+
+# 5) 前端构建
+cd web; npm install; npm run build; cd ..
+```
+
+> ⚠️ **`--sync-roles` 的副作用**：它会把内置角色权限**重置为代码预设**，因此
+> **会覆盖运维手工调整过的内置角色权限**。若生产上曾手工改过内置角色，请先导出
+> 当前权限分配（系统管理 → 角色）再做同步。
+
+**迁移动作（可核对）**：
+
+| 动作 | 说明 |
+|---|---|
+| 补列 | `contract_items.product_id/product_code/product_name`；7 类既有单据表各加 `handler_name` |
+| 建表 | `stock_transfers`、`stock_transfer_items` |
+| 索引 | `stock_ledger(product_id, warehouse_id, biz_type)`（支撑"货品总额度"聚合） |
+| 种子（幂等） | 新增 `stock_transfer` 编号规则；新增 7 个 `stock.transfer.*` 权限点并授权给相关角色 |
+| 数据 | **不删除、不修改任何既有业务数据** |
+
+### 8.3 路径 A：演示数据重建（仅当数据可弃）
+
+```powershell
+# 6A) 移走旧库（保留 .bak 以便后悔）
+Move-Item app\data\ctms.db app\data\ctms.db.bak
+
+# 7A) 建表 + 种子
+app\.venv\Scripts\python.exe -m app.init_db
+
+# 8A) 演示数据（账号/组织/主数据/演示合同——合同已含绑定物料的行项）
+app\.venv\Scripts\python.exe app\tools\seed_demo_v2.py --no-force-change
+```
+
+> ⚠️ **不要执行 `python -m app.init_db --demo`**：该路径生成的 V1.0 风格演示合同**没有行项**，在 V2.1 下无法"提取合同明细"，属僵尸数据（`23` §9.3 设计决策）。
+
+### 8.4 上线后验证
+
+```powershell
+$env:CTMS_SMOKE_BASE='http://127.0.0.1:8000/api'
+app\.venv\Scripts\python.exe -m pytest app/tests -q     # 全绿（基线 + V2.1 新增用例）
+app\.venv\Scripts\python.exe app\tests\smoke_m1.py      # 权限与主数据
+app\.venv\Scripts\python.exe app\tests\smoke_m2.py      # 采购与过账
+app\.venv\Scripts\python.exe app\tests\smoke_m3.py      # 销售与盘点
+app\.venv\Scripts\python.exe app\tests\smoke_p0.py      # 合同模块无回归
+app\.venv\Scripts\python.exe app\tools\audit_role_matrix.py   # 权限矩阵重算（见 16）
+app\.venv\Scripts\python.exe app\tests\drill_backup_restore.py
+```
+
+- [ ] **行项合计金额显示为数值**（不是 `[object Object]`）——V2.1 修复的 N3 缺陷，须人工目视确认
+- [ ] 采购申请单：经办人为账号下拉且默认当前账号；关联合同后可一键提取明细、可拉出合同详情抽屉
+- [ ] 采购申请单：全部下推完毕后下推按钮消失、状态为"已完成"
+- [ ] 库存明细：可见"货品总额度"；可按数量区间与物料类型筛选
+- [ ] 调拨单：新建 → 审核 → 两仓结存同事务变化且产生两条流水；反审核后结存回滚
+- [ ] 物料档案：商品类型树状展开；商品类型/计量单位可现场快建并回填
+- [ ] **管理员自审**：用 `admin` 审核自己提交的申请单应成功；用非管理员账号自审应被拒绝
+
+### 8.5 回滚
+
+| 场景 | 处置 |
+|---|---|
+| 路径 B 迁移失败 | 停服 → 用 §8.2 第 2 步的备份覆盖 → 回退代码至 `v2.0` → 启动 |
+| 路径 A 重建后发现问题 | 用 `ctms.db.bak` 恢复**旧库**（数据回到 V2.0 状态）→ 回退代码至 `v2.0` |
+| 仅前端问题 | 用上一版 `web/dist` 覆盖，无需动库 |
+
+> 注意：V2.1 迁移本身是**结构新增**，V2.0 代码可继续运行于迁移后的库（新表/新列被忽略）；但**路径 A 的清库动作不可逆**。
