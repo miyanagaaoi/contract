@@ -261,6 +261,28 @@ const router = createRouter({
           component: () => import('@/views/stock/TakeForm.vue'),
           meta: { title: '盘点单详情', perm: 'stock.take.view' },
         },
+
+        // ---- 库存管理：调拨单（V2.1 / N13） ----
+        {
+          path: 'stock/transfers', name: 'stock-transfer-list',
+          component: () => import('@/views/stock/TransferList.vue'),
+          meta: { title: '调拨单', perm: 'stock.transfer.view' },
+        },
+        {
+          path: 'stock/transfers/new', name: 'stock-transfer-form',
+          component: () => import('@/views/stock/TransferForm.vue'),
+          meta: { title: '新增调拨单', perm: 'stock.transfer.create' },
+        },
+        {
+          path: 'stock/transfers/:id/edit', name: 'stock-transfer-edit',
+          component: () => import('@/views/stock/TransferForm.vue'),
+          meta: { title: '编辑调拨单', perm: 'stock.transfer.edit' },
+        },
+        {
+          path: 'stock/transfers/:id', name: 'stock-transfer-detail',
+          component: () => import('@/views/stock/TransferForm.vue'),
+          meta: { title: '调拨单详情', perm: 'stock.transfer.view' },
+        },
       ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/' },

@@ -38,6 +38,9 @@ const query = reactive({
   warehouse_id: null as number | null,
   product_type_id: null as number | null,
   below_safety: false,
+  // V2.1 / N12：结存数量区间筛选
+  qty_min: null as number | null,
+  qty_max: null as number | null,
 })
 
 const warehouses = ref<Dict[]>([])
@@ -54,6 +57,8 @@ async function load() {
       warehouse_id: query.warehouse_id || undefined,
       product_type_id: query.product_type_id || undefined,
       below_safety: query.below_safety || undefined,
+      qty_min: query.qty_min ?? undefined,
+      qty_max: query.qty_max ?? undefined,
       page: page.value,
       page_size: pageSize.value,
     })
@@ -71,6 +76,8 @@ function resetQuery() {
   query.warehouse_id = null
   query.product_type_id = null
   query.below_safety = false
+  query.qty_min = null
+  query.qty_max = null
   page.value = 1
   load()
 }
@@ -82,6 +89,8 @@ function balanceParams(): Dict {
     warehouse_id: query.warehouse_id || undefined,
     product_type_id: query.product_type_id || undefined,
     below_safety: query.below_safety || undefined,
+    qty_min: query.qty_min ?? undefined,
+    qty_max: query.qty_max ?? undefined,
   }
 }
 
@@ -254,6 +263,13 @@ onMounted(async () => {
             <el-option v-for="t in productTypes" :key="t.id" :label="t.name" :value="t.id" />
           </el-select>
         </el-form-item>
+        <el-form-item label="数量区间">
+          <el-input-number v-model="query.qty_min" :controls="false" placeholder="下限"
+                           style="width: 90px" @change="page = 1; load()" />
+          <span style="margin: 0 6px; color: #909399">~</span>
+          <el-input-number v-model="query.qty_max" :controls="false" placeholder="上限"
+                           style="width: 90px" @change="page = 1; load()" />
+        </el-form-item>
         <el-form-item label="仅低于安全库存">
           <el-switch v-model="query.below_safety" @change="page = 1; load()" />
         </el-form-item>
@@ -297,6 +313,10 @@ onMounted(async () => {
           <template #default="{ row }">
             {{ row.safety_stock === null || row.safety_stock === undefined ? '—' : fmtQty(row.safety_stock, row.uom_decimals) }}
           </template>
+        </el-table-column>
+        <el-table-column label="货品总额度" width="130" align="right">
+          <!-- V2.1 / N11：该 (物料 × 仓库) 的入库批次金额合计（BR-V2.1-09） -->
+          <template #default="{ row }">{{ fmtMoney(row.inbound_amount) }}</template>
         </el-table-column>
         <el-table-column label="库存状态" width="100">
           <template #default="{ row }">

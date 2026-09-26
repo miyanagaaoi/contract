@@ -17,6 +17,7 @@ import {
   updateMasterItem,
   type Dict,
 } from '@/api'
+import QuickCreateDialog from '@/components/QuickCreateDialog.vue'
 import { useAuthStore } from '@/stores/auth'
 import type { ExtraFilter, MasterColumn, MasterField } from '@/types/master'
 
@@ -50,6 +51,41 @@ const dialogVisible = ref(false)
 const saving = ref(false)
 const editingId = ref<number | null>(null)
 const form = reactive<Dict>({})
+
+// ---------------- V2.1（N14/N15）：商品类型树 + 主数据快速新增 ----------------
+const typeTree = ref<Dict[]>([])
+const quickRef = ref<InstanceType<typeof QuickCreateDialog> | null>(null)
+const quickKind = ref<'product' | 'product-type' | 'uom'>('product')
+
+/** 商品类型树（`/master/product-types` 已返回现成 tree 结构） */
+async function ensureTypeTree(force = false) {
+  if (typeTree.value.length && !force) return
+  try {
+    const res: Dict = await fetchMasterList('/product-types')
+    typeTree.value = (res.tree ?? res.items ?? []) as Dict[]
+  } catch {
+    typeTree.value = []
+  }
+}
+
+function openQuick(kind: 'product' | 'product-type' | 'uom') {
+  quickKind.value = kind
+  quickRef.value?.open()
+}
+
+/** 快建成功 → 回填到当前表单对应字段，并保持下拉缓存同步 */
+async function onQuickCreated(item: Dict) {
+  if (!item) return
+  if (quickKind.value === 'uom') {
+    form.uom_id = item.id
+    optionCache.uom = [...(optionCache.uom || []), item]
+  } else if (quickKind.value === 'product-type') {
+    form.product_type_id = item.id
+    await ensureTypeTree(true)
+  } else {
+    form.product_id = item.id
+  }
+}
 
 function isEnabled(row: Dict): boolean {
   return props.statusMode === 'bool' ? !!row.enabled : row.status === 'enabled'
@@ -291,11 +327,27 @@ onMounted(async () => {
                 <el-option v-for="o in f.options || []" :key="String(o.value)" :label="o.label"
                            :value="o.value" />
               </el-select>
-              <el-select v-else-if="f.type === 'options'" v-model="form[f.prop]" filterable clearable
-                         style="width: 100%" :placeholder="f.placeholder || '请选择'">
-                <el-option v-for="o in optionCache[f.optionKind || ''] || []" :key="o.id"
-                           :label="o.code ? `${o.name}（${o.code}）` : o.name" :value="o.id" />
-              </el-select>
+              <div v-else-if="f.type === 'options'" class="quick-line">
+                <el-select v-model="form[f.prop]" filterable clearable style="flex: 1"
+                           :placeholder="f.placeholder || '请选择'">
+                  <el-option v-for="o in optionCache[f.optionKind || ''] || []" :key="o.id"
+                             :label="o.code ? `${o.name}（${o.code}）` : o.name" :value="o.id" />
+                </el-select>
+                <!-- V2.1（N15）：现场快建，不跳转（BR-V2.1-10 禁止丢失未保存表单） -->
+                <el-button v-if="f.quickCreate" size="small" title="快速新增"
+                           @click="openQuick(f.quickCreate!)">＋</el-button>
+              </div>
+              <!-- V2.1（N14）：商品类型树状展开选择；父节点禁用，只能选叶子（后端仍强制校验） -->
+              <div v-else-if="f.type === 'tree-select'" class="quick-line">
+                <el-tree-select v-model="form[f.prop]" :data="typeTree" check-strictly filterable
+                                clearable :render-after-expand="false" style="flex: 1"
+                                :props="{ label: 'name', value: 'id', children: 'children',
+                                          disabled: (d: Dict) => !!(d.children && d.children.length) }"
+                                :placeholder="f.placeholder || '请选择叶子类型'"
+                                @visible-change="ensureTypeTree()" />
+                <el-button v-if="f.quickCreate" size="small" title="快速新增"
+                           @click="openQuick(f.quickCreate!)">＋</el-button>
+              </div>
               <span v-if="f.tip" class="tip">{{ f.tip }}</span>
             </el-form-item>
           </el-col>
@@ -306,10 +358,14 @@ onMounted(async () => {
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- V2.1：主数据快速新增（商品类型 / 计量单位 / 物料） -->
+    <QuickCreateDialog ref="quickRef" :kind="quickKind" @created="onQuickCreated" />
   </el-card>
 </template>
 
 <style scoped>
+.quick-line { display: flex; align-items: center; gap: 6px; width: 100%; }
 .head { display: flex; align-items: center; justify-content: space-between; }
 .title { font-weight: 600; font-size: 15px; }
 .subtitle { margin-left: 10px; color: #909399; font-size: 12.5px; }

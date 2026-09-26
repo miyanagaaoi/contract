@@ -258,7 +258,36 @@ function onSupplierChange(id: number | null) {
 }
 
 function emptyRow(): Dict {
-  return { item_type: meta.value.item_types?.[0] ?? '采购', name: '', spec: '', qty: null, unit_price: null, remark: '' }
+  // V2.1（N4）：行项必须绑定物料档案，故新增 product_id 与快照字段
+  return { item_type: meta.value.item_types?.[0] ?? '采购', name: '', spec: '',
+           product_id: null, product_code: '', product_name: '',
+           qty: null, unit_price: null, remark: '' }
+}
+
+/** V2.1（N4）：物料下拉（首次使用时加载一次） */
+const productOptions = ref<Dict[]>([])
+let productsLoaded = false
+
+async function ensureProducts() {
+  if (productsLoaded) return
+  try {
+    productOptions.value = await fetchMasterOptions('product')
+    productsLoaded = true
+  } catch {
+    productOptions.value = []
+  }
+}
+
+/** 选中物料 → 带出名称/规格/默认单价（用户仍可覆盖） */
+function onItemProductChange(row: Dict, id: number | null) {
+  const hit = productOptions.value.find((p) => p.id === id)
+  if (!hit) return
+  row.product_code = hit.code ?? ''
+  row.product_name = hit.name ?? ''
+  if (!(row.name || '').trim()) row.name = hit.name ?? ''
+  if (!(row.spec || '').trim() && hit.spec) row.spec = hit.spec
+  const price = Number(row.unit_price) || 0
+  if (price === 0 && hit.default_price) row.unit_price = Number(hit.default_price)
 }
 
 function resetForm() {
@@ -381,6 +410,8 @@ function openEdit(row: Dict) {
     subject_code: row.subject_code ?? defaultSubjectCode(),
     items: (row.items ?? []).map((it: Dict) => ({
       item_type: it.item_type ?? '采购', name: it.name ?? '', spec: it.spec ?? '',
+      product_id: it.product_id ?? null, product_code: it.product_code ?? '',
+      product_name: it.product_name ?? '',
       qty: it.qty ?? null, unit_price: it.unit_price ?? null, remark: it.remark ?? '',
     })),
     has_warranty: row.has_warranty ?? false,
@@ -417,11 +448,19 @@ async function save() {
       item_type: r.item_type || '采购',
       name: (r.name || '').trim(),
       spec: (r.spec || '').trim(),
+      product_id: r.product_id ?? null,          // V2.1 / N4：行项必须绑定物料
       qty: Number(r.qty) || 0,
       unit_price: Number(r.unit_price) || 0,
       remark: (r.remark || '').trim(),
     }))
     .filter((r: Dict) => r.name || r.spec || r.qty || r.unit_price || r.remark)
+  // V2.1（N4，BR-V2.1-02）：行项必须选物料。前端给出**精确到行**的提示，
+  // 服务端 `routers/contracts.py::_resolve_item_product` 仍会强制校验（前端不算边界）。
+  const missingIdx = items.findIndex((r: Dict) => !r.product_id)
+  if (missingIdx >= 0) {
+    ElMessage.warning(`行项第 ${items[missingIdx].seq} 行：请选择物料档案`)
+    return
+  }
   saving.value = true
   try {
     const payload: Dict = {
@@ -673,7 +712,8 @@ onMounted(async () => {
   <div>
     <!-- 搜索区（完整组合筛选在 T5） -->
     <el-card shadow="never" class="mb">
-      <el-form inline>
+      <div class="filter-bar">
+      <el-form inline class="filter-form">
         <el-form-item label="关键词">
           <el-input v-model="query.keyword" placeholder="编号/名称/甲乙方" clearable style="width: 220px" @keyup.enter="page = 1; load()" />
         </el-form-item>
@@ -709,13 +749,14 @@ onMounted(async () => {
           <el-button type="primary" @click="page = 1; load()">查询</el-button>
           <el-button @click="Object.assign(query, { keyword: '', type: '', status: '', tags: [], date_range: [], owner: '' }); load()">重置</el-button>
         </el-form-item>
-        <el-form-item style="float: right">
+      </el-form>
+        <div class="filter-actions">
           <el-checkbox v-model="query.include_deleted" label="显示已停用" @change="page = 1; load()" />
           <el-button @click="openImportDialog()">导入</el-button>
           <el-button @click="router.push('/settings')">系统设置</el-button>
           <el-button type="success" @click="openNew()">＋ 新增合同</el-button>
-        </el-form-item>
-      </el-form>
+        </div>
+      </div>
     </el-card>
 
     <!-- 表格 -->
@@ -728,7 +769,8 @@ onMounted(async () => {
           <el-button type="primary" plain :disabled="!rows.length && !total" @click="openExportDialog">导出 Excel（当前筛选）</el-button>
         </div>
       </template>
-      <el-table v-loading="loading" :data="viewRows" border stripe :row-class-name="isTree ? rowClass : undefined" @row-dblclick="view">
+      <el-table v-loading="loading" :data="viewRows" border stripe size="small"
+                :row-class-name="isTree ? rowClass : undefined" @row-dblclick="view">
         <el-table-column v-if="isTree" width="44" align="center">
           <template #default="{ row }">
             <span v-if="row.tree === 'f'" class="fw-icon" @click.stop="toggleFw(row.id)">
@@ -737,50 +779,56 @@ onMounted(async () => {
             <span v-else-if="row.tree === 'c'" class="child-icon">↳</span>
           </template>
         </el-table-column>
-        <el-table-column prop="contract_no" label="合同编号" width="130" />
-        <el-table-column prop="name" label="合同名称" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="type" label="类型" width="70" />
-        <el-table-column label="甲方" min-width="140" show-overflow-tooltip>
+        <el-table-column prop="contract_no" label="合同编号" width="148" />
+        <el-table-column label="合同名称 / 标签" min-width="192">
+          <template #default="{ row }">
+            <div class="name-cell">
+              <span class="name-text" :title="row.name">{{ row.name }}</span>
+              <!-- 标签并进名称列：单独一列会因多个 el-tag 平铺把行高撑成两行 -->
+              <el-tooltip v-if="row.tags && row.tags.length" :content="row.tags.join('、')" placement="top">
+                <el-tag size="small" class="name-tag">{{ row.tags[0] }}</el-tag>
+              </el-tooltip>
+              <span v-if="row.tags && row.tags.length > 1" class="more-tag">+{{ row.tags.length - 1 }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="type" label="类型" width="84" />
+        <el-table-column label="甲方" min-width="88" show-overflow-tooltip>
           <template #default="{ row }">
             <span>{{ row.party_a || '—' }}</span>
             <el-tag v-if="row.customer_id" size="small" type="success" class="ml4">档案</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="乙方" min-width="140" show-overflow-tooltip>
+        <el-table-column label="乙方" min-width="88" show-overflow-tooltip>
           <template #default="{ row }">
             <span>{{ row.party_b || '—' }}</span>
             <el-tag v-if="row.supplier_id" size="small" type="warning" class="ml4">档案</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="金额" width="110" align="right">
+        <el-table-column label="金额" width="92" align="right">
           <template #default="{ row }">{{ fmtMoney(row.amount) }}</template>
         </el-table-column>
-        <el-table-column label="已付" width="100" align="right">
-          <template #default="{ row }">{{ fmtMoney(row.paid_amount) }}</template>
-        </el-table-column>
-        <el-table-column label="付款比例" width="90" align="right">
+        <el-table-column label="已付（比例）" width="128" align="right">
           <template #default="{ row }">
-            <span v-if="row.payment_ratio !== null">{{ Number(row.payment_ratio).toFixed(1) }}%</span>
-            <span v-else>—</span>
+            <span>{{ fmtMoney(row.paid_amount) }}</span>
+            <span class="ratio">
+              {{ row.payment_ratio !== null && row.payment_ratio !== undefined
+                ? Number(row.payment_ratio).toFixed(1) + '%' : '—' }}
+            </span>
           </template>
         </el-table-column>
-        <el-table-column label="标签" width="150">
+        <el-table-column prop="status" label="状态" width="80" />
+        <el-table-column prop="owner_name" label="经办人" width="70" />
+        <el-table-column label="操作" width="176" fixed="right">
           <template #default="{ row }">
-            <el-tag v-for="t in row.tags" :key="t" size="small" class="mr-4">{{ t }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="status" label="状态" width="110" />
-        <el-table-column prop="owner_name" label="经办人" width="80" />
-        <el-table-column label="操作" width="300" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="view(row)">详情</el-button>
+            <el-button link type="primary" size="small" @click="view(row)">详情</el-button>
             <template v-if="row.deleted">
-              <el-button link type="success" @click="restore(row)">恢复</el-button>
+              <el-button link type="success" size="small" @click="restore(row)">恢复</el-button>
             </template>
             <template v-else>
-              <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-              <el-button link type="warning" @click="openStatus(row)">状态</el-button>
-              <el-button link type="danger" @click="remove(row)">停用</el-button>
+              <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+              <el-button link type="warning" size="small" @click="openStatus(row)">状态</el-button>
+              <el-button link type="danger" size="small" @click="remove(row)">停用</el-button>
             </template>
           </template>
         </el-table-column>
@@ -859,6 +907,18 @@ onMounted(async () => {
             <template #default="{ row }">
               <el-select v-model="row.item_type" filterable size="small" style="width: 100%">
                 <el-option v-for="t in meta.item_types" :key="t" :label="t" :value="t" />
+              </el-select>
+            </template>
+          </el-table-column>
+          <el-table-column label="物料" min-width="180">
+            <!-- V2.1 / N4：合同行项必须绑定系统物料档案（选中后带出名称/规格/默认单价） -->
+            <template #default="{ row }">
+              <el-select v-model="row.product_id" size="small" filterable clearable
+                         placeholder="必选" style="width: 100%"
+                         @visible-change="ensureProducts"
+                         @change="(v: number) => onItemProductChange(row, v)">
+                <el-option v-for="p in productOptions" :key="p.id"
+                           :label="`${p.name}（${p.code}）`" :value="p.id" />
               </el-select>
             </template>
           </el-table-column>
@@ -1161,7 +1221,34 @@ onMounted(async () => {
 <style scoped>
 .mb { margin-bottom: 12px; }
 .mt { margin-top: 12px; }
+/*
+ * 筛选区布局：用 flex 换行取代原来的 `float: right`。
+ * float 在 inline 表单里换行后会脱离对齐基准，把「显示已停用/导入/系统设置/新增合同」
+ * 推到错位位置；改成 flex 后：宽屏时按钮组自动靠右，窄屏换行时回到左对齐，不再悬空。
+ */
+.filter-bar { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: 16px; }
+.filter-form { flex: 1 1 720px; min-width: 0; }
+.filter-form :deep(.el-form-item) { margin-right: 16px; }
+.filter-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+  margin-bottom: 18px;   /* 与 el-form-item 的下边距保持一致，保证同一行基线对齐 */
+}
+@media (max-width: 1400px) {
+  .filter-actions { margin-left: 0; }
+}
 .mr-4 { margin-right: 4px; }
+/* 「已付（比例）」合并列里的比例，弱化显示 */
+.ratio { margin-left: 6px; color: #909399; font-size: 12px; }
+/* 名称列：名称超出用省略号（title 显示全文），标签跟在后面不换行 */
+.name-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.name-text { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.name-tag { flex: 0 0 auto; }
+/* 标签的「+N」，鼠标悬停可看全部标签 */
+.more-tag { flex: 0 0 auto; color: #909399; font-size: 12px; cursor: default; }
 .colwrap :deep(.el-checkbox) { margin-right: 8px; margin-bottom: 6px; }
 .gray { color: #909399; font-size: 13px; }
 .totalbar { font-size: 13px; color: #606266; }

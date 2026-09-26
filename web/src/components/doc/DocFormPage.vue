@@ -97,6 +97,7 @@ const saving = ref(false)
 const detail = ref<DocRecord | null>(null)
 const items = ref<Record<string, any>[]>([])
 const contracts = ref<Dict[]>([])
+const handlerOptions = ref<Dict[]>([])   // V2.1 / N1：经办人账号下拉（仅启用账号）
 
 const header = reactive<{
   doc_date: string
@@ -279,6 +280,12 @@ onMounted(async () => {
   } catch {
     contracts.value = []
   }
+  try {
+    // V2.1 / N1：经办人下拉（`/api/master/options/user`，仅返回启用账号）
+    handlerOptions.value = await fetchMasterOptions('user')
+  } catch {
+    handlerOptions.value = []
+  }
   await load()
 })
 
@@ -329,8 +336,11 @@ defineExpose({ patchExtra, items, header, load, detail, editable })
           </el-col>
           <el-col :span="12">
             <el-form-item label="经办人">
-              <el-input-number v-model="header.handler_user_id" :min="1" :controls="false"
-                               placeholder="留空默认当前用户" style="width: 100%" />
+              <el-select v-model="header.handler_user_id" filterable clearable
+                         placeholder="默认当前账号" style="width: 100%">
+                <el-option v-for="u in handlerOptions" :key="u.id"
+                           :label="`${u.name}（${u.username}）`" :value="u.id" />
+              </el-select>
             </el-form-item>
           </el-col>
           <slot name="header" :header="header" :patch="patchExtra" :extra="extra" :detail="detail" />
@@ -348,7 +358,8 @@ defineExpose({ patchExtra, items, header, load, detail, editable })
         <div class="head">
           <span class="title">行项明细</span>
           <div class="toolbar">
-            <slot name="items-toolbar" :detail="detail" :editable="editable" :reload="load" :items="items" />
+            <slot name="items-toolbar" :detail="detail" :editable="editable" :reload="load" :items="items"
+                  :header="header" />
           </div>
         </div>
       </template>

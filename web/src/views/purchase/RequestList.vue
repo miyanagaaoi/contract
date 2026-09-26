@@ -58,6 +58,7 @@ onMounted(async () => {
                perm-prefix="purchase.request" kind-label="采购申请单"
                form-route="purchase-request-form" edit-route="purchase-request-edit" show-supplier
                pushable push-perm="purchase.order.create"
+               push-remain-field="remain_qty_sum"
                export-path="/api/purchase/requests/export.xlsx"
                :extra-cols="['ordered']" @push="onPush">
     <template #detail-head="{ detail }">

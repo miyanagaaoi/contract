@@ -11,6 +11,7 @@
  */
 import { computed, onMounted, reactive, ref } from 'vue'
 
+import QuickCreateDialog from '@/components/QuickCreateDialog.vue'
 import { fetchMasterOptions, type Dict } from '@/api'
 import type { DocItem } from '@/types/doc'
 
@@ -63,24 +64,26 @@ function qtyStep(row: Record<string, any>): number {
   return decimalsOf(row) === 0 ? 1 : 0.01
 }
 
-/** 展示数量（按单位小数位，保留 0 位时取整） */
+/** 展示数量（按单位小数位，保留 0 位时取整）
+ *  注意：非数值一律回退为 '—'，**不得**回退为 String(v) —— 否则对象会被渲染成 "[object Object]" */
 function fmtQty(v: unknown, decimals = 2): string {
   if (v === null || v === undefined || v === '') return '—'
-  const n = Number(v)
-  if (Number.isNaN(n)) return String(v)
+  const n = typeof v === 'number' ? v : Number(v)
+  if (!Number.isFinite(n)) return '—'
   return n.toFixed(Math.max(0, Math.min(6, decimals)))
 }
 
 function fmtPrice(v: unknown): string {
   if (v === null || v === undefined || v === '') return '—'
-  const n = Number(v)
-  return Number.isNaN(n) ? String(v) : n.toFixed(2)
+  const n = typeof v === 'number' ? v : Number(v)
+  return Number.isFinite(n) ? n.toFixed(2) : '—'
 }
 
 function fmtMoney(v: unknown): string {
   if (v === null || v === undefined || v === '') return '0.00'
-  const n = Number(v)
-  return Number.isNaN(n) ? String(v) : n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const n = typeof v === 'number' ? v : Number(v)
+  if (!Number.isFinite(n)) return '0.00'
+  return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 /** 金额 = 数量 × 单价（四舍五入到分） */
@@ -150,6 +153,33 @@ function onQtyChange(row: Record<string, any>, value: number | undefined) {
   emit('change')
 }
 
+// ---------------- V2.1 / N9：物料现场快建 ----------------
+// 需求："物料选择框最右边增加小按钮，可以快速调用新增物料档案功能"。
+// 放在本组件内实现（而非由各页面各自承载）：本组件已维护物料下拉缓存，
+// 快建成功后可直接把新物料并入缓存并回填当前行，且**所有单据自动获得该能力**。
+const quickRef = ref<InstanceType<typeof QuickCreateDialog> | null>(null)
+let quickRow: Record<string, any> | null = null
+
+function openQuickProduct(row: Record<string, any>) {
+  quickRow = row
+  quickRef.value?.open()
+}
+
+function onQuickProductCreated(item: Dict) {
+  if (!item || !quickRow) return
+  // 并入下拉缓存，避免该物料在本次会话中"搜不到"
+  if (!products.value.some((p) => p.id === item.id)) products.value.push(item)
+  quickRow.product_id = item.id
+  quickRow.product_code = item.code ?? ''
+  quickRow.product_name = item.name ?? ''
+  if (!quickRow.spec) quickRow.spec = item.spec ?? null
+  quickRow.uom_name = item.uom_name ?? quickRow.uom_name ?? null
+  quickRow.uom_decimals = item.uom_decimals ?? quickRow.uom_decimals ?? null
+  if (!Number(quickRow.unit_price)) quickRow.unit_price = Number(item.default_price || 0)
+  quickRow = null
+  emit('change')
+}
+
 function addRow() {
   props.items.push({
     product_id: null,
@@ -166,11 +196,18 @@ function addRow() {
   emit('change')
 }
 
-/** 合计行：序号→空，金额列→合计，其余为空 */
+/** 合计行：序号→"合计"，金额列→合计，其余为空。
+ *
+ * 修复（V2.1 / AC-V2.1-03）：
+ * 1. `totalAmount` 是 computed ref，**在 script 内必须写 `.value`**，否则传入 ref 对象会让
+ *    `fmtMoney` 拿到非数值并渲染出 "[object Object]"；
+ * 2. 金额列按 `prop` 标识定位，不再硬编码列索引 `i === 6`——列数会随
+ *    `showWarehouse` / `extraCols` / `readonly` 变化，硬编码会错位。 */
 function summaryMethod({ columns }: { columns: { property?: string }[] }): string[] {
+  const amountIdx = columns.findIndex((c) => c.property === 'amount')
   return columns.map((_c, i) => {
     if (i === 0) return '合计'
-    if (i === 6) return fmtMoney(totalAmount)
+    if (amountIdx >= 0 && i === amountIdx) return fmtMoney(totalAmount.value)
     return ''
   })
 }
@@ -198,15 +235,19 @@ defineExpose({ loadProducts, totalAmount })
   <div class="items">
     <el-table :data="items" border stripe size="small" show-summary :summary-method="summaryMethod">
       <el-table-column type="index" label="#" width="48" align="center" />
-      <el-table-column label="物料" min-width="200">
+      <el-table-column label="物料" min-width="230">
         <template #default="{ row }">
-          <el-select v-if="!readonly" v-model="row.product_id" filterable remote
-                     :remote-method="onProductSearch" :loading="loadingProducts"
-                     placeholder="输入编码/名称搜索" style="width: 100%"
-                     @change="(v: number) => onProductChange(row, v)">
-            <el-option v-for="p in products" :key="p.id"
-                       :label="`${p.name}（${p.code}）`" :value="p.id" />
-          </el-select>
+          <div v-if="!readonly" class="product-pick">
+            <el-select v-model="row.product_id" filterable remote
+                       :remote-method="onProductSearch" :loading="loadingProducts"
+                       placeholder="输入编码/名称搜索" style="flex: 1"
+                       @change="(v: number) => onProductChange(row, v)">
+              <el-option v-for="p in products" :key="p.id"
+                         :label="`${p.name}（${p.code}）`" :value="p.id" />
+            </el-select>
+            <!-- V2.1（N9）：最右侧小按钮 → 弹窗新增物料并回填本行（不跳转，BR-V2.1-10） -->
+            <el-button size="small" title="快速新增物料" @click="openQuickProduct(row)">＋</el-button>
+          </div>
           <span v-else>{{ row.product_name || '—' }}<span class="gray">（{{ row.product_code || '—' }}）</span></span>
         </template>
       </el-table-column>
@@ -232,7 +273,7 @@ defineExpose({ loadProducts, totalAmount })
           <span v-else>{{ fmtPrice(row.unit_price) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="金额" width="120" align="right">
+      <el-table-column label="金额" prop="amount" width="120" align="right">
         <template #default="{ row }">{{ fmtMoney(amountOf(row)) }}</template>
       </el-table-column>
       <el-table-column v-if="showWarehouse" label="仓库" width="150">
@@ -265,10 +306,14 @@ defineExpose({ loadProducts, totalAmount })
       <el-button type="primary" plain size="small" @click="addRow">添加行</el-button>
       <span class="gray tips">数量精度按物料单位小数位限制；金额 = 数量 × 单价，由系统自动计算。</span>
     </div>
+
+    <!-- V2.1 / N9：物料快速新增（保存后回填当前行，不离开本单据） -->
+    <QuickCreateDialog ref="quickRef" kind="product" @created="onQuickProductCreated" />
   </div>
 </template>
 
 <style scoped>
+.product-pick { display: flex; align-items: center; gap: 4px; width: 100%; }
 .actions { margin-top: 8px; display: flex; align-items: center; gap: 12px; }
 .gray { color: #909399; }
 .hint { color: #e6a23c; font-size: 12px; line-height: 1.4; }

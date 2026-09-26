@@ -28,7 +28,13 @@ const activeMenu = computed(() => route.path)
       </el-scrollbar>
     </el-aside>
 
-    <el-container>
+    <!--
+      必须显式声明 direction="vertical"：
+      el-container 只有在**直接子节点**的组件名是 ElHeader / ElFooter 时才自动纵向排列，
+      而这里的顶栏封装在自定义组件 <TopBar /> 内部（它才是 <el-header>），
+      自动判定会退化成 row —— 结果是顶栏只占内容宽度、缩在左上角，主区被挤到顶栏右侧。
+    -->
+    <el-container direction="vertical">
       <TopBar />
       <el-main class="main">
         <router-view />

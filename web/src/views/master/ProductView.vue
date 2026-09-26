@@ -18,10 +18,14 @@ const columns: MasterColumn[] = [
 const fields: MasterField[] = [
   { prop: 'name', label: '物料名称', required: true, span: 24 },
   {
-    prop: 'product_type_id', label: '商品类型', type: 'options', optionKind: 'product-type',
-    required: true, span: 12,
+    // V2.1（N14/N15）：商品类型改为**树状展开选择**（父节点禁用、只能选叶子），
+    // 并在右侧提供「快速新增」——无需跳到商品类型页，避免丢失已填内容。
+    prop: 'product_type_id', label: '商品类型', type: 'tree-select', quickCreate: 'product-type',
+    required: true, span: 12, placeholder: '选择叶子类型',
   },
-  { prop: 'uom_id', label: '计量单位', type: 'options', optionKind: 'uom', required: true },
+  // V2.1（N15）：计量单位同样支持现场快建
+  { prop: 'uom_id', label: '计量单位', type: 'options', optionKind: 'uom',
+    quickCreate: 'uom', required: true },
   { prop: 'code', label: '物料编码', placeholder: '留空自动生成（类型码+序号）', span: 24 },
   { prop: 'spec', label: '规格型号' },
   { prop: 'brand', label: '品牌' },

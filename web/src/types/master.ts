@@ -7,11 +7,16 @@
 export interface MasterField {
   prop: string
   label: string
-  type?: 'input' | 'number' | 'textarea' | 'select' | 'switch' | 'options'
+  type?: 'input' | 'number' | 'textarea' | 'select' | 'switch' | 'options' | 'tree-select'
   required?: boolean
   span?: number
   /** type='options' 时，从 `GET /api/master/options/{optionKind}` 拉取候选 */
   optionKind?: string
+  /**
+   * V2.1（N15）：字段右侧显示「快速新增」按钮，点击后弹窗新增对应主数据并自动回填。
+   * 取值即要新增的种类（`product` / `product-type` / `uom`）。
+   */
+  quickCreate?: 'product' | 'product-type' | 'uom'
   options?: { label: string; value: string | number }[]
   placeholder?: string
   precision?: number

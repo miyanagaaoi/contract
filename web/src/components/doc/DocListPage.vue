@@ -63,6 +63,8 @@ const props = withDefaults(defineProps<{
   pushable?: boolean
   /** 下推权限点 */
   pushPerm?: string
+  /** V2.1/N7：行上的「剩余可下推量」字段名。设置后，剩余为 0 的行**不显示**「下推」按钮 */
+  pushRemainField?: string
   /** 行项额外只读列（下推进度等） */
   extraCols?: ('ordered' | 'received' | 'shipped' | 'book' | 'actual' | 'diff')[]
   /** 单据类型标签（详情抽屉标题用） */
@@ -86,6 +88,7 @@ const props = withDefaults(defineProps<{
   showCustomer: false,
   pushable: false,
   pushPerm: '',
+  pushRemainField: '',
   extraCols: () => [],
   kindLabel: '单据',
   exportPath: '',
@@ -325,8 +328,19 @@ function canUnapprove(row: DocRecord): boolean {
 }
 function canEdit(row: DocRecord): boolean { return !!row.editable && can('edit') }
 function canPush(row: DocRecord): boolean {
-  return props.pushable && auth.hasPerm(props.pushPerm || `${props.permPrefix}.push`)
-    && (row.status === 'approved' || row.status === 'completed')
+  if (!props.pushable) return false
+  if (!auth.hasPerm(props.pushPerm || `${props.permPrefix}.push`)) return false
+  if (row.status !== 'approved' && row.status !== 'completed') return false
+  // V2.1 / N7（BR-V2.1-06）：全部行项下推完毕（剩余可下推量为 0）时不再显示「下推」。
+  // 注意两点：
+  // 1) 仅在页面显式传入 `pushRemainField` 时生效 —— 其余单据保持原行为（防回归）；
+  // 2) **字段缺失时不隐藏**（只有明确为 0 才隐藏）。列表接口若未返回该字段（旧后端/其他
+  //    调用路径），不应把「下推」入口一并吞掉——那属于接口异常而非业务规则。
+  if (props.pushRemainField) {
+    const raw = (row as Record<string, any>)[props.pushRemainField]
+    if (raw !== undefined && raw !== null && raw !== '' && Number(raw) <= 0) return false
+  }
+  return true
 }
 
 async function loadOptions() {
