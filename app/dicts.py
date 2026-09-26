@@ -9,6 +9,7 @@ KV 键：
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 
 from sqlalchemy.orm import Session
 
@@ -41,14 +42,22 @@ LEGACY_SUBJECT_MAP = {"智澈": "ZC", "云羲": "YX"}
 
 
 def _load_list(db: Session, key: str, default: list) -> list:
+    """读取 KV 中的列表；缺失或数据损坏时回退到默认值。
+
+    ⚠️ `default` 的**元素类型不固定**：`item_types` 是 `list[str]`，而
+    `contract_types` / `subjects` 是 `list[dict]`。因此这里只能做**整体拷贝**，
+    不得对元素做 `dict(x)` 之类的结构化转换——历史写法会让 str 元素抛
+    `ValueError: dictionary update sequence element #0 has length 1; 2 is required`，
+    导致干净库（KV 中无 `item_types`）上 `/api/meta` 直接 500。
+    """
     row = db.get(KVSetting, key)
     if row is None:
-        return [dict(x) for x in default]
+        return deepcopy(default)
     try:
         value = json.loads(row.value)
     except (json.JSONDecodeError, TypeError):
-        return [dict(x) for x in default]
-    return value if isinstance(value, list) else [dict(x) for x in default]
+        return deepcopy(default)
+    return value if isinstance(value, list) else deepcopy(default)
 
 
 def _save_list(db: Session, key: str, values: list) -> list:
@@ -248,6 +257,7 @@ DEFAULT_NUMBER_RULES: dict = {
     "stock_in": {"prefix": "IN", "reset": "month", "seq_len": 6},
     "stock_out": {"prefix": "OUT", "reset": "month", "seq_len": 6},
     "stock_take": {"prefix": "ST", "reset": "month", "seq_len": 6},
+    "stock_transfer": {"prefix": "DB", "reset": "month", "seq_len": 6},   # V2.1/N13 调拨单
     "customer": {"prefix": "CUS", "reset": "never", "seq_len": 4},
     "supplier": {"prefix": "SUP", "reset": "never", "seq_len": 4},
     "product": {"prefix": "", "reset": "never", "seq_len": 4},   # 空前缀=按商品类型码生成
@@ -257,6 +267,7 @@ NUMBER_RULE_LABELS: dict[str, str] = {
     "purchase_request": "采购申请单", "purchase_order": "采购单",
     "sales_request": "销售申请单", "sales_order": "销售订单",
     "stock_in": "入库单", "stock_out": "出库单", "stock_take": "盘点单",
+    "stock_transfer": "调拨单",
     "customer": "客户编码", "supplier": "供应商编码", "product": "物料编码",
 }
 

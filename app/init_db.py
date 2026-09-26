@@ -222,11 +222,15 @@ def main() -> None:
     args = parser.parse_args()
 
     ensure_dirs()
-    Base.metadata.create_all(bind=engine)  # T2：建表（原型阶段；正式版切 Alembic 迁移）
+    # ⚠️ 必须在**第一次** `create_all` 之前导入全部模型：
+    # V2.1 起 `ContractItem.product_id` 有外键指向 `products`，若建表时 `models_master`
+    # 尚未导入，metadata 中缺 `products` 表 → `NoReferencedTableError`。
     import app.models_auth  # noqa: F401  V2.0：让 create_all 感知权限/组织/账号表
     import app.models_master  # noqa: F401  V2.0：让 create_all 感知主数据表
     import app.models_doc  # noqa: F401  V2.0/M2：单据表
     import app.models_stock  # noqa: F401  V2.0/M2：库存结存与流水
+
+    Base.metadata.create_all(bind=engine)  # T2：建表（原型阶段；正式版切 Alembic 迁移）
     from .db_migrate import ensure_schema_upgrades
 
     Base.metadata.create_all(bind=engine)  # V2.0 新表（幂等）

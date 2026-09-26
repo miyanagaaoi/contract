@@ -142,9 +142,39 @@ def push_purchase_order(db: Session, request_doc: PurchaseRequest, user, *,
         src.ordered_qty = (src.ordered_qty or ZERO) + row["qty"]
 
     po.total_amount = doc_service.total_amount_of(po)
+    # V2.1（N8，BR-V2.1-06）：全部行项下推归零 → 申请单自动置「已完成」
+    complete_if_fully_ordered(db, request_doc)
     doc_service.log(db, po, "_origin", None, request_doc.doc_no,
                     note=f"由采购申请单下推（{len(picked)} 行）")
     return po
+
+
+def complete_if_fully_ordered(db: Session, request_doc) -> bool:
+    """V2.1（N7/N8）：申请单**全部行项**剩余可下推量为 0 时，置为「已完成」。
+
+    幂等：已是 completed 或无行项时直接返回 False（可安全重复调用）。
+    返回是否本次发生了状态变更。
+    """
+    if request_doc.status == "completed":
+        return False
+    items = list(request_doc.items or [])
+    if not items:
+        return False
+    if any(remaining_qty(it, "ordered_qty") > 0 for it in items):
+        return False
+    old_status = request_doc.status
+    request_doc.status = "completed"
+    doc_service.log(db, request_doc, "status", old_status, "completed",
+                    note="全部行项已下推完毕，自动置为已完成")
+    return True
+
+
+def remain_qty_sum(doc) -> Decimal:
+    """V2.1（N7）：单据全部行项的剩余可下推量合计（供列表按钮显隐）。"""
+    total = ZERO
+    for it in (doc.items or []):
+        total += remaining_qty(it, "ordered_qty")
+    return total
 
 
 def push_stock_in(db: Session, po: PurchaseOrder, user, *, doc_date=None,

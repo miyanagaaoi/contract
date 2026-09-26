@@ -40,6 +40,7 @@ _VIEW_PERM = {
     "stock_in": "stock.in.view",
     "stock_out": "stock.out.view",
     "stock_take": "stock.take.view",
+    "stock_transfer": "stock.transfer.view",      # V2.1/N13
 }
 _APPROVE_PERM = {
     "purchase_request": "purchase.request.approve",
@@ -49,6 +50,7 @@ _APPROVE_PERM = {
     "stock_in": "stock.in.approve",
     "stock_out": "stock.out.approve",
     "stock_take": "stock.take.approve",
+    "stock_transfer": "stock.transfer.approve",   # V2.1/N13
 }
 
 
@@ -90,9 +92,12 @@ def _todos(db: Session, user: User, perms: set[str]) -> dict:
     per_kind: dict[str, dict] = {}
 
     for kind, model in DOC_MODELS.items():
-        if not user.is_superadmin and _VIEW_PERM[kind] not in perms:
+        view_perm = _VIEW_PERM.get(kind)
+        if view_perm is None:
+            continue        # 未登记权限映射的单据类型：待办面板跳过（防新增类型 KeyError 500）
+        if not user.is_superadmin and view_perm not in perms:
             continue
-        can_approve = user.is_superadmin or _APPROVE_PERM[kind] in perms
+        can_approve = user.is_superadmin or _APPROVE_PERM.get(kind) in perms
         scoped = apply_data_scope(db.query(model), model, user, db)
 
         draft_count = int(scoped.filter(model.status == "draft",

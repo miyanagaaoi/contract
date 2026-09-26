@@ -35,7 +35,9 @@ LIVE_DB = Path(os.environ.get("CTMS_DB_FILE") or (ROOT / "app" / "data" / "ctms.
 ADMIN_USER, ADMIN_PWD = "admin", "admin12345"
 
 KEY_TABLES = ["contracts", "users", "roles", "customers", "suppliers", "products", "warehouses",
-              "purchase_orders", "stock_in_orders", "stocks", "stock_ledger", "change_logs"]
+              "purchase_orders", "stock_in_orders", "stocks", "stock_ledger", "change_logs",
+              # V2.1：调拨单据域新增两表，备份/恢复一致性核对同步纳入（共 14 张）
+              "stock_transfers", "stock_transfer_items"]
 REPORT: list[str] = []
 
 

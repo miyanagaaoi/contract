@@ -180,19 +180,42 @@ def submit(db: Session, doc, user) -> None:
     log(db, doc, "status", "draft", "submitted", note="提交审核")
 
 
+def is_admin_user(user) -> bool:
+    """V2.1（N6）：是否属于"管理员"，用于自审例外。
+
+    判据（`23-v2.1-system-design.md` §8.2，口径经业务方确认）：
+    - `is_superadmin=True`（内置初始管理员 `admin`）；或
+    - 持有角色 code 为 `admin` / `superadmin` / **`sysadmin`** 的账号。
+
+    注意：`admin` 是**账号名**而非角色 code，故不能靠用户名判断；`sysadmin`（系统管理员角色）
+    已按业务确认**纳入**例外（`23` §13 第 6 项）——它与内置 `admin` 在语义上同属"管理员"，
+    若只放开 `admin` 会造成"同为管理员却行为不一致"。
+    """
+    if getattr(user, "is_superadmin", False):
+        return True
+    codes = {getattr(r, "code", None) for r in (getattr(user, "roles", None) or [])}
+    return bool({"admin", "superadmin", "sysadmin"} & codes)
+
+
 def assert_can_approve(db: Session, doc, user) -> None:
+    """审核前置校验：创建人不可自审（V2.1 起管理员例外，修订 AC-V2-15）。"""
+    if doc.created_by != getattr(user, "id", None):
+        return
     params = get_sys_params(db)
-    if not params.get("allow_self_approve", False) and doc.created_by == getattr(user, "id", None):
-        raise ValueError("不能审核自己创建的单据（可在系统参数中调整「允许创建人自审」）")
+    if is_admin_user(user) or params.get("allow_self_approve", False):
+        return
+    raise ValueError("不能审核自己创建的单据（仅管理员可自审）")
 
 
 def approve(db: Session, doc, user) -> None:
     _ensure_status(doc, {"submitted"}, "审核")
     assert_can_approve(db, doc, user)
+    self_approved = doc.created_by == getattr(user, "id", None)
     doc.status = "approved"
     doc.approved_by = getattr(user, "id", None)
     doc.approved_at = datetime.now()
-    log(db, doc, "status", "submitted", "approved", note="审核通过")
+    log(db, doc, "status", "submitted", "approved",
+        note="审核通过（管理员自审）" if self_approved else "审核通过")
 
 
 def reject(db: Session, doc, reason: str, user) -> None:
@@ -324,6 +347,22 @@ def fmt_item(it: dict) -> dict:
     }
 
 
+def handler_snapshot(db: Session, handler_user_id) -> tuple[int | None, str | None]:
+    """V2.1（N1，BR-V2.1-01）：把经办人 id 解析为 `(id, 姓名快照)`。
+
+    姓名以**快照**落库，账号停用后历史单据仍能显示姓名（与 `created_by_name` 同一惯例）。
+    空值表示"未指定"（列表筛选用的也是 `handler_user_id`）。
+    """
+    if not handler_user_id:
+        return None, None
+    from ..models_auth import User
+
+    user = db.get(User, int(handler_user_id))
+    if user is None:
+        raise ValueError(f"经办人不存在：{handler_user_id}")
+    return user.id, (user.real_name or user.username)
+
+
 def fmt_doc(db: Session, doc, *, with_items: bool = True) -> dict:
     data = {
         "id": doc.id, "doc_type": doc.doc_type, "kind_label": DOC_KINDS.get(doc.doc_type, ""),
@@ -332,6 +371,7 @@ def fmt_doc(db: Session, doc, *, with_items: bool = True) -> dict:
         "status": doc.status, "status_label": DOC_STATUS.get(doc.status, doc.status),
         "org_id": doc.org_id, "created_by": doc.created_by, "created_by_name": doc.created_by_name,
         "handler_user_id": doc.handler_user_id,
+        "handler_name": doc.handler_name,        # V2.1/N1：姓名快照（停用账号仍可显示）
         "contract_id": doc.contract_id, "contract_no": doc.contract_no,
         "source_doc_type": doc.source_doc_type, "source_doc_id": doc.source_doc_id,
         "source_doc_no": doc.source_doc_no,
@@ -350,7 +390,10 @@ def fmt_doc(db: Session, doc, *, with_items: bool = True) -> dict:
                   "customer_name_text", "sales_dept_id", "expect_delivery_date",
                   "delivery_date", "delivery_address", "contact_name", "contact_phone",
                   "ship_warehouse_id", "generated_in_id", "generated_in_no",
-                  "generated_out_id", "generated_out_no"):
+                  "generated_out_id", "generated_out_no",
+                  # V2.1/N13：调拨单调出/调入仓库
+                  "from_warehouse_id", "from_warehouse_name",
+                  "to_warehouse_id", "to_warehouse_name"):
         if hasattr(doc, field):
             value = getattr(doc, field)
             data[field] = value.isoformat() if isinstance(value, date) else value

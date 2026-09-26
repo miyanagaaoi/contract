@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session  # noqa: E402
 from app.database import Base, SessionLocal, engine  # noqa: E402
 from app.dicts import DEFAULT_CONTRACT_TYPES, DEFAULT_SUBJECTS, get_enabled_contract_types  # noqa: E402
 from app.init_db import seed_auth, seed_dicts  # noqa: E402
-from app.models import Contract, Tag  # noqa: E402
+from app.models import Contract, ContractItem, Tag  # noqa: E402
 from app.models_auth import OrgUnit, Role, User  # noqa: E402
 from app.models_master import Customer, Product, ProductType, Supplier, Uom, Warehouse  # noqa: E402
 from app.security import hash_password  # noqa: E402
@@ -189,21 +189,62 @@ def _get_or_create_product(db: Session, name: str, spec: str, type_name: str, uo
     return product
 
 
+def _attach_contract_items(db: Session, contract: Contract | None,
+                           products_by_name: dict[str, Product],
+                           rows: list[tuple[str, float, float]]) -> int:
+    """V2.1（N4/N16）：为演示合同创建**已绑定物料档案**的行项，返回新建行数。
+
+    为什么必须建行项：V2.1 起合同行项是"提取到采购申请单"（N2）的数据源，而历史演示脚本
+    只建合同表头 → 演示"提取合同明细"时**无数据可用**（详见 `21-v2.1-upgrade-doc-plan.md` §3 的 F16）。
+
+    金额口径与系统规则一致：有行项时 `contract.amount = Σ行项总价`
+    （同 `routers/contracts.py::_apply_items`）。幂等：合同已有行项时直接返回 0。
+    """
+    if contract is None or contract.items:
+        return 0
+    item_type = "销售" if "销售" in (contract.type or "") else "采购"
+    seq = 0
+    total_sum = Decimal("0")
+    for name, qty, price in rows:
+        product = products_by_name.get(name)
+        if product is None:
+            continue
+        seq += 1
+        q = Decimal(str(qty))
+        p = Decimal(str(price))
+        total = (q * p).quantize(Decimal("0.01"))
+        total_sum += total
+        contract.items.append(ContractItem(
+            seq=seq, item_type=item_type,
+            name=product.name, spec=product.spec or "",
+            qty=q, unit_price=p, total=total,
+            # V2.1（N4）：绑定物料 + 编码/名称快照
+            product_id=product.id, product_code=product.code, product_name=product.name,
+        ))
+    if seq:
+        contract.amount = total_sum
+    return seq
+
+
 def _ensure_contracts(db: Session, depts: dict[str, OrgUnit],
-                      users: dict[str, User]) -> None:
+                      users: dict[str, User], products: list[Product]) -> None:
     """演示合同：按方向归属组织（采购→采购部、销售→销售部）并记录创建人。
 
     这一点很关键：数据范围（本人/本部门及下级）按 `org_id` + `created_by` 过滤，
     若不设置，业务账号登录后看不到演示合同（AC-V2-04/05 的演示就会失败）。
+
+    V2.1（N16）：每份合同附带**已绑定物料**的行项；行项合计即合同金额。
     """
     tags = {t.name: t for t in db.query(Tag).all()}
     subject = DEFAULT_SUBJECTS[0]["code"]
     types = {t["code"]: t["label"] for t in get_enabled_contract_types(db)}
     today = date.today()
+    products_by_name = {p.name: p for p in products}
 
     def add(contract_no: str, name: str, type_code: str, party_a: str, party_b: str,
             amount: float, paid: float, status: str, *, is_framework: bool = False,
-            owner: str = "pm01", warranty: bool = False, arrival: str = "未到货") -> Contract | None:
+            owner: str = "pm01", warranty: bool = False, arrival: str = "未到货",
+            items: list[tuple[str, float, float]] | None = None) -> Contract | None:
         org = depts.get("采购部") if type_code == "PUR" else depts.get("销售部")
         creator = users.get(owner)
         existing = db.query(Contract).filter(Contract.contract_no == contract_no).first()
@@ -215,6 +256,11 @@ def _ensure_contracts(db: Session, depts: dict[str, OrgUnit],
                 SUMMARY["contracts"].append(f"{contract_no}（补齐归属：{org.name}）")
             else:
                 SUMMARY["skipped"].append(f"合同 {contract_no}")
+            # V2.1（N16）：对**已存在的历史演示合同**补行项（旧数据没有行项）
+            if items:
+                added = _attach_contract_items(db, existing, products_by_name, items)
+                if added:
+                    SUMMARY["contracts"].append(f"{contract_no}（补行项 {added} 行，已绑定物料）")
             return existing
         contract = Contract(
             contract_no=contract_no, name=name, type=types.get(type_code, type_code),
@@ -237,19 +283,27 @@ def _ensure_contracts(db: Session, depts: dict[str, OrgUnit],
         contract.tags = [t for t in (tags.get("采购"),) if t]
         db.add(contract)
         db.flush()
+        if items:
+            added = _attach_contract_items(db, contract, products_by_name, items)
+            if added:
+                SUMMARY["contracts"].append(f"{contract_no}（行项 {added} 行，已绑定物料）")
         SUMMARY["contracts"].append(f"{contract_no} {name}")
         return contract
 
+    # 框架合同不建行项：框架为预估金额，系统允许"行项为空时手填金额"
     framework = add("F-DEMO-2026-001", "2026 年度钢材框架采购合同", "PUR", "智澈公司",
                     "宝钢金属材料有限公司", 500000, 0, "已签订", is_framework=True)
     sub = add("PUR-DEMO-2026-001", "一期钢板采购（框架下）", "PUR", "智澈公司",
-              "宝钢金属材料有限公司", 120000, 60000, "付款中", warranty=True, arrival="部分到货")
+              "宝钢金属材料有限公司", 120000, 60000, "付款中", warranty=True, arrival="部分到货",
+              items=[("热轧钢板", 20000, 5.2), ("A4 复印纸", 125, 128)])   # Σ = 120,000
     if sub is not None and sub.parent_id is None and framework is not None:
         sub.parent_id = framework.id
     add("PUR-DEMO-2026-002", "办公耗材年度采购", "PUR", "智澈公司", "晨光文具有限公司",
-        30000, 30000, "到货", arrival="已到货")
+        30000, 30000, "到货", arrival="已到货",
+        items=[("A4 复印纸", 234, 128)])        # Σ = 29,952（金额随行项合计，与系统规则一致）
     add("SAL-DEMO-2026-001", "华东机械设备销售合同", "SAL", "华东机械制造有限公司", "智澈公司",
-        86000, 20000, "付款中", owner="sm01", warranty=True, arrival="已到货")
+        86000, 20000, "付款中", owner="sm01", warranty=True, arrival="已到货",
+        items=[("便携式测厚仪", 23, 3600), ("A4 复印纸", 25, 128)])       # Σ = 86,000
 
 
 def main() -> int:
@@ -301,8 +355,11 @@ def main() -> int:
         for name, spec, type_name, uom_code, price, safety in PRODUCTS:
             _get_or_create_product(db, name, spec, type_name, uom_code, price, safety)
         db.commit()
+        # 幂等：直接取库中现有物料（`_get_or_create_product` 对已存在的物料不返回对象）
+        products: list[Product] = db.query(Product).all()
 
-        _ensure_contracts(db, depts, users)
+        # V2.1（N16）：演示合同必须带**已绑定物料**的行项，否则"提取合同明细"（N2）无数据
+        _ensure_contracts(db, depts, users, products)
         db.commit()
 
     print("\n===== V2.0 演示数据初始化完成 =====")

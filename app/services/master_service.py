@@ -877,6 +877,24 @@ def org_options(db: Session, keyword: str | None = None, limit: int = 200) -> li
              "level": o.level, "unit_type": o.unit_type} for o in rows]
 
 
+def user_options(db: Session, keyword: str | None = None, limit: int = 200) -> list[dict]:
+    """V2.1（N1）：经办人下拉数据源 —— **仅启用账号**（BR-V2.1-01，Q5 冻结）。
+
+    返回 `{id, name, username}`：`name` 为姓名（无姓名时回退登录名），供前端直接展示。
+    停用账号不再出现；历史单据显示的是落库时的 `handler_name` 快照，不受影响。
+    """
+    from sqlalchemy import or_
+
+    from ..models_auth import User
+
+    query = db.query(User).filter(User.status == "enabled")
+    if keyword:
+        like = f"%{keyword.strip()}%"
+        query = query.filter(or_(User.username.like(like), User.real_name.like(like)))
+    rows = query.order_by(User.id.asc()).limit(max(1, min(500, limit))).all()
+    return [{"id": u.id, "name": u.real_name or u.username, "username": u.username} for u in rows]
+
+
 def options(db: Session, kind: str, keyword: str | None = None,
             product_type_id: int | None = None) -> list[dict]:
     """`/api/master/options/{kind}` 统一入口。"""
@@ -895,6 +913,8 @@ def options(db: Session, kind: str, keyword: str | None = None,
         return org_options(db, keyword)
     if kind in ("warehouse", "warehouses"):
         return warehouse_options(db, keyword)
+    if kind in ("user", "users"):
+        return user_options(db, keyword)          # V2.1/N1：经办人下拉
     raise ValueError(f"未知下拉类别：{kind}")
 
 

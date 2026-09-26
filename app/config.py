@@ -15,8 +15,25 @@ DATA_DIR = BASE_DIR / "data"                        # SQLite 数据文件目录
 UPLOAD_DIR = Path(_env("CTMS_UPLOAD_DIR") or (BASE_DIR / "uploads"))
 LOG_DIR = Path(_env("CTMS_LOG_DIR") or (BASE_DIR / "logs"))
 
-DB_FILE = DATA_DIR / "ctms.db"
-DB_URL = _env("CTMS_DB_URL") or f"sqlite:///{(DB_FILE).as_posix()}"
+_DEFAULT_DB_FILE = DATA_DIR / "ctms.db"
+DB_URL = _env("CTMS_DB_URL") or f"sqlite:///{_DEFAULT_DB_FILE.as_posix()}"
+
+
+def _sqlite_file_of(url: str, fallback: Path) -> Path:
+    """从 SQLite 连接串推导数据文件路径。
+
+    ⚠️ **必须与 `DB_URL` 同源**：备份服务（`backup_service`）是按**文件**做一致性快照的
+    （`sqlite3` 在线 backup API），若此处退回默认路径，那么一旦用 `CTMS_DB_URL` 指向别的库，
+    **备份就会备错文件**——表现为"备份成功"但内容不是当前运行的库，属静默故障。
+    V2.1 修复（此前 `DB_FILE` 硬编码为 `app/data/ctms.db`，与 `DB_URL` 可指向不同库）。
+    """
+    prefix = "sqlite:///"
+    if url.startswith(prefix):
+        return Path(url[len(prefix):])
+    return fallback
+
+
+DB_FILE = _sqlite_file_of(DB_URL, _DEFAULT_DB_FILE)
 
 APP_NAME = "CTMS"
 APP_VERSION = "2.0.0-dev"  # V2.0 ERP 进销存（M1 开发中）

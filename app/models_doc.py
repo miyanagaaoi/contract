@@ -71,6 +71,7 @@ class DocMixin:
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     created_by_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
     handler_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)            # 经办人
+    handler_name: Mapped[str | None] = mapped_column(String(64), nullable=True)            # 经办人姓名快照（V2.1/N1）
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 关联合同（D3：可关联、非强制）
     contract_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
@@ -365,6 +366,51 @@ class StockTakeItem(Base, DocItemMixin):
     doc: Mapped[StockTake] = relationship(back_populates="items")
 
 
+# ==================== 调拨单（V2.1 / N13）====================
+
+class StockTransfer(Base, DocMixin):
+    """调拨单：单张单据表达"调出仓 → 调入仓"，**审核后同一事务内出+入**。
+
+    - 仅支持**同一组织内**两仓库（Q4 冻结结论，跨组织不在本版范围）；
+    - 不产生金额（行项 `unit_price` / `amount` 恒为 0），也不计入「货品总额度」
+      （BR-V2.1-08 / BR-V2.1-09）；
+    - `direction = 0`：**不参与** `direction` 驱动的过账逻辑，由专用 `post_transfer` 处理
+      （现有一单双向无法用 `post_stock_doc` 表达，见 `23-v2.1-system-design.md` §6.1）。
+    """
+
+    __tablename__ = "stock_transfers"
+
+    doc_type = "stock_transfer"
+    direction = 0
+    label = "调拨单"
+
+    from_warehouse_id: Mapped[int] = mapped_column(
+        ForeignKey("warehouses.id"), nullable=False, index=True
+    )
+    from_warehouse_name: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    to_warehouse_id: Mapped[int] = mapped_column(
+        ForeignKey("warehouses.id"), nullable=False, index=True
+    )
+    to_warehouse_name: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+
+    items: Mapped[list["StockTransferItem"]] = relationship(
+        back_populates="doc", cascade="all, delete-orphan", order_by="StockTransferItem.seq",
+        lazy="selectin",
+    )
+
+
+class StockTransferItem(Base, DocItemMixin):
+    """调拨行项。仓库由表头两仓决定，故**不使用** `DocItemMixin.warehouse_id`。"""
+
+    __tablename__ = "stock_transfer_items"
+
+    doc_id: Mapped[int] = mapped_column(
+        ForeignKey("stock_transfers.id", ondelete="CASCADE"), index=True
+    )
+
+    doc: Mapped[StockTransfer] = relationship(back_populates="items")
+
+
 # 供通用服务/路由使用的注册表
 DOC_MODELS: dict[str, type] = {
     "purchase_request": PurchaseRequest,
@@ -374,6 +420,7 @@ DOC_MODELS: dict[str, type] = {
     "stock_in": StockInOrder,
     "stock_out": StockOutOrder,
     "stock_take": StockTake,
+    "stock_transfer": StockTransfer,
 }
 DOC_ITEM_MODELS: dict[str, type] = {
     "purchase_request": PurchaseRequestItem,
@@ -383,4 +430,5 @@ DOC_ITEM_MODELS: dict[str, type] = {
     "stock_in": StockInOrderItem,
     "stock_out": StockOutOrderItem,
     "stock_take": StockTakeItem,
+    "stock_transfer": StockTransferItem,
 }

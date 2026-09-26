@@ -47,13 +47,18 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
 
     def _new_doc(db: Session, payload: dict, user: User):
         day = _guard(db, doc_service.parse_doc_date, payload.get("doc_date"))
+        # V2.1（N1）：经办人默认当前账号，并同时落"姓名快照"
+        handler_user_id, handler_name = _guard(
+            db, doc_service.handler_snapshot, db,
+            payload.get("handler_user_id") or getattr(user, "id", None))
         doc = model(
             doc_no=numbering_service.next_doc_no(db, kind, day),
             doc_date=day, status="draft",
             org_id=getattr(user, "org_id", None),
             created_by=getattr(user, "id", None),
             created_by_name=getattr(user, "real_name", None),
-            handler_user_id=payload.get("handler_user_id") or getattr(user, "id", None),
+            handler_user_id=handler_user_id,
+            handler_name=handler_name,
             remark=(str(payload.get("remark") or "").strip() or None),
         )
         # 特有字段（含必填的仓库/供应商）必须在 flush 之前落值，否则会以 NULL 触发非空约束
@@ -103,8 +108,16 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
         total = int(query.count() or 0)
         rows = (query.order_by(model.id.desc())
                 .offset((page - 1) * page_size).limit(page_size).all())
+        out = [doc_service.fmt_doc(db, row, with_items=False) for row in rows]
+        # V2.1（N7，BR-V2.1-06）：采购申请单附带"剩余可下推量合计"，
+        # 供列表按行级数据决定是否显示「下推」按钮（其余单据不受影响）。
+        if kind == "purchase_request":
+            from ..services import push_service
+
+            for row, row_out in zip(rows, out):
+                row_out["remain_qty_sum"] = float(push_service.remain_qty_sum(row))
         return {
-            "items": [doc_service.fmt_doc(db, row, with_items=False) for row in rows],
+            "items": out,
             "total": total, "page": page, "page_size": page_size,
             "statuses": [{"code": c, "label": t} for c, t in DOC_STATUS.items()],
         }
@@ -159,7 +172,9 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
         if "remark" in payload:
             doc.remark = str(payload.get("remark") or "").strip() or None
         if "handler_user_id" in payload:
-            doc.handler_user_id = payload.get("handler_user_id") or None
+            # V2.1（N1）：同步刷新姓名快照（清空时两者一并置空）
+            doc.handler_user_id, doc.handler_name = _guard(
+                db, doc_service.handler_snapshot, db, payload.get("handler_user_id"))
         if "contract_id" in payload:
             _guard(db, doc_service.bind_contract, db, doc, payload.get("contract_id"))
         if update_hook is not None:

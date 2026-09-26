@@ -188,7 +188,9 @@ def run(admin: str, c: Cleaner) -> None:
 
     items = [{"product_id": product["id"], "qty": 100, "unit_price": 10}]
 
-    # ---------- AC-V2-13/15：创建→提交→审核；创建人不可自审 ----------
+    # ---------- AC-V2-13/15：创建→提交→审核（审核人非创建人）
+    # 注：V2.1 起管理员可自审（修订 AC-V2-15），故此处为 buyer 创建 + manager 审核，
+    # **不构成自审场景**；自审规则本身由 app/tests/test_v2_1_approve_push.py 覆盖。
     code, doc = req("POST", "/purchase/requests", {"doc_date": "2026-03-01", "purpose": "M2 冒烟",
                                                    "contract_id": contract["id"],
                                                    "items": items}, token=buyer)

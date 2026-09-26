@@ -27,6 +27,18 @@ _ADD_COLUMNS: list[tuple[str, str, str]] = [
     ("change_logs", "object_id", "INTEGER"),
     ("attachments", "object_type", "VARCHAR(32)"),
     ("attachments", "object_id", "INTEGER"),
+    # ---- V2.1：合同行项绑定系统物料档案（N4；约束在应用层，见 models.ContractItem） ----
+    ("contract_items", "product_id", "INTEGER"),
+    ("contract_items", "product_code", "VARCHAR(32)"),
+    ("contract_items", "product_name", "VARCHAR(128)"),
+    # ---- V2.1：经办人姓名快照（N1；配合既有 handler_user_id，账号停用后仍可显示） ----
+    ("purchase_requests", "handler_name", "VARCHAR(64)"),
+    ("purchase_orders", "handler_name", "VARCHAR(64)"),
+    ("sales_requests", "handler_name", "VARCHAR(64)"),
+    ("sales_orders", "handler_name", "VARCHAR(64)"),
+    ("stock_in_orders", "handler_name", "VARCHAR(64)"),
+    ("stock_out_orders", "handler_name", "VARCHAR(64)"),
+    ("stock_takes", "handler_name", "VARCHAR(64)"),
 ]
 
 _ADD_INDEXES: list[tuple[str, str, str]] = [
@@ -35,6 +47,7 @@ _ADD_INDEXES: list[tuple[str, str, str]] = [
     ("ix_contracts_org_id", "contracts", "org_id"),
     ("ix_contracts_created_by", "contracts", "created_by"),
     ("ix_change_logs_object", "change_logs", "object_type, object_id"),
+    ("ix_contract_items_product_id", "contract_items", "product_id"),
 ]
 
 

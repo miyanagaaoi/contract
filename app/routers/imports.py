@@ -25,6 +25,7 @@ from ..database import get_db
 from ..dicts import get_enabled_contract_types, get_subjects, type_code_of, type_label_of
 from ..models import STATUSES, Contract
 from ..models_auth import User
+from ..models_master import Product
 from ..numbering import next_number
 from ..services.permission_service import require_perm
 from .contracts import create_contract
@@ -34,7 +35,7 @@ router = APIRouter(prefix="/api/import", tags=["import"])
 MAIN_HEAD = ["序号", "合同编号", "合同名称", "类型", "主体码", "甲方", "乙方", "签订日期",
              "金额", "已付金额", "经办人", "状态", "所属框架编号", "是否框架",
              "标签(逗号分隔)", "备注", "质保金额", "质保比例%", "质保生效日期", "质保期限(月)"]
-ITEMS_HEAD = ["主档序号", "序号", "类型", "名称", "规格型号", "数量", "单价", "备注"]
+ITEMS_HEAD = ["主档序号", "序号", "类型", "物料编码", "名称", "规格型号", "数量", "单价", "备注"]
 
 MAIN_SAMPLE = [
     [1, None, "示例：新购设备合同（自动编号）", "采购/支出", "ZC", "本公司（甲方示例）", "XX 供应商", "2026-09-01",
@@ -43,9 +44,9 @@ MAIN_SAMPLE = [
      None, 6000, "李四", "到货", None, "否", "销售", "", 300, 5, "2026-09-05", 12],
 ]
 ITEMS_SAMPLE = [
-    [1, 1, "采购", "X 系列设备", "X-2000", 10, 12000, "含安装调试"],
-    [1, 2, "采购", "配套耗材", "HC-02", 2, 6000, ""],
-    [2, 1, "销售", "X 设备(整机)", "X-2000", 1, 6000, "已收款"],
+    [1, 1, "采购", "STL0001", "X 系列设备", "X-2000", 10, 12000, "含安装调试"],
+    [1, 2, "采购", "PPR0001", "配套耗材", "HC-02", 2, 6000, ""],
+    [2, 1, "销售", "DET0001", "X 设备(整机)", "X-2000", 1, 6000, "已收款"],
 ]
 
 LIMIT_MAIN = 2000
@@ -80,6 +81,7 @@ def build_template_bytes() -> bytes:
         "3. 『类型』必填：填名称（销售/收入、采购/支出、合作/战略协议、劳动/人事、金融/投融资、保密协议）或代码（SAL/PUR/COO/LAB/FIN/NDA）。",
         "4. 『主体码』：我方公司，ZC=智澈公司 / YX=云羲公司（可空，默认第一个可用主体）。",
         "5. 『行项明细』工作表：『主档序号』填其归属合同在“合同(主档)”里的序号；同一合同的行项序号连续；无行项的合同，金额必须手填。",
+        "5.1 V2.1 起『行项明细』的『物料编码』**必填**：必须先在「资料库 → 物料档案」建档并复制其编码；编码不存在或物料已停用会导致该行被跳过并记入错误报告。",
         "6. 金额留空=按行项合计自动；金额/数量/单价/比例只填数字；日期填 YYYY-MM-DD。",
         "7. 标签列多个用英文逗号分隔，不存在会自动创建；类型会自动带【类型名】标签。",
         "8. 状态可选：内部审批中/集团审批中/已签订/付款中/发货/到货/已终止（留空默认内部审批中）。",
@@ -226,19 +228,46 @@ def _parse_items(sheet_rows) -> dict[int, list[dict]]:
         name = _clean(row.get("名称"))
         item = {
             "item_type": _clean(row.get("类型")) or "采购",
+            "product_code": _clean(row.get("物料编码")),   # V2.1（N4）：导入必须绑定物料
             "name": name,
             "spec": _clean(row.get("规格型号")),
             "qty": float(qty) if qty is not None else 0,
             "unit_price": float(price) if price is not None else 0,
             "remark": _clean(row.get("备注")) or None,
         }
-        if not name and not item["qty"] and not item["unit_price"] and not item["spec"]:
+        if (not name and not item["qty"] and not item["unit_price"]
+                and not item["spec"] and not item["product_code"]):
             continue
         if ord_txt.isdigit():
             grouped.setdefault(int(ord_txt), []).append(item)
         elif no:
             legacy_by_no.setdefault(no, []).append(item)
     return {"by_ord": grouped, "by_no": legacy_by_no}
+
+
+def _resolve_item_products(db: Session, items: list[dict]) -> list[dict]:
+    """V2.1（N4，BR-V2.1-02）：把导入行项的『物料编码』解析为 `product_id`。
+
+    与"新建 / 编辑"两条路径保持同一口径——**合同行项必须绑定系统物料档案**：
+    未填编码、编码不存在、物料已停用，都直接给出可定位到行的错误提示，
+    让导入报告能明确指出问题所在（导入报告本身会逐条跳过并汇总错误）。
+    """
+    resolved: list[dict] = []
+    for idx, it in enumerate(items, start=1):
+        code = str(it.pop("product_code", "") or "").strip()
+        if not code:
+            raise ValueError(
+                f"行项第 {idx} 行：未填『物料编码』（V2.1 起合同行项必须绑定物料档案，"
+                f"可到「资料库 → 物料档案」复制编码）"
+            )
+        product = db.query(Product).filter(Product.code == code).first()
+        if product is None:
+            raise ValueError(f"行项第 {idx} 行：物料编码「{code}」不存在，请先在物料档案中建档")
+        if (product.status or "enabled") != "enabled":
+            raise ValueError(f"行项第 {idx} 行：物料「{product.name}」已停用，不可选用")
+        it["product_id"] = product.id
+        resolved.append(it)
+    return resolved
 
 
 @router.get("/template.xlsx")
@@ -308,7 +337,8 @@ async def import_contracts(request: Request, file: UploadFile = File(...),
             if items is None:
                 items = items_by_no.get(no, [])
             if items:
-                payload["items"] = items
+                # V2.1（N4）：导入路径同样强制绑定物料（编码 → product_id + 停用校验）
+                payload["items"] = _resolve_item_products(db, items)
             else:
                 amount = payload.pop("_amount_or_items")
                 if amount is None or amount <= 0:

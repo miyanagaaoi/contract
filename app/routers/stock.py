@@ -10,7 +10,7 @@ AC 对应：AC-V2-19~26、27~29。
 from __future__ import annotations
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
-from sqlalchemy import func
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -22,6 +22,7 @@ from ..models_doc import (
     StockInOrder,
     StockOutOrder,
     StockTake,
+    StockTransfer,
 )
 from ..models_master import Product, ProductType
 from ..models_stock import Stock, StockLedger
@@ -126,6 +127,40 @@ register_doc_routes(router, prefix=TAKE_PREFIX, kind="stock_take", model=StockTa
                     approve_handler=_approve_take, export_perm="stock.take.export")
 
 
+# ==================== 调拨单（V2.1 / N13）====================
+
+TRANSFER_PREFIX = "/api/stock/transfers"
+
+
+def _apply_transfer_fields(db: Session, doc: StockTransfer, payload: dict) -> None:
+    """调拨单特有字段：调出仓 / 调入仓（均必填，且不得相同）。
+
+    关于"同组织"（Q4 冻结结论）：仓库档案 `Warehouse` **没有 org_id 字段**，因此该约束
+    在当前数据模型下**无法校验**；本版以"不提供跨组织操作入口"的方式落实范围外声明
+    （见 `22-v2.1-requirements.md` §1.3）。若后续要真正约束，需先为仓库引入组织归属。
+    """
+    from_id = payload.get("from_warehouse_id") or doc.from_warehouse_id
+    to_id = payload.get("to_warehouse_id") or doc.to_warehouse_id
+    if not from_id:
+        raise ValueError("请选择调出仓库")
+    if not to_id:
+        raise ValueError("请选择调入仓库")
+    from_wh = doc_service.require_warehouse(db, from_id)
+    to_wh = doc_service.require_warehouse(db, to_id)
+    if from_wh.id == to_wh.id:
+        raise ValueError("调出仓库与调入仓库不能相同")     # AC-V2.1-14
+    doc.from_warehouse_id, doc.from_warehouse_name = from_wh.id, from_wh.name
+    doc.to_warehouse_id, doc.to_warehouse_name = to_wh.id, to_wh.name
+
+
+register_doc_routes(router, prefix=TRANSFER_PREFIX, kind="stock_transfer",
+                    model=StockTransfer, perm_prefix="stock.transfer", label="调拨单",
+                    create_hook=_apply_transfer_fields, update_hook=_apply_transfer_fields,
+                    approve_handler=posting_service.approve_transfer,
+                    unapprove_handler=posting_service.unapprove_transfer,
+                    export_perm="stock.transfer.export")
+
+
 @router.post(TAKE_PREFIX + "/{doc_id}/generate", tags=["stock"], summary="生成盘点行项")
 def generate_take_items(doc_id: int, request: Request, payload: dict = Body(default={}),
                         user: User = Depends(require_perm("stock.take.edit")),
@@ -176,11 +211,38 @@ def submit_counts(doc_id: int, request: Request, payload: dict = Body(...),
 
 # ==================== 库存明细 / 流水 / 重算 ====================
 
+def _inbound_amount_subquery(db: Session):
+    """V2.1（N11，BR-V2.1-09）：货品总额度 = 该 `(物料 × 仓库)` 的**入库批次金额合计**。
+
+    ⚠️ **不能用 `qty_change > 0` 判"入库方向"**：红冲入库的 `qty_change` 为负，会被漏掉
+    从而**无法冲减**（额度虚高，见 `23-v2.1-system-design.md` §7.1）。必须以 `biz_type`
+    判方向，再对 `qty_change` 求和，使负向自然冲减；同时排除「调拨入库」（含其红冲），
+    否则同一批货在仓库间搬运会反复放大额度。
+    """
+    return (db.query(
+                StockLedger.product_id.label("product_id"),
+                StockLedger.warehouse_id.label("warehouse_id"),
+                func.sum(StockLedger.qty_change * func.coalesce(StockLedger.unit_price, 0))
+                .label("inbound_amount"))
+            .filter(StockLedger.biz_type.like("%入库%"),
+                    StockLedger.biz_type.notlike("%调拨入库%"))
+            .group_by(StockLedger.product_id, StockLedger.warehouse_id)
+            .subquery())
+
+
 def _balances_query(db: Session, *, keyword: str | None = None, warehouse_id: int | None = None,
-                    product_type_id: int | None = None, below_safety: bool = False):
-    """库存结存查询（列表与导出共用，保证"导出口径与页面一致"，R7）。"""
-    query = (db.query(Stock)
+                    product_type_id: int | None = None, below_safety: bool = False,
+                    qty_min: float | None = None, qty_max: float | None = None):
+    """库存结存查询（列表与导出共用，保证"导出口径与页面一致"，R7）。
+
+    V2.1（N11）：同时 LEFT JOIN 出「货品总额度」，返回 `(Stock, inbound_amount)` 行；
+    V2.1（N12）：新增 `qty_min` / `qty_max` 数量区间筛选。
+    """
+    sub = _inbound_amount_subquery(db)
+    query = (db.query(Stock, sub.c.inbound_amount)
              .join(Product, Stock.product_id == Product.id)
+             .outerjoin(sub, and_(sub.c.product_id == Stock.product_id,
+                                  sub.c.warehouse_id == Stock.warehouse_id))
              .filter(Stock.qty != 0))
     if warehouse_id:
         query = query.filter(Stock.warehouse_id == warehouse_id)
@@ -195,6 +257,10 @@ def _balances_query(db: Session, *, keyword: str | None = None, warehouse_id: in
                              | (Product.spec.like(like)))
     if below_safety:
         query = query.filter(Product.safety_stock.isnot(None), Stock.qty < Product.safety_stock)
+    if qty_min is not None:
+        query = query.filter(Stock.qty >= qty_min)
+    if qty_max is not None:
+        query = query.filter(Stock.qty <= qty_max)
     return query
 
 
@@ -203,11 +269,14 @@ def stock_balances(keyword: str | None = Query(None, description="物料编码/�
                    warehouse_id: int | None = Query(None),
                    product_type_id: int | None = Query(None),
                    below_safety: bool = Query(False, description="仅看低于安全库存（T-V2-34）"),
+                   qty_min: float | None = Query(None, description="结存数量下限（V2.1/N12）"),
+                   qty_max: float | None = Query(None, description="结存数量上限（V2.1/N12）"),
                    page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
                    _user: User = Depends(require_perm("stock.balance.view")),
                    db: Session = Depends(get_db)):
     query = _balances_query(db, keyword=keyword, warehouse_id=warehouse_id,
-                            product_type_id=product_type_id, below_safety=below_safety)
+                            product_type_id=product_type_id, below_safety=below_safety,
+                            qty_min=qty_min, qty_max=qty_max)
     total = int(query.count() or 0)
     rows = (query.order_by(Product.code.asc())
             .offset((page - 1) * page_size).limit(page_size).all())
@@ -224,11 +293,13 @@ def stock_balances(keyword: str | None = Query(None, description="物料编码/�
             "warehouse_id": s.warehouse_id,
             "warehouse_name": s.warehouse.name if s.warehouse else None,
             "qty": float(s.qty or 0),
+            # V2.1（N11）：货品总额度 —— 该 (物料 × 仓库) 的入库批次金额合计
+            "inbound_amount": float(amount or 0),
             "safety_stock": float(s.product.safety_stock) if s.product and s.product.safety_stock is not None else None,
             "below_safety": bool(s.product and s.product.safety_stock is not None
                                  and (s.qty or 0) < s.product.safety_stock),
             "updated_at": s.updated_at.isoformat(sep=" ", timespec="seconds") if s.updated_at else None,
-        } for s in rows],
+        } for s, amount in rows],
         "total": total, "page": page, "page_size": page_size,
     }
 
@@ -287,16 +358,21 @@ def recalc_stocks(request: Request, fix: bool = Query(False, description="true=�
 def export_balances(keyword: str | None = Query(None), warehouse_id: int | None = Query(None),
                     product_type_id: int | None = Query(None),
                     below_safety: bool = Query(False),
+                    qty_min: float | None = Query(None), qty_max: float | None = Query(None),
                     _user: User = Depends(require_perm("stock.balance.view")),
                     db: Session = Depends(get_db)):
-    """导出当前筛选的结存清单（与列表同一查询构建，条数与内容一致）。"""
+    """导出当前筛选的结存清单（与列表同一查询构建，条数与内容一致）。
+
+    V2.1：新增「货品总额度」列与数量区间筛选，保持"导出与筛选一致"（AC-V2-40）。
+    """
     from .export import BALANCE_EXPORT_COLUMNS, DOC_EXPORT_LIMIT, build_xlsx_response
 
     rows = []
     stocks = (_balances_query(db, keyword=keyword, warehouse_id=warehouse_id,
-                              product_type_id=product_type_id, below_safety=below_safety)
+                              product_type_id=product_type_id, below_safety=below_safety,
+                              qty_min=qty_min, qty_max=qty_max)
               .order_by(Product.code.asc()).limit(DOC_EXPORT_LIMIT).all())
-    for s in stocks:
+    for s, amount in stocks:
         product = s.product
         below = bool(product and product.safety_stock is not None
                      and (s.qty or 0) < product.safety_stock)
@@ -309,6 +385,7 @@ def export_balances(keyword: str | None = Query(None), warehouse_id: int | None 
             s.warehouse.name if s.warehouse else "",
             float(s.qty or 0),
             float(product.safety_stock) if product and product.safety_stock is not None else "",
+            float(amount or 0),
             "是" if below else "否",
             s.updated_at.isoformat(sep=" ", timespec="seconds") if s.updated_at else "",
         ])

@@ -109,6 +109,94 @@ def post_stock_doc(db: Session, doc, *, user, reverse: bool = False,
     return written
 
 
+def post_transfer(db: Session, doc, *, user, reverse: bool = False) -> int:
+    """V2.1（N13）：调拨过账 —— 调出仓减、调入仓加（**同一事务**）；`reverse=True` 为红冲。
+
+    设计要点（`23-v2.1-system-design.md` §6.2）：
+
+    - **两阶段**：先对全部行项完成校验（含调出仓可用量），再统一写入。这样"库存不足"
+      这类业务错误不会留下"写了一半"的中间态，报错也能精确到仓库与物料；
+    - **幂等**：`doc.posted` 短路，与 `post_stock_doc` 同款（AC-V2.1-17）；
+    - 调出仓记「调拨出库」、调入仓记「调拨入库」，两条流水**同凭证号**（同一调拨单号），
+      便于按单据追溯（AC-V2.1-15）；
+    - 调拨**不产生金额**（`unit_price=0`），也不计入货品总额度（BR-V2.1-08）。
+    """
+    params = get_sys_params(db)
+    if not reverse and doc.posted:
+        return 0                                     # 幂等：重复审核不重复过账
+
+    from_wh, to_wh = doc.from_warehouse_id, doc.to_warehouse_id
+    if not from_wh or not to_wh:
+        raise BusinessError("调拨单缺少调出/调入仓库")
+    if from_wh == to_wh:
+        raise BusinessError("调出仓库与调入仓库不能相同")
+    if not doc.items:
+        raise BusinessError("调拨单没有行项")
+
+    # ── 阶段一：全量校验（先算后写） ──
+    plans = []
+    for item in doc.items:
+        qty = item.qty or ZERO
+        if qty <= 0:
+            raise BusinessError(f"行 {item.seq}：调拨数量必须大于 0")
+        out_stock = _get_stock(db, item.product_id, from_wh)
+        if (not reverse and not params.get("allow_negative_stock", False)
+                and (out_stock.qty or ZERO) < qty):
+            raise BusinessError(                     # AC-V2.1-16
+                f"{doc.from_warehouse_name or f'仓库#{from_wh}'} 物料「{item.product_name}」库存不足"
+                f"（可用 {out_stock.qty}，需要 {qty}）"
+            )
+        in_stock = _get_stock(db, item.product_id, to_wh)
+        plans.append((item, out_stock, in_stock, qty))
+
+    # ── 阶段二：统一写入（任一异常由路由层事务整体回滚） ──
+    written = 0
+    sign = -1 if reverse else 1
+    for item, out_stock, in_stock, qty in plans:
+        legs = (
+            (out_stock, from_wh, "调拨出库", -sign * qty),
+            (in_stock, to_wh, "调拨入库", sign * qty),
+        )
+        for stock, warehouse_id, biz_type, delta in legs:
+            new_qty = (stock.qty or ZERO) + delta
+            stock.qty = new_qty
+            stock.updated_at = datetime.now()
+            db.add(StockLedger(
+                product_id=item.product_id, warehouse_id=warehouse_id,
+                biz_type=(f"红冲-{biz_type}" if reverse else biz_type),
+                doc_type=doc.doc_type, doc_id=doc.id, doc_no=doc.doc_no,
+                qty_change=delta, qty_after=new_qty,
+                unit_price=ZERO,                     # 调拨不产生金额（BR-V2.1-08）
+                org_id=doc.org_id, created_by=getattr(user, "id", None),
+                remark="反审核红冲" if reverse else None,
+            ))
+            written += 1
+
+    doc.posted = not reverse
+    audit_service.log(db, user, module="stock",
+                      action="unapprove" if reverse else "approve",
+                      object_type=doc.doc_type, object_id=doc.id, object_no=doc.doc_no,
+                      detail=("反审核红冲" if reverse else "审核过账") + f"（{written} 条流水）")
+    return written
+
+
+def approve_transfer(db: Session, doc, user) -> int:
+    """调拨单审核：状态流转 + **同事务双向过账**（AC-V2.1-15）。"""
+    if doc.posted and doc.status == "approved":
+        return 0                                     # 幂等短路
+    doc_service.approve(db, doc, user)
+    return post_transfer(db, doc, user=user)
+
+
+def unapprove_transfer(db: Session, doc, reason: str, user) -> int:
+    """调拨单反审核：红冲后再回到"待审核"（AC-V2.1-18）。
+
+    红冲允许调入仓变负（与既有 `unapprove_stock_doc` 的反审核语义一致）。
+    """
+    doc_service.unapprove(db, doc, reason, user)
+    return post_transfer(db, doc, user=user, reverse=True)
+
+
 def approve_stock_doc(db: Session, doc, user) -> int:
     """入库/出库单审核：状态流转 + 过账（同一事务，失败整体回滚）。
 

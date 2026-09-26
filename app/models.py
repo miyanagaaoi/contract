@@ -189,6 +189,15 @@ class ContractItem(Base):
     unit_price: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False, default=0)   # 单价
     total: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)        # 总价=数量×单价
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # ---- V2.1（N4）：绑定系统物料档案 ----
+    # ⚠️ 应用层强制必填（新建/编辑/导入三处校验），DB 层保持可空：
+    # SQLite 的 `ALTER TABLE ADD COLUMN` 既不能加外键、也不能加"无默认值的 NOT NULL"，
+    # 故约束由应用层保证（与 `db_migrate` 的既有约定一致，见其模块 docstring）。
+    product_id: Mapped[int | None] = mapped_column(
+        ForeignKey("products.id"), nullable=True, index=True
+    )
+    product_code: Mapped[str | None] = mapped_column(String(32), nullable=True)      # 物料编码快照
+    product_name: Mapped[str | None] = mapped_column(String(128), nullable=True)    # 物料名称快照
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
     contract: Mapped[Contract] = relationship(back_populates="items")

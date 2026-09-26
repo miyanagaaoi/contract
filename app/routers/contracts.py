@@ -38,7 +38,7 @@ from ..models import (
     contract_tag,
 )
 from ..models_auth import User
-from ..models_master import Customer, Supplier
+from ..models_master import Customer, Product, Supplier
 from ..numbering import next_number
 from ..services import audit_service, migrate_service
 from ..services.permission_service import apply_data_scope, require_perm
@@ -247,7 +247,12 @@ def _fmt(c: Contract, db: Session | None = None) -> dict:
              "qty": float(it.qty) if it.qty is not None else None,
              "unit_price": float(it.unit_price) if it.unit_price is not None else None,
              "total": float(it.total) if it.total is not None else None,
-             "remark": it.remark}
+             "remark": it.remark,
+             # V2.1（N4）：绑定的物料档案 + 快照。
+             # 前端行项选择器、以及"提取合同明细"（N2）都依赖这三个字段。
+             "product_id": it.product_id,
+             "product_code": it.product_code,
+             "product_name": it.product_name}
             for it in (c.items or [])
         ],
         "created_at": c.created_at.isoformat() if c.created_at else None,
@@ -268,12 +273,36 @@ def _summary_text(items: list) -> str:
     return "；".join(parts)
 
 
+def _resolve_item_product(db: Session, raw, seq: int) -> Product:
+    """V2.1（N4，BR-V2.1-02）：把行项的 `product_id` 解析为**启用中**的物料档案。
+
+    合同行项必须绑定系统物料档案；此处是"新建 / 编辑"路径的强制校验点
+    （导入路径见 `routers/imports.py`，模板与校验同源）。
+    """
+    if raw in (None, ""):
+        raise HTTPException(status_code=422, detail=f"行项第 {seq} 行必须选择物料档案")
+    try:
+        product_id = int(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail=f"行项第 {seq} 行物料编号非法")
+    product = db.get(Product, product_id)
+    if product is None:
+        raise HTTPException(status_code=422, detail=f"行项第 {seq} 行物料不存在")
+    if (product.status or "enabled") != "enabled":
+        raise HTTPException(
+            status_code=422, detail=f"行项第 {seq} 行物料「{product.name}」已停用，不可选用"
+        )
+    return product
+
+
 def _apply_items(db: Session, contract: Contract, rows_raw) -> None:
     """行项明细整体替换（MVP2 需求①）。
 
     规则：
     - 行项非空 → 金额=Σ行项总价（自动覆盖）、"标的物"=行项摘要（自动）；
-    - 行项为空 [] → 清空行项，金额/标的物不动（允许无行项合同手工维护金额）。
+    - 行项为空 [] → 清空行项，金额/标的物不动（允许无行项合同手工维护金额）；
+    - **V2.1（N4）**：每行**必须绑定系统物料档案**，并回填 `product_code` / `product_name`
+      快照；物料名称/规格作为 `name` / `spec` 的默认值，用户仍可覆盖。
     """
     if rows_raw is None:
         return
@@ -284,10 +313,15 @@ def _apply_items(db: Session, contract: Contract, rows_raw) -> None:
         spec = str(r.get("spec") or "").strip()
         qty_raw = str(r.get("qty") or "").strip()
         price_raw = str(r.get("unit_price") or "").strip()
-        if not name and not spec and not qty_raw and not price_raw and not (r.get("remark") or "").strip():
+        product_raw = r.get("product_id")
+        if (not name and not spec and not qty_raw and not price_raw
+                and product_raw in (None, "") and not (r.get("remark") or "").strip()):
             continue  # 全空行忽略
+        product = _resolve_item_product(db, product_raw, i)
         if not name:
-            raise HTTPException(status_code=422, detail=f"行项第 {i} 行缺少名称")
+            name = product.name          # 物料名称作为默认值（可被显式传入的 name 覆盖）
+        if not spec:
+            spec = product.spec or ""
         try:
             qty = Decimal(qty_raw or "0")
             price = Decimal(price_raw or "0")
@@ -300,11 +334,15 @@ def _apply_items(db: Session, contract: Contract, rows_raw) -> None:
             seq=i,
             item_type=str(r.get("item_type") or "").strip() or "采购",
             name=name, spec=spec, qty=qty, unit_price=price, total=total,
+            product_id=product.id, product_code=product.code, product_name=product.name,
             remark=(str(r.get("remark") or "")).strip() or None,
         ))
 
     def _sig(it: ContractItem) -> tuple:
-        return (it.seq, it.item_type, it.name, it.spec, str(it.qty), str(it.unit_price), str(it.total), it.remark)
+        # ⚠️ V2.1：必须包含 `product_id`。否则"仅改了物料绑定"的编辑会被判定为
+        # 无变化而**静默丢弃**（`old_sig == new_sig` 时函数直接 return）。
+        return (it.seq, it.item_type, it.name, it.spec, str(it.qty), str(it.unit_price),
+                str(it.total), it.remark, it.product_id)
 
     old_sig = [_sig(x) for x in (contract.items or [])]
     new_sig = [_sig(x) for x in new_items]
