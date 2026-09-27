@@ -13,6 +13,6 @@ const fields: MasterField[] = [
 
 <template>
   <TreeMasterPage title="商品类型" subtitle="物料的分类树；只有叶子类型可以挂物料"
-                  api="/master/product-types" perm-view="master.ptype.view"
+                  api="/master/product-types"
                   perm-edit="master.ptype.edit" node-label="类型" :fields="fields" />
 </template>

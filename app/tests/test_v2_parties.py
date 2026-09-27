@@ -59,8 +59,10 @@ class Box:
         return data
 
     def supplier(self, name: str | None = None) -> dict:
+        full = name or f"档案供应商_{uuid.uuid4().hex[:6]}"
+        # V2.2（BR-V2.2-01）：供应商简称必填
         resp = self.client.post("/api/master/suppliers", headers=self.h,
-                                json={"name": name or f"档案供应商_{uuid.uuid4().hex[:6]}"})
+                                json={"name": full, "short_name": full[:16]})
         assert resp.status_code == 200, resp.text
         data = resp.json()
         self.suppliers.append(data["id"])

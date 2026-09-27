@@ -5,10 +5,8 @@
  * 调拨是本版唯一"一单双向"的单据：审核即在同一事务内完成调出仓减少与调入仓增加。
  */
 import DocListPage from '@/components/doc/DocListPage.vue'
-
-function fmtDate(v: unknown): string {
-  return v ? String(v).slice(0, 10) : '—'
-}
+import PostStatusTag from '@/components/doc/PostStatusTag.vue'
+import { fmtDate } from '@/utils/format'
 </script>
 
 <template>
@@ -22,9 +20,7 @@ function fmtDate(v: unknown): string {
       <el-descriptions-item label="调出仓库">{{ detail.from_warehouse_name || '—' }}</el-descriptions-item>
       <el-descriptions-item label="调入仓库">{{ detail.to_warehouse_name || '—' }}</el-descriptions-item>
       <el-descriptions-item label="过账状态">
-        <el-tag :type="detail.posted ? 'success' : 'info'" size="small">
-          {{ detail.posted ? '已过账' : '未过账' }}
-        </el-tag>
+        <PostStatusTag :posted="detail.posted" />
       </el-descriptions-item>
       <el-descriptions-item label="审核时间">{{ fmtDate(detail.approved_at) }}</el-descriptions-item>
     </template>

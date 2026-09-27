@@ -42,7 +42,7 @@ const extraFilters: ExtraFilter[] = [
 
 <template>
   <MasterTablePage title="物料档案" subtitle="物料只能挂在商品类型的叶子节点；编码留空时按类型码自动生成"
-                   api="/master/products" perm-view="master.product.view"
+                   api="/master/products"
                    perm-edit="master.product.edit" :columns="columns" :fields="fields"
                    :extra-filters="extraFilters"
                    keyword-placeholder="名称 / 编码 / 规格 / 品牌 / 条码" />

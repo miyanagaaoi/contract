@@ -9,11 +9,7 @@
   <router-view />
 </template>
 
-<style>
-html,
-body,
-#app {
-  height: 100%;
-  margin: 0;
-}
-</style>
+<!--
+  T4-7：此处原有一段与 `src/style.css` 逐字重复的全局 reset（html / body / #app）。
+  全局样式只保留 style.css 一处，避免"改了一处忘了另一处"。
+-->

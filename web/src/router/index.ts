@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import { useAuthStore } from '@/stores/auth'
+import { confirmLeave } from '@/utils/unsaved'
 
 /**
  * 路由表（T-V2-15）。
@@ -105,6 +106,12 @@ const router = createRouter({
           meta: { title: '系统管理', perm: 'system.dict.view' },
         },
         { path: 'settings', redirect: '/system' },
+        // V2.2：打印模板（版面可视化调整）；入口同时出现在「资料库 → 打印模板」菜单
+        {
+          path: 'system/print-templates', name: 'system-print-templates',
+          component: () => import('@/views/system/PrintTemplateView.vue'),
+          meta: { title: '打印模板', perm: 'system.print.view' },
+        },
 
         // ---- 采购管理（T-V2-24） ----
         {
@@ -299,6 +306,11 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
 
+  // 未保存离开确认（T1-1）：表单壳通过 `@/utils/unsaved` 注册本钩子。
+  // 放在最前——用户主动导航时先确认，再做登录态与权限判定；
+  // 无注册者（列表页 / 看板）时同步放行，零开销。
+  if (!(await confirmLeave())) return false
+
   if (to.meta.public) {
     if (to.path === '/login' && auth.isLoggedIn) return { path: '/' }
     return true
@@ -310,9 +322,17 @@ router.beforeEach(async (to) => {
 
   try {
     await auth.fetchMe()
-  } catch {
-    auth.setToken('')
-    return { path: '/login', query: { redirect: to.fullPath } }
+  } catch (err) {
+    // 只有明确的 401 才清除登录态。
+    // 内网瞬时断网 / 后端 5xx 不该把用户踢回登录页——那会连同当前页与未保存的
+    // 录入内容一起丢失，且用户在网络恢复后仍需重新登录。
+    const status = (err as { response?: { status?: number } } | undefined)?.response?.status
+    if (status === 401) {
+      auth.setToken('')
+      return { path: '/login', query: { redirect: to.fullPath } }
+    }
+    // 其它错误：保留登录态放行，页面自行呈现空/错误态；下次导航会重试 fetchMe
+    return true
   }
 
   if (auth.user?.must_change_pwd && to.path !== '/change-password') {

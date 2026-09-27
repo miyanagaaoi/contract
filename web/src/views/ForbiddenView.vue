@@ -29,11 +29,11 @@ const perm = computed(() => (route.query.perm as string) || '')
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: #f5f7fa;
+  background: var(--ctms-bg);
 }
 .code { font-size: 64px; font-weight: 800; color: #5a6b7d; line-height: 1; letter-spacing: 4px; }
-.msg { font-size: 14px; margin: 14px 0 4px; color: #303133; }
-.det { font-size: 12.5px; color: #909399; margin: 0 0 20px; }
+.msg { font-size: var(--ctms-fs-base); margin: 14px 0 4px; color: var(--ctms-text); }
+.det { font-size: var(--ctms-fs-sm); color: var(--ctms-text-muted); margin: 0 0 20px; }
 .det code { background: #f2f6fc; border: 1px solid #e4edf7; border-radius: 4px; padding: 1px 6px; }
 .actions { display: flex; gap: 10px; }
 </style>

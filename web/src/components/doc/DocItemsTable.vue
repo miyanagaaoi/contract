@@ -14,6 +14,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import QuickCreateDialog from '@/components/QuickCreateDialog.vue'
 import { fetchMasterOptions, type Dict } from '@/api'
 import type { DocItem } from '@/types/doc'
+import { fmtMoney, fmtPrice, fmtQty } from '@/utils/format'
 
 type ExtraCol = 'ordered' | 'received' | 'shipped' | 'book' | 'actual' | 'diff'
 
@@ -26,16 +27,30 @@ const props = withDefaults(defineProps<{
   showWarehouse?: boolean
   /** 是否允许编辑单价（入库单下推时单价只读） */
   showPrice?: boolean
+  /**
+   * 是否显示金额相关列（单价 / 金额）。
+   *
+   * 与 `showPrice` 的区别：`showPrice=false` 的语义是「单价只读、但列仍要显示」
+   * （入库单 / 出库单的单价沿用上游订单，需要核对金额）；而**调拨单根本不涉及金额**，
+   * 需要整列隐藏。此前只有 `showPrice` 一个开关，于是 `TransferForm` 传了
+   * `:show-price="false"` 却依然渲染单价与金额列 —— 与它自己的注释、以及
+   * 07-stock.spec.ts 的预期都不符。
+   */
+  showAmount?: boolean
   /** 额外只读快照列 */
   extraCols?: ExtraCol[]
   /** 空行时提示 */
   emptyText?: string
+  /** 校验失败的行索引（T3-6：行内错误定位，由 DocFormPage 传入） */
+  errorRows?: number[]
 }>(), {
   readonly: false,
   showWarehouse: false,
   showPrice: true,
+  showAmount: true,
   extraCols: () => [],
   emptyText: '暂无行项，请点击「添加行」',
+  errorRows: () => [],
 })
 
 const emit = defineEmits<{ change: [] }>()
@@ -54,6 +69,17 @@ function rowKey(row: Record<string, any>, index: number): string {
   return String(row.id ?? `new-${index}`)
 }
 
+/**
+ * 校验失败行高亮（T3-6）。
+ *
+ * 刻意用 `row-class-name` 而不是新增列：行项表的单元格位置被 e2e 以
+ * `td nth(1)/(4)` 依赖（helpers.ts:143、06-purchase.spec.ts:158），
+ * 动列结构会直接打断测试。
+ */
+function rowClassName({ rowIndex }: { rowIndex: number }): string {
+  return props.errorRows.includes(rowIndex) ? 'row-error' : ''
+}
+
 /** 数量精度：未取到单位时默认 2 位 */
 function decimalsOf(row: Record<string, any>): number {
   const d = row.uom_decimals
@@ -64,27 +90,9 @@ function qtyStep(row: Record<string, any>): number {
   return decimalsOf(row) === 0 ? 1 : 0.01
 }
 
-/** 展示数量（按单位小数位，保留 0 位时取整）
- *  注意：非数值一律回退为 '—'，**不得**回退为 String(v) —— 否则对象会被渲染成 "[object Object]" */
-function fmtQty(v: unknown, decimals = 2): string {
-  if (v === null || v === undefined || v === '') return '—'
-  const n = typeof v === 'number' ? v : Number(v)
-  if (!Number.isFinite(n)) return '—'
-  return n.toFixed(Math.max(0, Math.min(6, decimals)))
-}
-
-function fmtPrice(v: unknown): string {
-  if (v === null || v === undefined || v === '') return '—'
-  const n = typeof v === 'number' ? v : Number(v)
-  return Number.isFinite(n) ? n.toFixed(2) : '—'
-}
-
-function fmtMoney(v: unknown): string {
-  if (v === null || v === undefined || v === '') return '0.00'
-  const n = typeof v === 'number' ? v : Number(v)
-  if (!Number.isFinite(n)) return '0.00'
-  return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
+// fmtQty / fmtPrice / fmtMoney 统一走 @/utils/format（T1-3）。
+// 关键修复：金额空值由 '0.00' 改为 '—'；非数值不再回退为 String(v)（避免渲染 "[object Object]"）。
+// 注意：数量与单价保持**无千分位**（toFixed）——行项表列宽固定且需逐格核对，千分位会撑宽列。
 
 /** 金额 = 数量 × 单价（四舍五入到分） */
 function amountOf(row: Record<string, any>): number {
@@ -233,7 +241,8 @@ defineExpose({ loadProducts, totalAmount })
 
 <template>
   <div class="items">
-    <el-table :data="items" border stripe size="small" show-summary :summary-method="summaryMethod">
+    <el-table :data="items" border stripe size="small" show-summary :summary-method="summaryMethod"
+              :row-class-name="rowClassName">
       <el-table-column type="index" label="#" width="48" align="center" />
       <el-table-column label="物料" min-width="230">
         <template #default="{ row }">
@@ -266,14 +275,14 @@ defineExpose({ loadProducts, totalAmount })
           <div v-if="!readonly && integerHint(row)" class="hint">{{ integerHint(row) }}</div>
         </template>
       </el-table-column>
-      <el-table-column label="单价" width="130">
+      <el-table-column v-if="showAmount" label="单价" width="130">
         <template #default="{ row }">
           <el-input-number v-if="!readonly && showPrice" v-model="row.unit_price" :min="0"
                            :precision="4" :controls="false" style="width: 100%" @change="emit('change')" />
           <span v-else>{{ fmtPrice(row.unit_price) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="金额" prop="amount" width="120" align="right">
+      <el-table-column v-if="showAmount" label="金额" prop="amount" width="120" align="right">
         <template #default="{ row }">{{ fmtMoney(amountOf(row)) }}</template>
       </el-table-column>
       <el-table-column v-if="showWarehouse" label="仓库" width="150">
@@ -315,7 +324,11 @@ defineExpose({ loadProducts, totalAmount })
 <style scoped>
 .product-pick { display: flex; align-items: center; gap: 4px; width: 100%; }
 .actions { margin-top: 8px; display: flex; align-items: center; gap: 12px; }
-.gray { color: #909399; }
-.hint { color: #e6a23c; font-size: 12px; line-height: 1.4; }
-.tips { font-size: 12px; }
+.gray { color: var(--ctms-text-muted); }
+.hint { color: var(--ctms-warning-text); font-size: var(--ctms-fs-xs); line-height: 1.4; }
+.tips { font-size: var(--ctms-fs-xs); }
+/* 校验失败行（T3-6）：与 DocFormPage 顶部的行错误提示条呼应，便于快速定位 */
+:deep(.el-table__row.row-error) td {
+  background-color: #fef0f0;
+}
 </style>

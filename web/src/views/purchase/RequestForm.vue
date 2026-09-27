@@ -9,6 +9,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import ContractDetailDrawer from '@/components/doc/ContractDetailDrawer.vue'
 import DocFormPage from '@/components/doc/DocFormPage.vue'
+import SupplierDetailDialog from '@/components/SupplierDetailDialog.vue'
 import { fetchContract, fetchMasterOptions, type Dict } from '@/api'
 
 const extra = ref<Dict>({
@@ -59,10 +60,22 @@ const suggestSupplierId = computed({
   get: () => (extra.value.suggest_supplier_id as number | null) ?? null,
   set: (v: number | null) => { extra.value = { ...extra.value, suggest_supplier_id: v } },
 })
-const suggestSupplierName = computed(() => {
-  const hit = suppliers.value.find((s) => s.id === suggestSupplierId.value)
-  return hit ? `${hit.name}（${hit.code}）` : '—'
-})
+
+/**
+ * V2.2：供货商**默认显示简称**（单据与口头沟通都用简称，全称太长）。
+ * 下拉面板里把全称作为次要说明补在简称后面，避免两家供货商简称相近时选错。
+ */
+function supplierLabel(s: Dict): string {
+  return (s.short_name as string) || (s.name as string) || ''
+}
+
+// ---------------- V2.2：供货商详情弹窗 ----------------
+const supplierDialog = ref<InstanceType<typeof SupplierDetailDialog> | null>(null)
+
+function openSupplier(id: number | null | undefined) {
+  if (!id) return
+  supplierDialog.value?.open(id)
+}
 
 // ---------------- V2.1 / N5：合同详情抽屉 ----------------
 const drawer = ref<InstanceType<typeof ContractDetailDrawer> | null>(null)
@@ -149,15 +162,19 @@ async function extractFromContract(header: Dict, items: Record<string, any>[]) {
       </el-col>
       <el-col :span="12">
         <el-form-item label="建议供应商">
-          <el-select v-model="suggestSupplierId" filterable clearable placeholder="仅作建议，可留空"
-                     style="width: 100%" @visible-change="ensureSuppliers">
-            <el-option v-for="s in suppliers" :key="s.id" :label="`${s.name}（${s.code}）`" :value="s.id" />
-          </el-select>
-        </el-form-item>
-      </el-col>
-      <el-col :span="12">
-        <el-form-item label="建议供应商快照">
-          <span class="gray">{{ suggestSupplierName }}</span>
+          <!-- V2.2：下拉显示简称，右侧按钮点开只读供货商档案 -->
+          <div class="field-with-action">
+            <el-select v-model="suggestSupplierId" filterable clearable placeholder="仅作建议，可留空"
+                       @visible-change="ensureSuppliers">
+              <el-option v-for="s in suppliers" :key="s.id"
+                         :label="supplierLabel(s)" :value="s.id">
+                <span>{{ supplierLabel(s) }}</span>
+                <span v-if="s.short_name && s.short_name !== s.name" class="opt-sub">{{ s.name }}</span>
+              </el-option>
+            </el-select>
+            <el-button size="small" :disabled="!suggestSupplierId"
+                       @click="openSupplier(suggestSupplierId)">供货商详情</el-button>
+          </div>
         </el-form-item>
       </el-col>
       <el-col :span="24">
@@ -166,15 +183,18 @@ async function extractFromContract(header: Dict, items: Record<string, any>[]) {
                     placeholder="本次采购的用途 / 背景" />
         </el-form-item>
       </el-col>
-      <!-- V2.1 / N5：关联合同后可直接拉出只读合同详情，无需离开当前单据 -->
-      <el-col :span="12">
-        <el-form-item label="合同详情">
-          <el-button :disabled="!header.contract_id" @click="drawer?.open(header.contract_id)">
-            查看合同详情
-          </el-button>
-          <span v-if="!header.contract_id" class="gray" style="margin-left: 8px">请先选择关联合同</span>
-        </el-form-item>
-      </el-col>
+    </template>
+
+    <!--
+      V2.1 / N5：关联合同后可直接拉出只读合同详情，无需离开当前单据。
+      按钮放在「关联合同」选择框右侧（DocFormPage 的 #contract-actions 插槽）并改为 small
+      —— 原先它独占页底半行，与所服务的字段隔了好几个字段，视线要来回跳。
+      注意：「请先选择关联合同」文案被 e2e 断言依赖（06-purchase.spec.ts:217），必须保留。
+    -->
+    <template #contract-actions="{ header }">
+      <el-button size="small" :disabled="!header.contract_id"
+                 @click="drawer?.open(header.contract_id)">查看合同详情</el-button>
+      <span v-if="!header.contract_id" class="gray">请先选择关联合同</span>
     </template>
 
     <!-- V2.1 / N2：一键把关联合同的行项提取为本单明细（草稿值，可修改） -->
@@ -188,8 +208,11 @@ async function extractFromContract(header: Dict, items: Record<string, any>[]) {
   </DocFormPage>
 
   <ContractDetailDrawer ref="drawer" />
+
+  <!-- V2.2：供货商详情（只读弹窗） -->
+  <SupplierDetailDialog ref="supplierDialog" />
 </template>
 
 <style scoped>
-.gray { color: #909399; font-size: 12.5px; }
+.gray { color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
 </style>

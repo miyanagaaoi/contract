@@ -432,3 +432,32 @@ DOC_ITEM_MODELS: dict[str, type] = {
     "stock_take": StockTakeItem,
     "stock_transfer": StockTransferItem,
 }
+
+
+class PrintTemplate(Base):
+    """单据打印模板（V2.2，BR-V2.2-02）。
+
+    一种单据类型一条记录（`kind` 唯一）。配置以 **JSON 文本**存储：
+    - 标题/副标题/页脚文字；
+    - 区块顺序（标题区 / 表头信息 / 行项明细 / 签字与备注）；
+    - 表头字段的显示、顺序、标签文字与是否独占整行；
+    - 行项列的显示、顺序与标签文字；
+    - 签字栏文字。
+
+    之所以用 JSON 而不是逐字段建列：模板是**排版数据**、字段集合会随单据类型演进，
+    加列会让迁移与模型同步成本远高于收益（见 `db_migrate.py` 的 SQLite 限制说明）。
+    读取时统一与默认配置合并（`print_template_service.get_config`），
+    因此新增可配置项时**老模板不会报错**。
+    """
+
+    __tablename__ = "print_templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(32), unique=True, index=True, nullable=False)
+    config: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    updated_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_by_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )

@@ -3,10 +3,8 @@
  * 入库单列表（T-V2-25）：**审核即过账**，界面对 `posted` 给出提示。
  */
 import DocListPage from '@/components/doc/DocListPage.vue'
-
-function fmtDate(v: unknown): string {
-  return v ? String(v).slice(0, 10) : '—'
-}
+import PostStatusTag from '@/components/doc/PostStatusTag.vue'
+import { fmtDate } from '@/utils/format'
 </script>
 
 <template>
@@ -20,9 +18,7 @@ function fmtDate(v: unknown): string {
     <template #detail-head="{ detail }">
       <el-descriptions-item label="入库类型">{{ detail.in_type || '—' }}</el-descriptions-item>
       <el-descriptions-item label="过账状态">
-        <el-tag :type="detail.posted ? 'success' : 'info'" size="small">
-          {{ detail.posted ? '已过账' : '未过账' }}
-        </el-tag>
+        <PostStatusTag :posted="detail.posted" />
       </el-descriptions-item>
       <el-descriptions-item label="来源采购单" :span="2">{{ detail.source_doc_no || '—' }}</el-descriptions-item>
       <el-descriptions-item label="审核时间" :span="2">

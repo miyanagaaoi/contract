@@ -159,6 +159,10 @@ def claim_party_draft(db: Session, draft: PartyDraft, payload: dict, user=None) 
         if obj is None:
             extra = {"code": payload.get("code"), "contact_name": payload.get("contact_name"),
                      "contact_phone": payload.get("contact_phone")}
+            # V2.2（BR-V2.2-01）：供应商简称必填。历史合同草案里没有简称字段，
+            # 认领是"存量补录"路径，不能因为缺简称就卡住迁移，故用历史名称兜底。
+            if kind == "supplier":
+                extra["short_name"] = str(payload.get("short_name") or name).strip()[:64]
             obj = master_service.create_party(db, kind, {"name": name, **extra}, user)
 
     bound = _bind_contracts(db, draft, obj, user)

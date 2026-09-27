@@ -205,6 +205,19 @@ def _apply_party_fields(db: Session, kind: str, obj, payload: dict) -> None:
                   "bank_name", "bank_account", "level"):
         if field in payload:
             setattr(obj, field, _opt(payload.get(field)))
+    # V2.2（BR-V2.2-01）：供货商**简称必填**。
+    # 简称是单据、下拉与口头沟通里真正用来指代供货商的字段（见 SupplierDetailDialog），
+    # 空简称会退化成"看全称"，长名称在单据表头会把版面挤变形，故在服务层强制：
+    # - 新增：必须给出（create_party 里校验）；
+    # - 修改：给出就必须非空（不允许把已有简称清空），未给出则保持原值不变。
+    # 客户不受影响——客户的往来习惯是全称。
+    if kind == "supplier" and "short_name" in payload:
+        short = _s(payload.get("short_name"))
+        if not short:
+            raise ValueError("供货商简称不能为空")
+        if len(short) > 64:
+            raise ValueError("供货商简称最多 64 字")
+        obj.short_name = short
     if "credit_limit" in payload:
         obj.credit_limit = _dec(payload.get("credit_limit"), "授信额度")
     if "remark" in payload:
@@ -227,6 +240,9 @@ def create_party(db: Session, kind: str, payload: dict, user=None):
     name = _s(payload.get("name"))
     if not name:
         raise ValueError(f"{conf['label']}名称不能为空")
+    # V2.2（BR-V2.2-01）：供货商简称必填，新增时就拦下（不能让空简称的档案进库）
+    if kind == "supplier" and not _s(payload.get("short_name")):
+        raise ValueError("供货商简称不能为空")
 
     def _build():
         code = _s(payload.get("code")).upper() or numbering_service.next_party_code(db, kind)
@@ -277,7 +293,10 @@ def party_options(db: Session, kind: str, keyword: str | None = None, limit: int
     kw = _s(keyword)
     if kw:
         like = f"%{kw}%"
-        query = query.filter(or_(model.name.like(like), model.code.like(like)))
+        # V2.2：下拉里按简称显示（`SupplierDetailDialog` / 单据表单），
+        # 因此关键词也必须能匹配简称，否则"看得见却搜不到"。
+        query = query.filter(or_(model.name.like(like), model.code.like(like),
+                                 model.short_name.like(like)))
     rows = query.order_by(model.name.asc()).limit(max(1, min(200, limit))).all()
     return [{"id": r.id, "code": r.code, "name": r.name, "short_name": r.short_name,
              "contact_name": r.contact_name, "contact_phone": r.contact_phone} for r in rows]

@@ -19,6 +19,7 @@ import {
 } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import type { StockBalance, StockLedgerResult } from '@/types/doc'
+import { fmtDateTime, fmtMoney, fmtQty as fmtQtyBase } from '@/utils/format'
 
 const auth = useAuthStore()
 const canRecalc = computed(() => auth.hasPerm('stock.balance.view'))
@@ -135,23 +136,13 @@ function rowClass({ row }: { row: StockBalance }): string {
   return row.below_safety ? 'below-safety-row' : ''
 }
 
+/** 数量：单位小数位缺失时回退 2 位（保留原有语义），实现复用 @/utils/format */
 function fmtQty(v: unknown, decimals: number | null | undefined): string {
-  if (v === null || v === undefined) return '—'
-  const n = Number(v)
-  if (Number.isNaN(n)) return String(v)
-  const d = decimals === null || decimals === undefined ? 2 : Number(decimals)
-  return n.toFixed(Math.max(0, Math.min(6, d)))
+  return fmtQtyBase(v, decimals ?? 2)
 }
 
-function fmtMoney(v: unknown): string {
-  if (v === null || v === undefined) return '—'
-  const n = Number(v)
-  return Number.isNaN(n) ? String(v) : n.toFixed(2)
-}
-
-function fmtDate(v: unknown): string {
-  return v ? String(v).slice(0, 19) : '—'
-}
+/** 时间列显示到秒；原为 ISO 字符串截断，改为本地时区可读格式 */
+const fmtDate = (v: unknown): string => fmtDateTime(v)
 
 // ---------------- 流水下钻 ----------------
 const drawerVisible = ref(false)
@@ -266,7 +257,7 @@ onMounted(async () => {
         <el-form-item label="数量区间">
           <el-input-number v-model="query.qty_min" :controls="false" placeholder="下限"
                            style="width: 90px" @change="page = 1; load()" />
-          <span style="margin: 0 6px; color: #909399">~</span>
+          <span style="margin: 0 6px; color: var(--ctms-text-muted)">~</span>
           <el-input-number v-model="query.qty_max" :controls="false" placeholder="上限"
                            style="width: 90px" @change="page = 1; load()" />
         </el-form-item>
@@ -297,9 +288,17 @@ onMounted(async () => {
                 :row-class-name="rowClass" @row-click="openLedger">
         <el-table-column type="index" label="#" width="52" />
         <el-table-column prop="product_code" label="物料编码" width="140" show-overflow-tooltip />
-        <el-table-column prop="product_name" label="物料名称" min-width="150" show-overflow-tooltip />
+        <!--
+          V2.2：商品类型前置到物料名称里，显示为「类型-名称」（如 原材料-钢材）。
+          原先类型是物料名称**后面**的独立一列，看库存时要横向跳两次才能确认
+          「这是什么料」；合并后一行读完，也省下一列宽度给物料名称。
+        -->
+        <el-table-column label="物料名称" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.product_type_name" class="type-prefix">{{ row.product_type_name }}-</span>{{ row.product_name }}
+          </template>
+        </el-table-column>
         <el-table-column prop="spec" label="规格型号" min-width="120" show-overflow-tooltip />
-        <el-table-column prop="product_type_name" label="商品类型" width="120" show-overflow-tooltip />
         <el-table-column label="单位" width="70">
           <template #default="{ row }">{{ row.uom_name || '—' }}</template>
         </el-table-column>
@@ -336,7 +335,7 @@ onMounted(async () => {
         <template #empty>暂无库存结存数据</template>
       </el-table>
 
-      <el-pagination v-if="total > pageSize" class="pager" background
+      <el-pagination class="pager" background
                      layout="total, prev, pager, next, sizes" :total="total"
                      :current-page="page" :page-size="pageSize" :page-sizes="[10, 20, 50, 100]"
                      @current-change="(p: number) => { page = p; load() }"
@@ -344,7 +343,7 @@ onMounted(async () => {
     </el-card>
 
     <!-- 流水下钻抽屉 -->
-    <el-drawer v-model="drawerVisible" size="820px"
+    <el-drawer v-model="drawerVisible" size="min(820px, 96vw)"
                :title="`库存流水 · ${current?.product_name ?? ''} @ ${current?.warehouse_name ?? ''}`">
       <div v-if="current">
         <el-descriptions :column="3" border size="small" class="mb">
@@ -419,16 +418,18 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.mb { margin-bottom: 12px; }
-.ml { margin-left: 8px; }
+.mb { margin-bottom: var(--ctms-gap); }
+.ml { margin-left: var(--ctms-gap-sm); }
 .head { display: flex; align-items: center; justify-content: space-between; }
-.title { font-weight: 600; font-size: 15px; }
-.subtitle { margin-left: 10px; color: #909399; font-size: 12.5px; }
-.pager { margin-top: 12px; justify-content: flex-end; }
-.mismatch { margin-right: 12px; color: #e6a23c; }
-.danger { color: #f56c6c; font-weight: 600; }
-.plus { color: #67c23a; }
-.minus { color: #f56c6c; }
+.title { font-weight: 600; font-size: var(--ctms-fs-md); }
+.subtitle { margin-left: 10px; color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
+.pager { margin-top: var(--ctms-gap); justify-content: flex-end; }
+.mismatch { margin-right: 12px; color: var(--ctms-warning-text); }
+.danger { color: var(--ctms-danger-text); font-weight: 600; }
+.plus { color: var(--ctms-success-text); }
+.minus { color: var(--ctms-danger-text); }
 :deep(.below-safety-row td) { background: #fef0f0 !important; }
 :deep(.el-table__row) { cursor: pointer; }
+/* 「类型-名称」里的类型做弱化，视线仍先落到物料名称上 */
+.type-prefix { color: var(--ctms-text-secondary); }
 </style>

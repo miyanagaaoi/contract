@@ -52,14 +52,15 @@ async function onSubmit() {
 
       <el-form label-position="top" @submit.prevent="onSubmit">
         <el-form-item label="用户名">
-          <el-input v-model="username" size="large" placeholder="请输入登录名" clearable
-                    @keyup.enter="onSubmit" />
+          <el-input v-model="username" name="username" autocomplete="username" spellcheck="false"
+                    size="large" placeholder="请输入登录名" clearable @keyup.enter="onSubmit" />
         </el-form-item>
         <el-form-item label="密码">
-          <el-input v-model="password" type="password" size="large" placeholder="请输入密码"
-                    show-password @keyup.enter="onSubmit" />
+          <el-input v-model="password" type="password" name="password" autocomplete="current-password"
+                    size="large" placeholder="请输入密码" show-password @keyup.enter="onSubmit" />
         </el-form-item>
-        <p v-if="error" class="err">{{ error }}</p>
+        <!-- role=alert + aria-live：内联错误必须被屏幕阅读器播报（T3-4） -->
+        <p v-if="error" class="err" role="alert" aria-live="polite">{{ error }}</p>
         <el-button type="primary" size="large" class="full" :loading="loading" @click="onSubmit">
           登 录
         </el-button>
@@ -86,10 +87,10 @@ async function onSubmit() {
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.25);
 }
 .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
-.brand h1 { margin: 0; font-size: 18px; letter-spacing: 0.5px; }
-.logo { width: 26px; height: 26px; border-radius: 6px; background: #409eff; display: inline-block; }
-.sub { color: #909399; font-size: 12.5px; margin: 0 0 20px; }
-.err { color: #f56c6c; font-size: 12.5px; margin: 0 0 10px; }
+.brand h1 { margin: 0; font-size: var(--ctms-fs-lg); letter-spacing: 0.5px; }
+.logo { width: 26px; height: 26px; border-radius: 6px; background: var(--ctms-primary); display: inline-block; }
+.sub { color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); margin: 0 0 20px; }
+.err { color: var(--ctms-danger-text); font-size: var(--ctms-fs-sm); margin: 0 0 10px; }
 .full { width: 100%; margin-top: 4px; }
-.foot { margin-top: 16px; font-size: 11.5px; color: #909399; text-align: center; }
+.foot { margin-top: 16px; font-size: var(--ctms-fs-xs); color: var(--ctms-text-muted); text-align: center; }
 </style>

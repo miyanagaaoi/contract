@@ -278,7 +278,9 @@ class TestPartyFields:
         uid = env.user("buyer")
         headers = env.headers(uid)
         created = client.post("/api/master/suppliers", headers=env.admin_h,
-                              json={"name": f"权限测试供应商_{uuid.uuid4().hex[:6]}"})
+                              json={"name": f"权限测试供应商_{uuid.uuid4().hex[:6]}",
+                                    # V2.2（BR-V2.2-01）：供应商简称必填
+                                    "short_name": f"权限供{uuid.uuid4().hex[:4]}"})
         assert created.status_code == 200, created.text
         supplier_id = created.json()["id"]
 

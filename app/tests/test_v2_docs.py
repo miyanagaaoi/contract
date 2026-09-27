@@ -108,8 +108,10 @@ class Box:
         return r.json()
 
     def supplier(self) -> dict:
+        # V2.2（BR-V2.2-01）：供应商简称必填
+        short = f"供{uuid.uuid4().hex[:5]}"
         r = self.client.post("/api/master/suppliers", headers=self.admin,
-                             json={"name": f"供应商{uuid.uuid4().hex[:5]}"})
+                             json={"name": f"供应商{short}", "short_name": short})
         assert r.status_code == 200, r.text
         self.suppliers.append(r.json()["id"])
         return r.json()

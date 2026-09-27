@@ -23,7 +23,8 @@ const props = withDefaults(defineProps<{
   title: string
   subtitle?: string
   api: string
-  permView: string
+  // permView 已移除（T4-3）：查看权限由路由 meta.perm 强制校验（见 router/index.ts），
+  // 本组件从未消费该 prop —— 属冗余死代码，留着会让人误以为前端另有一道防线。
   permEdit: string
   nodeLabel: string
   fields: MasterField[]
@@ -57,6 +58,11 @@ async function load(keepSelection = false) {
       const again = flat.value.find((i) => i.id === selected.value?.id)
       selected.value = again ?? null
     }
+  } catch (e) {
+    // T3-5：原先只有 try/finally —— 加载失败时树保持空白并抛出未捕获 rejection，
+    // 用户看到「空树」却分不清是没数据还是请求失败。
+    const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    ElMessage.error(typeof detail === 'string' ? detail : '加载失败，请稍后重试')
   } finally {
     loading.value = false
   }
@@ -253,11 +259,11 @@ onMounted(async () => {
 
 <style scoped>
 .head { display: flex; align-items: center; justify-content: space-between; }
-.title { font-weight: 600; font-size: 15px; }
-.subtitle { margin-left: 10px; color: #909399; font-size: 12.5px; }
+.title { font-weight: 600; font-size: var(--ctms-fs-md); }
+.subtitle { margin-left: 10px; color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
 .mb8 { margin-bottom: 8px; }
 .node { display: inline-flex; align-items: center; gap: 6px; }
 .node-code { margin-left: 2px; }
-.detail-head { display: flex; align-items: center; gap: 10px; font-weight: 600; margin-bottom: 12px; }
+.detail-head { display: flex; align-items: center; gap: 10px; font-weight: 600; margin-bottom: var(--ctms-gap); }
 .actions { margin-top: 8px; }
 </style>

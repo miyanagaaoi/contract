@@ -12,6 +12,7 @@ import { ElMessage } from 'element-plus'
 
 import { fetchDoc, fetchMasterOptions, pushDoc, type Dict } from '@/api'
 import type { DocItem, DocRecord, PushRow } from '@/types/doc'
+import { todayLocal } from '@/utils/format'
 
 const props = withDefaults(defineProps<{
   /** 源单据接口前缀 */
@@ -48,7 +49,7 @@ const selected = ref<Record<string, any>[]>([])
 const partyId = ref<number | null>(null)
 const warehouseId = ref<number | null>(null)
 const stockType = ref('')
-const docDate = ref(new Date().toISOString().slice(0, 10))
+const docDate = ref(todayLocal())
 const tableRef = ref()
 
 const parties = ref<Dict[]>([])
@@ -103,7 +104,7 @@ async function loadOptions() {
 /** 打开弹窗：先拉最新详情（行项 id 会随编辑变化），再默认勾选剩余量 > 0 的行 */
 async function open(doc: DocRecord) {
   source.value = doc
-  docDate.value = new Date().toISOString().slice(0, 10)
+  docDate.value = todayLocal()
   partyId.value = (props.partyKind === 'customer'
     ? doc.customer_id
     : (doc.suggest_supplier_id ?? doc.supplier_id)) ?? null
@@ -211,7 +212,7 @@ defineExpose({ open })
 </script>
 
 <template>
-  <el-dialog v-model="visible" :title="`下推生成${destLabel}`" width="860px" append-to-body>
+  <el-dialog v-model="visible" :title="`下推生成${destLabel}`" width="min(860px, 92vw)" append-to-body>
     <el-alert type="info" :closable="false" show-icon class="mb"
               :title="`来源单据：${source?.doc_no ?? ''}；默认按剩余量全推，可勾选行并调整数量。`" />
     <el-form inline>
@@ -282,6 +283,6 @@ defineExpose({ open })
 </template>
 
 <style scoped>
-.mb { margin-bottom: 12px; }
-.gray { color: #909399; }
+.mb { margin-bottom: var(--ctms-gap); }
+.gray { color: var(--ctms-text-muted); }
 </style>

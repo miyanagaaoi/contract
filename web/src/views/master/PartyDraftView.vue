@@ -178,7 +178,7 @@ onMounted(load)
       <template #empty>暂无草案，点击右上角「扫描历史文本」生成</template>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" title="认领历史档案" width="560px">
+    <el-dialog v-model="dialogVisible" title="认领历史档案" width="min(560px, 92vw)">
       <el-form label-width="110px">
         <el-form-item label="合同文本">
           <span>{{ current?.raw_name }}（{{ current?.contract_count }} 张合同）</span>
@@ -216,9 +216,9 @@ onMounted(load)
 
 <style scoped>
 .head { display: flex; align-items: center; justify-content: space-between; }
-.title { font-weight: 600; font-size: 15px; }
-.subtitle { margin-left: 10px; color: #909399; font-size: 12.5px; }
-.mb12 { margin-bottom: 12px; }
+.title { font-weight: 600; font-size: var(--ctms-fs-md); }
+.subtitle { margin-left: 10px; color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
+.mb12 { margin-bottom: var(--ctms-gap); }
 .mr4 { margin-right: 4px; }
-.gray { color: #909399; font-size: 12.5px; }
+.gray { color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
 </style>

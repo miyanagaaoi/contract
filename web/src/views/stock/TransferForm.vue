@@ -32,7 +32,7 @@ void ensureOptions()
 <template>
   <DocFormPage v-model="extra" title="调拨单" kind-label="调拨单"
                api="/api/stock/transfers" perm-prefix="stock.transfer"
-               list-route="stock-transfer-list" :show-price="false"
+               list-route="stock-transfer-list" :show-price="false" :show-amount="false"
                :extra-required="[{ key: 'from_warehouse_id', label: '调出仓库' },
                                  { key: 'to_warehouse_id', label: '调入仓库' }]">
     <template #header>

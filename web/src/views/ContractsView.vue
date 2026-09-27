@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import RelatedDocs from '@/components/doc/RelatedDocs.vue'
 import {
@@ -29,7 +29,9 @@ import {
   uploadAttachment,
   type Dict,
 } from '@/api'
+import { fmtDate, fmtDateTime, fmtMoney } from '@/utils/format'
 
+const route = useRoute()
 const router = useRouter()
 
 // ---------- 状态 ----------
@@ -99,27 +101,95 @@ function rowClass({ row }: { row: Dict }): string {
 }
 
 // ---------- 列表 ----------
+/**
+ * 筛选参数（T2-3）。
+ *
+ * 抽成独立函数让「列表请求」与「URL 同步」共用同一口径——否则两处各写一遍，
+ * 迟早出现「URL 里有、请求里没有」的漂移。
+ */
+function filterParams(): Dict {
+  const params: Dict = {}
+  if (query.keyword) params.keyword = query.keyword
+  if (query.type) params.type = query.type
+  if (query.status) params.status = query.status
+  if (query.owner) params.owner = query.owner
+  if (query.tags.length) params.tags = query.tags.join(',')
+  if (query.date_range.length === 2) {
+    params.sign_from = query.date_range[0]
+    params.sign_to = query.date_range[1]
+  }
+  if (query.include_deleted) params.include_deleted = true
+  if (viewMode.value === 'tree') params.tree = true
+  return params
+}
+
+/**
+ * 把当前筛选与分页写入 URL query（T2-3）。
+ *
+ * 此前全项目**没有任何页面**把筛选写进 URL：链接无法分享、刷新丢筛选、
+ * 浏览器回退直接离开页面。这里只写入非默认值，避免 URL 噪音。
+ */
+function syncQueryToUrl(): void {
+  const q: Record<string, string> = {}
+  for (const [key, value] of Object.entries(filterParams())) {
+    q[key] = String(value)
+  }
+  if (page.value > 1) q.page = String(page.value)
+  if (pageSize.value !== 20) q.page_size = String(pageSize.value)
+  router.replace({ query: q })
+}
+
+/** 首挂载时从 URL 回填筛选（深链 / 分享链接 / 刷新保持） */
+function applyQueryFromUrl(): void {
+  const q = route.query
+  const str = (key: string): string => (typeof q[key] === 'string' ? (q[key] as string) : '')
+  query.keyword = str('keyword')
+  query.type = str('type')
+  query.status = str('status')
+  query.owner = str('owner')
+  const tags = str('tags')
+  query.tags = tags ? tags.split(',').filter(Boolean) : []
+  const from = str('sign_from')
+  const to = str('sign_to')
+  query.date_range = from && to ? [from, to] : []
+  query.include_deleted = str('include_deleted') === 'true'
+  viewMode.value = str('tree') === 'true' ? 'tree' : 'flat'
+  const p = Number(str('page'))
+  page.value = Number.isFinite(p) && p > 0 ? p : 1
+}
+
 async function load() {
   loading.value = true
   try {
-    const params: Dict = { page: page.value, page_size: pageSize.value }
-    if (query.keyword) params.keyword = query.keyword
-    if (query.type) params.type = query.type
-    if (query.status) params.status = query.status
-    if (query.owner) params.owner = query.owner
-    if (query.tags.length) params.tags = query.tags.join(',')
-    if (query.date_range.length === 2) {
-      params.sign_from = query.date_range[0]
-      params.sign_to = query.date_range[1]
-    }
-    if (query.include_deleted) params.include_deleted = true
-    if (viewMode.value === 'tree') params.tree = true
+    const params: Dict = { ...filterParams(), page: page.value, page_size: pageSize.value }
     const res = await fetchContracts(params)
     rows.value = res.items
     total.value = res.total
+    syncQueryToUrl()
   } finally {
     loading.value = false
   }
+}
+
+/**
+ * 重置筛选（T2-6）。
+ *
+ * 原实现是模板里的一句 `Object.assign(query, {...})`，漏了两个字段：
+ * - `include_deleted`：勾选「显示已停用」后点重置，仍停留在停用视图；
+ * - `page`：重置后可能停在原来的第 N 页，看到空白列表。
+ */
+function resetQuery() {
+  Object.assign(query, {
+    keyword: '',
+    type: '',
+    status: '',
+    owner: '',
+    tags: [],
+    date_range: [],
+    include_deleted: false,
+  })
+  page.value = 1
+  load()
 }
 
 async function loadFrameworks() {
@@ -515,6 +585,88 @@ async function restore(row: Dict) {
   }
 }
 
+// ---------- 批量操作（T2-2） ----------
+/**
+ * 批量停用 / 批量恢复。
+ *
+ * ⚠️ 列宽约束：合同台账的列宽被 `10-layout.spec.ts` 以像素级断言锁定
+ * （无横向滚动 + 操作列 ≤180px）。新增的选择列占 40px，因此把「合同编号」
+ * 从 148px 收到 124px 并补 `show-overflow-tooltip` 抵消——编号列本身有富余，
+ * 不会丢信息。改动此表列宽前务必重跑该 spec。
+ */
+const tableRef = ref()
+const selected = ref<Dict[]>([])
+const bulkLoading = ref(false)
+
+function onSelectionChange(rows: Dict[]): void {
+  selected.value = rows
+}
+
+function clearSelection(): void {
+  tableRef.value?.clearSelection()
+  selected.value = []
+}
+
+/** 逐条执行并汇总失败项——批量动作不能「一条失败就整体静默」 */
+async function runBulk(
+  rows: Dict[],
+  label: string,
+  action: (row: Dict) => Promise<unknown>,
+): Promise<void> {
+  bulkLoading.value = true
+  const failed: string[] = []
+  for (const row of rows) {
+    try {
+      await action(row)
+    } catch {
+      failed.push(row.contract_no || row.name)
+    }
+  }
+  bulkLoading.value = false
+  const okCount = rows.length - failed.length
+  if (failed.length) {
+    ElMessage.warning(`${label}完成：成功 ${okCount} 条，失败 ${failed.length} 条（${failed.join('、')}）`)
+  } else {
+    ElMessage.success(`${label}成功 ${okCount} 条`)
+  }
+  clearSelection()
+  await load()
+}
+
+async function bulkDisable(): Promise<void> {
+  const rows = selected.value.filter((r) => !r.deleted)
+  if (!rows.length) {
+    ElMessage.warning('所选合同中没有可停用的记录')
+    return
+  }
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `将停用选中的 ${rows.length} 份合同，请输入原因（必填）：`, '批量停用',
+      {
+        confirmButtonText: '批量停用', cancelButtonText: '取消',
+        inputValidator: (v: string) => (v && v.trim() ? true : '原因必填'),
+      },
+    )
+    await runBulk(rows, '批量停用', (row) => softDeleteContract(row.id, value.trim()))
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') throw e
+  }
+}
+
+async function bulkRestore(): Promise<void> {
+  const rows = selected.value.filter((r) => r.deleted)
+  if (!rows.length) {
+    ElMessage.warning('所选合同中没有可恢复的记录')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确认恢复选中的 ${rows.length} 份合同？`, '批量恢复', { type: 'warning' })
+    await runBulk(rows, '批量恢复', (row) => restoreContract(row.id))
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') throw e
+  }
+}
+
 // ---------- 标签管理（T4，AC-13） ----------
 const tagDialogVisible = ref(false)
 const newTagName = ref('')
@@ -648,13 +800,8 @@ function openAttachment(row: Dict) {
   else window.open(attachmentUrl(row.id), '_blank')
 }
 
-function fmtDate(s: string | null | undefined): string {
-  return s ? String(s).slice(0, 10) : '—'
-}
-
-function fmtMoney(v: any): string {
-  return v === null || v === undefined ? '—' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })
-}
+// 日期/金额格式化统一走 @/utils/format（T1-3）：原先此处各写一份，
+// 且金额只设了 minimumFractionDigits，未限制小数位上限。
 
 // ---------- 状态流转（T6，AC-04） ----------
 const statusDlgVisible = ref(false)
@@ -704,6 +851,7 @@ function fLabel(f: string): string {
 
 onMounted(async () => {
   meta.value = await getMeta()
+  applyQueryFromUrl()      // 深链/刷新：先回填筛选，避免多打一次接口
   await Promise.all([load(), loadFrameworks(), loadTags(), loadPartyOptions()])
 })
 </script>
@@ -747,11 +895,11 @@ onMounted(async () => {
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="page = 1; load()">查询</el-button>
-          <el-button @click="Object.assign(query, { keyword: '', type: '', status: '', tags: [], date_range: [], owner: '' }); load()">重置</el-button>
+          <el-button @click="resetQuery()">重置</el-button>
         </el-form-item>
       </el-form>
         <div class="filter-actions">
-          <el-checkbox v-model="query.include_deleted" label="显示已停用" @change="page = 1; load()" />
+          <el-checkbox v-model="query.include_deleted" @change="page = 1; load()">显示已停用</el-checkbox>
           <el-button @click="openImportDialog()">导入</el-button>
           <el-button @click="router.push('/settings')">系统设置</el-button>
           <el-button type="success" @click="openNew()">＋ 新增合同</el-button>
@@ -769,8 +917,19 @@ onMounted(async () => {
           <el-button type="primary" plain :disabled="!rows.length && !total" @click="openExportDialog">导出 Excel（当前筛选）</el-button>
         </div>
       </template>
-      <el-table v-loading="loading" :data="viewRows" border stripe size="small"
-                :row-class-name="isTree ? rowClass : undefined" @row-dblclick="view">
+
+      <!-- 批量操作条（T2-2）：仅在有选择时出现，不占用常规视觉空间 -->
+      <div v-if="selected.length" class="bulk-bar">
+        <span class="bulk-count">已选 {{ selected.length }} 份合同</span>
+        <el-button type="danger" size="small" :loading="bulkLoading" @click="bulkDisable">批量停用</el-button>
+        <el-button type="success" size="small" :loading="bulkLoading" @click="bulkRestore">批量恢复</el-button>
+        <el-button link size="small" @click="clearSelection">取消选择</el-button>
+      </div>
+
+      <el-table ref="tableRef" v-loading="loading" :data="viewRows" border stripe size="small"
+                :row-class-name="isTree ? rowClass : undefined" @row-dblclick="view"
+                @selection-change="onSelectionChange">
+        <el-table-column type="selection" width="40" />
         <el-table-column v-if="isTree" width="44" align="center">
           <template #default="{ row }">
             <span v-if="row.tree === 'f'" class="fw-icon" @click.stop="toggleFw(row.id)">
@@ -779,8 +938,11 @@ onMounted(async () => {
             <span v-else-if="row.tree === 'c'" class="child-icon">↳</span>
           </template>
         </el-table-column>
-        <el-table-column prop="contract_no" label="合同编号" width="148" />
-        <el-table-column label="合同名称 / 标签" min-width="192">
+        <el-table-column prop="contract_no" label="合同编号" width="124" show-overflow-tooltip />
+        <!-- 名称列宽 192 → 168：为批量选择列（40px）腾出空间。
+             实测容器 1146px、列总 1162px（溢出 16px），回收 24px 后留 8px 余量。
+             改动此表任何列宽前，务必重跑 10-layout.spec.ts 的像素断言。 -->
+        <el-table-column label="合同名称 / 标签" min-width="168">
           <template #default="{ row }">
             <div class="name-cell">
               <span class="name-text" :title="row.name">{{ row.name }}</span>
@@ -838,15 +1000,18 @@ onMounted(async () => {
         v-model:current-page="page"
         v-model:page-size="pageSize"
         :total="total"
-        layout="total, prev, pager, next"
+        :page-sizes="[10, 20, 50, 100]"
+        background
+        layout="total, prev, pager, next, sizes"
         class="mt"
         @current-change="load"
+        @size-change="page = 1; load()"
       />
       <el-alert v-else type="info" :closable="false" class="mt" title="框架树为展示视图：搜索/筛选/导出仍按平铺结果处理；子合同行自动附带【框架合同】标识。" />
     </el-card>
 
     <!-- 新增/编辑弹窗 -->
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑合同' : '新增合同'" width="1080px" destroy-on-close>
+    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑合同' : '新增合同'" width="min(1080px, 92vw)" destroy-on-close>
       <el-form :model="form" label-width="90px">
         <el-divider content-position="left">基本信息</el-divider>
         <el-row :gutter="12">
@@ -949,7 +1114,7 @@ onMounted(async () => {
         <div class="mt" style="display: flex; justify-content: space-between; align-items: center">
           <div>
             <el-button size="small" @click="addItemRow()">＋ 增加一行</el-button>
-            <span class="gray" style="margin-left: 8px">行项为空时金额可手填（框架/预估合同）</span>
+            <span class="gray" style="margin-left: var(--ctms-gap-sm)">行项为空时金额可手填（框架/预估合同）</span>
           </div>
           <div class="totalbar">
             <span>行项合计（{{ form.items.length }} 行）</span>
@@ -974,7 +1139,7 @@ onMounted(async () => {
           <el-col :span="24">
             <el-form-item label="含质保金">
               <el-switch v-model="form.has_warranty" active-text="是" inactive-text="否" />
-              <span v-if="form.has_warranty" class="gray" style="margin-left: 8px">录比例自动换算金额（或反之）</span>
+              <span v-if="form.has_warranty" class="gray" style="margin-left: var(--ctms-gap-sm)">录比例自动换算金额（或反之）</span>
             </el-form-item>
           </el-col>
         </el-row>
@@ -1012,7 +1177,7 @@ onMounted(async () => {
     </el-dialog>
 
     <!-- 导出设置（MVP2 需求③） -->
-    <el-dialog v-model="exportDlgVisible" title="导出 Excel · 选择导出项（重要列默认勾选）" width="760px">
+    <el-dialog v-model="exportDlgVisible" title="导出 Excel · 选择导出项（重要列默认勾选）" width="min(760px, 92vw)">
       <div class="mb"><b>📌 重要列（默认勾选）</b></div>
       <el-checkbox-group v-model="exportCols" class="colwrap mb" @change="exportRemember && rememberExportCols()">
         <el-checkbox v-for="c in impExportCols" :key="c.key" :value="c.key" border>{{ c.label }}</el-checkbox>
@@ -1037,7 +1202,7 @@ onMounted(async () => {
     </el-dialog>
 
     <!-- 批量导入（MVP2 需求②：仅新建） -->
-    <el-dialog v-model="importDlgVisible" title="批量导入合同（仅新建 · 按系统模板）" width="720px">
+    <el-dialog v-model="importDlgVisible" title="批量导入合同（仅新建 · 按系统模板）" width="min(720px, 92vw)">
       <el-alert type="info" :closable="false" class="mb"
         title="① 先下载模板填写 → ② 上传 → ③ 看结果。错误行（编号重复/格式错误）整条跳过、不落库。" />
       <div class="mb" style="display: flex; gap: 8px">
@@ -1061,7 +1226,7 @@ onMounted(async () => {
     </el-dialog>
 
     <!-- 状态流转（T6，AC-04） -->
-    <el-dialog v-model="statusDlgVisible" :title="`状态流转 · ${statusRow.contract_no ?? ''}`" width="460px">
+    <el-dialog v-model="statusDlgVisible" :title="`状态流转 · ${statusRow.contract_no ?? ''}`" width="min(460px, 92vw)">
       <el-form label-width="80px">
         <el-form-item label="当前状态"><el-tag>{{ statusRow.status }}</el-tag></el-form-item>
         <el-form-item label="新状态">
@@ -1080,7 +1245,7 @@ onMounted(async () => {
     </el-dialog>
 
     <!-- 系统字典：行项类型（MVP2 · 系统级可配置） -->
-    <el-dialog v-model="typesDlgVisible" title="系统字典 · 行项类型（新增/编辑合同时下拉选用）" width="520px">
+    <el-dialog v-model="typesDlgVisible" title="系统字典 · 行项类型（新增/编辑合同时下拉选用）" width="min(520px, 92vw)">
       <div class="mb" style="display: flex; gap: 8px">
         <el-input v-model="typeNew" placeholder="新增类型，回车确认" @keyup.enter="addType" />
         <el-button type="primary" @click="addType">新增</el-button>
@@ -1105,7 +1270,7 @@ onMounted(async () => {
     </el-dialog>
 
     <!-- 标签管理（T4，AC-13） -->
-    <el-dialog v-model="tagDialogVisible" title="标签管理" width="520px">
+    <el-dialog v-model="tagDialogVisible" title="标签管理" width="min(520px, 92vw)">
       <div class="mb" style="display: flex; gap: 8px">
         <el-input v-model="newTagName" placeholder="新标签名称，回车确认" @keyup.enter="addTag" />
         <el-button type="primary" @click="addTag">新增</el-button>
@@ -1127,7 +1292,7 @@ onMounted(async () => {
     </el-dialog>
 
     <!-- 详情抽屉 -->
-    <el-drawer v-model="drawerVisible" :title="`合同详情 · ${detail.contract_no ?? ''}`" size="640px">
+    <el-drawer v-model="drawerVisible" :title="`合同详情 · ${detail.contract_no ?? ''}`" size="min(640px, 96vw)">
       <template v-if="detail.id">
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="合同名称" :span="2">{{ detail.name }}</el-descriptions-item>
@@ -1204,7 +1369,7 @@ onMounted(async () => {
 
         <el-divider content-position="left">变更历史（时间 · 字段 · 旧值 → 新值）</el-divider>
         <el-timeline v-if="logs.length">
-          <el-timeline-item v-for="lg in logs" :key="lg.id" :timestamp="fmtDate(lg.created_at) + ' ' + (lg.created_at || '').slice(11, 19)" placement="top">
+          <el-timeline-item v-for="lg in logs" :key="lg.id" :timestamp="fmtDateTime(lg.created_at)" placement="top">
             <div v-if="lg.field_name === '_summary' && lg.new_value">变更字段：{{ lg.new_value }}</div>
             <div v-else-if="lg.field_name === '_summary'"><b>新增合同</b></div>
             <div v-else-if="lg.field_name === 'deleted'"><b>停用/恢复</b>：{{ lg.note }}</div>
@@ -1219,8 +1384,20 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.mb { margin-bottom: 12px; }
-.mt { margin-top: 12px; }
+.mb { margin-bottom: var(--ctms-gap); }
+.mt { margin-top: var(--ctms-gap); }
+/* 批量操作条（T2-2） */
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  background: #f2f6fc;
+  border: 1px solid #d9ecff;
+  border-radius: 4px;
+}
+.bulk-count { color: var(--ctms-text-secondary); font-size: var(--ctms-fs-sm); }
 /*
  * 筛选区布局：用 flex 换行取代原来的 `float: right`。
  * float 在 inline 表单里换行后会脱离对齐基准，把「显示已停用/导入/系统设置/新增合同」
@@ -1242,18 +1419,18 @@ onMounted(async () => {
 }
 .mr-4 { margin-right: 4px; }
 /* 「已付（比例）」合并列里的比例，弱化显示 */
-.ratio { margin-left: 6px; color: #909399; font-size: 12px; }
+.ratio { margin-left: 6px; color: var(--ctms-text-muted); font-size: var(--ctms-fs-xs); }
 /* 名称列：名称超出用省略号（title 显示全文），标签跟在后面不换行 */
 .name-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .name-text { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .name-tag { flex: 0 0 auto; }
 /* 标签的「+N」，鼠标悬停可看全部标签 */
-.more-tag { flex: 0 0 auto; color: #909399; font-size: 12px; cursor: default; }
-.colwrap :deep(.el-checkbox) { margin-right: 8px; margin-bottom: 6px; }
-.gray { color: #909399; font-size: 13px; }
-.totalbar { font-size: 13px; color: #606266; }
-.totalbar b { font-size: 16px; color: #f56c6c; margin-left: 6px; }
-.fw-icon { cursor: pointer; color: #409eff; font-size: 14px; }
+.more-tag { flex: 0 0 auto; color: var(--ctms-text-muted); font-size: var(--ctms-fs-xs); cursor: default; }
+.colwrap :deep(.el-checkbox) { margin-right: var(--ctms-gap-sm); margin-bottom: 6px; }
+.gray { color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
+.totalbar { font-size: var(--ctms-fs-sm); color: var(--ctms-text-secondary); }
+.totalbar b { font-size: var(--ctms-fs-md); color: var(--ctms-danger-text); margin-left: 6px; }
+.fw-icon { cursor: pointer; color: var(--ctms-primary); font-size: var(--ctms-fs-base); }
 .child-icon { color: #c0c4cc; }
 :deep(.tree-child-row td) { background: #fafbfd; }
 :deep(.tree-fw-row td) { font-weight: 600; background: #ecf5ff; }

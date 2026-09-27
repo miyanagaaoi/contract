@@ -36,4 +36,23 @@ export default defineConfig({
       ],
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        /*
+         * T4-4：把体积最大的依赖拆成独立 chunk，改善部署后的缓存命中。
+         *
+         * 说明：`main.ts` 目前仍通过 `import * as ElementPlusIconsVue` 全量注册
+         * 294 个图标，Rollup 无法 tree-shake 它。真正改成按需引入需要维护一份
+         * 图标白名单——而 `MenuTree` 的图标名来自后端返回的字符串，漏一个就会让
+         * 菜单图标静默空白（e2e 不覆盖图标）。对内网系统而言首屏体积不敏感，
+         * 因此这里先做零风险的分包；按需引入留待有明确体积诉求时再做。
+         */
+        manualChunks: {
+          'vendor-element-plus': ['element-plus', '@element-plus/icons-vue'],
+          'vendor-vue': ['vue', 'vue-router', 'pinia'],
+        },
+      },
+    },
+  },
 })

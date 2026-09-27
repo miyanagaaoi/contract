@@ -12,6 +12,7 @@ import DocListPage from '@/components/doc/DocListPage.vue'
 import PushDialog from '@/components/doc/PushDialog.vue'
 import { fetchMasterOptions, type Dict } from '@/api'
 import type { DocRecord } from '@/types/doc'
+import { fmtDate } from '@/utils/format'
 
 const router = useRouter()
 const listRef = ref<InstanceType<typeof DocListPage> | null>(null)
@@ -28,9 +29,7 @@ function onPushed(doc: DocRecord) {
   router.push({ name: 'sales-order-edit', params: { id: String(doc.id) } })
 }
 
-function fmtDate(v: unknown): string {
-  return v ? String(v).slice(0, 10) : '—'
-}
+// fmtDate 统一走 @/utils/format（T1-3）
 
 /** 部门 / 仓库显示名（详情抽屉里避免只显示 ID） */
 const orgs = ref<Dict[]>([])
@@ -38,7 +37,7 @@ const orgs = ref<Dict[]>([])
 function deptName(id: unknown): string {
   if (!id) return '—'
   const hit = orgs.value.find((o) => o.id === Number(id))
-  return hit ? hit.name : `ID ${id}`
+  return hit ? hit.name : `已删除/无权限的部门（#${id}）`
 }
 
 onMounted(async () => {

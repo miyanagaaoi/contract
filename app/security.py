@@ -100,13 +100,29 @@ def decode_token(token: str) -> dict:
         raise TokenError("令牌格式错误")
     h, p, s = parts
     seg = f"{h}.{p}"
-    expect = hmac.new(get_jwt_secret().encode("utf-8"), seg.encode("ascii"), hashlib.sha256).digest()
-    if not hmac.compare_digest(expect, _b64d(s)):
+    try:
+        sig = _b64d(s)
+    except Exception:
+        # 畸形 base64（例如 `a.b.value` 这类非 JWT 输入）会抛 binascii.Error，
+        # 必须归一到 TokenError：否则会冒泡成 500，前端就无法区分
+        # 「未授权(401)」与「服务端故障(5xx)」，也就无法判断该不该清除登录态。
+        raise TokenError("令牌格式错误")
+    try:
+        expect = hmac.new(get_jwt_secret().encode("utf-8"), seg.encode("ascii"), hashlib.sha256).digest()
+    except Exception:
+        # 头/载荷含非 ASCII 字符时 encode("ascii") 会失败，同样归一为格式错误
+        raise TokenError("令牌格式错误")
+    if not hmac.compare_digest(expect, sig):
         raise TokenError("令牌签名校验失败")
     try:
         payload = json.loads(_b64d(p).decode("utf-8"))
     except Exception:
         raise TokenError("令牌载荷解析失败")
-    if int(payload.get("exp") or 0) < int(time.time()):
+    try:
+        expired = int(payload.get("exp") or 0) < int(time.time())
+    except (TypeError, ValueError):
+        # exp 不是数字（被篡改的载荷）时不应 500
+        raise TokenError("令牌无效")
+    if expired:
         raise TokenError("登录已过期，请重新登录")
     return payload

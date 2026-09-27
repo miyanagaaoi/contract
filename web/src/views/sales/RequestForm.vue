@@ -6,6 +6,7 @@
  */
 import { computed, ref } from 'vue'
 
+import ContractDetailDrawer from '@/components/doc/ContractDetailDrawer.vue'
 import DocFormPage from '@/components/doc/DocFormPage.vue'
 import { fetchMasterOptions, type Dict } from '@/api'
 
@@ -18,6 +19,8 @@ const extra = ref<Dict>({
 
 const customers = ref<Dict[]>([])
 const orgs = ref<Dict[]>([])
+/** 关联合同后的只读详情抽屉（与采购申请单同构） */
+const drawer = ref<InstanceType<typeof ContractDetailDrawer> | null>(null)
 
 /** 客户下拉（懒加载一次） */
 async function ensureCustomers() {
@@ -103,9 +106,18 @@ const customerName = computed(() => {
         </el-form-item>
       </el-col>
     </template>
+
+    <!-- 与采购申请单同构：关联销售合同后，可在不离开本单的前提下核对合同详情 -->
+    <template #contract-actions="{ header }">
+      <el-button size="small" :disabled="!header.contract_id"
+                 @click="drawer?.open(header.contract_id)">查看合同详情</el-button>
+      <span v-if="!header.contract_id" class="gray">请先选择关联合同</span>
+    </template>
   </DocFormPage>
+
+  <ContractDetailDrawer ref="drawer" />
 </template>
 
 <style scoped>
-.gray { color: #909399; font-size: 12.5px; }
+.gray { color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
 </style>

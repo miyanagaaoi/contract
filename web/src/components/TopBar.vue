@@ -39,7 +39,7 @@ async function onCommand(command: string) {
       <span class="user">
         <span class="avatar">{{ auth.displayName.slice(0, 1) }}</span>
         {{ auth.displayName }}
-        <el-icon class="caret"><ArrowDown /></el-icon>
+        <el-icon class="caret" aria-hidden="true"><ArrowDown /></el-icon>
       </span>
       <template #dropdown>
         <el-dropdown-menu>
@@ -61,15 +61,25 @@ async function onCommand(command: string) {
   justify-content: space-between;
 }
 .left { display: flex; align-items: center; gap: 10px; }
-.org { color: #606266; font-size: 13px; }
+.org { color: var(--ctms-text-secondary); font-size: var(--ctms-fs-sm); }
 .user {
   display: flex;
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  outline: none;
-  color: #303133;
-  font-size: 13.5px;
+  color: var(--ctms-text);
+  font-size: var(--ctms-fs-sm);
+  border-radius: var(--ctms-radius);
+}
+/*
+ * T3-4：原先的 `outline: none` 抹掉了 Element Plus 已经提供的 role=button 焦点环
+ * （该 span 由 EP 渲染为 tabindex=0），键盘用户完全看不到焦点位置；
+ * 同时补上 hover 反馈——审查实测全项目 `:hover` 命中为 0。
+ */
+.user:hover { color: var(--ctms-primary); }
+.user:focus-visible {
+  outline: 2px solid var(--ctms-primary);
+  outline-offset: 2px;
 }
 .avatar {
   width: 26px;
@@ -77,11 +87,11 @@ async function onCommand(command: string) {
   border-radius: 50%;
   background: #ecf5ff;
   border: 1px solid #d9ecff;
-  color: #409eff;
+  color: var(--ctms-primary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--ctms-fs-xs);
 }
-.caret { color: #909399; font-size: 12px; }
+.caret { color: var(--ctms-text-muted); font-size: var(--ctms-fs-xs); }
 </style>

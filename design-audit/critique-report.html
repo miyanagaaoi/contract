@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Critique · CTMS ERP 前端设计评审</title>
+<style>
+  :root {
+    --ink: #14161a;
+    --ink-2: #3d444e;
+    --muted: #6b7480;
+    --line: #e3e7ec;
+    --line-2: #f0f3f6;
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --accent: #2f6fed;
+    --warn: #b88230;
+    --bad: #c0392b;
+    --good: #2f7d4f;
+    --radius: 10px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: light; }
+  body {
+    margin: 0;
+    padding: 40px 24px 72px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  /* ---------- header ---------- */
+  header { border-bottom: 2px solid var(--ink); padding-bottom: 20px; margin-bottom: 28px; }
+  .kicker {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 10px;
+  }
+  h1 { font-size: 27px; line-height: 1.25; margin: 0 0 10px; letter-spacing: -.01em; }
+  .verdict { font-size: 15px; color: var(--ink-2); margin: 0 0 14px; max-width: 72ch; }
+  .verdict strong { color: var(--ink); }
+  .meta { font-family: var(--mono); font-size: 11.5px; color: var(--muted); display: flex; gap: 18px; flex-wrap: wrap; }
+
+  /* ---------- score strip ---------- */
+  .strip { display: grid; grid-template-columns: 380px 1fr; gap: 28px; align-items: start; margin-bottom: 34px; }
+  .panel {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 20px 22px;
+  }
+  .panel h2 {
+    font-size: 12px; font-family: var(--mono); letter-spacing: .1em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 16px; font-weight: 600;
+  }
+  table.scores { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  table.scores td { padding: 9px 0; border-bottom: 1px solid var(--line-2); vertical-align: baseline; }
+  table.scores tr:last-child td { border-bottom: 0; padding-bottom: 0; }
+  table.scores td.n { text-align: right; font-family: var(--mono); font-size: 15px; font-weight: 600; width: 62px; }
+  table.scores td.band { text-align: right; font-size: 11px; color: var(--muted); width: 96px; }
+  table.scores tr.mean td { border-top: 2px solid var(--ink); border-bottom: 0; margin-top: 6px; padding-top: 12px; font-weight: 700; }
+  .s5 { color: var(--warn); } .s4 { color: var(--bad); }
+
+  .facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px 22px; }
+  .fact .v { font-family: var(--mono); font-size: 21px; font-weight: 600; letter-spacing: -.02em; }
+  .fact .k { font-size: 11.5px; color: var(--muted); }
+  .fact .v .u { font-size: 12px; color: var(--muted); font-weight: 400; }
+
+  /* ---------- radar ---------- */
+  .radar-box { display: flex; justify-content: center; }
+  svg { width: 100%; max-width: 400px; height: auto; }
+  .grid-line { fill: none; stroke: var(--line); stroke-width: 1; }
+  .grid-mid { fill: none; stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 4; }
+  .axis { stroke: var(--line); stroke-width: 1; }
+  .shape { fill: rgba(47,111,237,.14); stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+  .dot { fill: var(--accent); }
+  .lbl { font-family: var(--mono); font-size: 10.5px; fill: var(--ink-2); }
+  .lbl-s { font-family: var(--mono); font-size: 11px; font-weight: 700; fill: var(--ink); }
+
+  /* ---------- dimension cards ---------- */
+  h2.section {
+    font-size: 12px; font-family: var(--mono); letter-spacing: .12em; text-transform: uppercase;
+    color: var(--muted); margin: 36px 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--line);
+  }
+  .dims { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .dim { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
+  .dim-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+  .dim h3 { font-size: 15px; margin: 0; letter-spacing: -.005em; }
+  .dim .score { font-family: var(--mono); font-size: 20px; font-weight: 700; white-space: nowrap; }
+  .dim .band {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 12px;
+  }
+  .dim p.ev { margin: 0 0 14px; font-size: 13px; color: var(--ink-2); }
+  .dim code {
+    font-family: var(--mono); font-size: 11.5px; background: var(--line-2);
+    padding: 1px 5px; border-radius: 4px; color: #2b3038;
+  }
+  .tag {
+    display: flex; gap: 8px; font-size: 12.5px; padding: 7px 0;
+    border-top: 1px dashed var(--line); color: var(--ink-2);
+  }
+  .tag:first-of-type { border-top: 1px solid var(--line); }
+  .tag b { font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; flex: 0 0 54px; padding-top: 3px; }
+  .tag.keep b { color: var(--good); } .tag.fix b { color: var(--bad); } .tag.qw b { color: var(--accent); }
+
+  /* ---------- action lists ---------- */
+  .lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .list { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
+  .list h3 { font-size: 13.5px; margin: 0 0 4px; }
+  .list .sub { font-size: 11.5px; color: var(--muted); margin: 0 0 14px; }
+  ul.check { list-style: none; margin: 0; padding: 0; }
+  ul.check li { display: flex; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line-2); font-size: 13px; color: var(--ink-2); }
+  ul.check li:first-child { border-top: 0; }
+  ul.check input { margin: 4px 0 0; accent-color: var(--accent); flex: 0 0 auto; }
+  ul.check label { cursor: pointer; }
+  ul.check input:checked + label { color: var(--muted); text-decoration: line-through; }
+  ul.check code { font-family: var(--mono); font-size: 11.5px; background: var(--line-2); padding: 1px 5px; border-radius: 4px; }
+  .p0 { font-family: var(--mono); font-size: 10px; font-weight: 700; color: #fff; background: var(--bad); padding: 1px 5px; border-radius: 3px; margin-right: 5px; }
+  .p1 { font-family: var(--mono); font-size: 10px; font-weight: 700; color: #fff; background: var(--warn); padding: 1px 5px; border-radius: 3px; margin-right: 5px; }
+
+  footer { margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); font-family: var(--mono); }
+  footer a { color: var(--accent); text-decoration: none; }
+  @media (max-width: 760px) {
+    .strip { grid-template-columns: 1fr; }
+    body { padding: 24px 16px 48px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="kicker">Design Critique · 5 Dimensions</div>
+    <h1>CTMS ERP 前端设计评审</h1>
+    <p class="verdict">
+      <strong>4.8 / 10 —— 地基是对的，但缺少设计决策层。</strong>
+      权限单源、配置驱动的 5 个页面壳、路由守卫、破坏性确认范式都值得保留；扣分集中在
+      「配色无令牌、排版无刻度、状态无反馈、焦点不可见」，以及同产品内并存的三套视觉语域。
+    </p>
+    <div class="meta">
+      <span>artifact: web/ (Vue 3.5 + Element Plus 2.9)</span>
+      <span>reviewer: OD · Critique skill</span>
+      <span>2026-09-26</span>
+      <span>scope: 55 源文件 + 19 张真实渲染截图</span>
+    </div>
+  </header>
+
+  <div class="strip">
+    <div class="panel">
+      <h2>Radar · 五维</h2>
+      <div class="radar-box">
+        <svg viewBox="0 0 400 345" role="img" aria-label="五维评分雷达图：哲学一致性 5、视觉层级 5、细节执行 4、功能性 5、创新性 5">
+          <!-- grid: full (10) and mid (5) -->
+          <polygon class="grid-line" points="200,60 323.6,149.8 276.4,295.2 123.6,295.2 76.4,149.8" />
+          <polygon class="grid-mid"  points="200,125 261.8,169.9 238.2,242.6 161.8,242.6 138.2,169.9" />
+          <!-- axes -->
+          <line class="axis" x1="200" y1="190" x2="200" y2="60" />
+          <line class="axis" x1="200" y1="190" x2="323.6" y2="149.8" />
+          <line class="axis" x1="200" y1="190" x2="276.4" y2="295.2" />
+          <line class="axis" x1="200" y1="190" x2="123.6" y2="295.2" />
+          <line class="axis" x1="200" y1="190" x2="76.4" y2="149.8" />
+          <!-- score shape 5 / 5 / 4 / 5 / 5 -->
+          <polygon class="shape" points="200,125 261.8,169.9 230.6,232.1 161.8,242.6 138.2,169.9" />
+          <circle class="dot" cx="200" cy="125" r="3.2" />
+          <circle class="dot" cx="261.8" cy="169.9" r="3.2" />
+          <circle class="dot" cx="230.6" cy="232.1" r="3.2" />
+          <circle class="dot" cx="161.8" cy="242.6" r="3.2" />
+          <circle class="dot" cx="138.2" cy="169.9" r="3.2" />
+          <!-- labels -->
+          <text class="lbl" x="200" y="40" text-anchor="middle">哲学一致性</text>
+          <text class="lbl-s" x="200" y="52" text-anchor="middle">5</text>
+          <text class="lbl" x="336" y="146" text-anchor="start">视觉层级</text>
+          <text class="lbl-s" x="336" y="158" text-anchor="start">5</text>
+          <text class="lbl" x="286" y="316" text-anchor="middle">细节执行</text>
+          <text class="lbl-s" x="286" y="328" text-anchor="middle">4</text>
+          <text class="lbl" x="114" y="316" text-anchor="middle">功能性</text>
+          <text class="lbl-s" x="114" y="328" text-anchor="middle">5</text>
+          <text class="lbl" x="64" y="146" text-anchor="end">创新性</text>
+          <text class="lbl-s" x="64" y="158" text-anchor="end">5</text>
+          <text class="lbl" x="196" y="186" text-anchor="end" fill="#b6bcc4">5</text>
+          <text class="lbl" x="196" y="121" text-anchor="end" fill="#b6bcc4">10</text>
+        </svg>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel" style="margin-bottom:16px">
+        <h2>Score</h2>
+        <table class="scores">
+          <tr><td>哲学一致性</td><td class="n s5">5</td><td class="band">Functional</td></tr>
+          <tr><td>视觉层级</td><td class="n s5">5</td><td class="band">Functional</td></tr>
+          <tr><td>细节执行</td><td class="n s4">4</td><td class="band">Broken</td></tr>
+          <tr><td>功能性</td><td class="n s5">5</td><td class="band">Functional</td></tr>
+          <tr><td>创新性</td><td class="n s5">5</td><td class="band">Unmemorable</td></tr>
+          <tr class="mean"><td>综合均值</td><td class="n">4.8</td><td class="band">无一项达 7</td></tr>
+        </table>
+      </div>
+
+      <div class="panel">
+        <h2>Evidence / 实测</h2>
+        <div class="facts">
+          <div class="fact"><div class="v">0</div><div class="k">设计令牌（CSS 变量）</div></div>
+          <div class="fact"><div class="v">21 <span class="u">/ 12</span></div><div class="k">色值 / 字号档数</div></div>
+          <div class="fact"><div class="v">0 <span class="u">/ 0</span></div><div class="k">全站 h1 / h2 数量</div></div>
+          <div class="fact"><div class="v">1</div><div class="k">全项目 @media 数量</div></div>
+          <div class="fact"><div class="v">7</div><div class="k">重复的格式化函数</div></div>
+          <div class="fact"><div class="v">0</div><div class="k">列表页批量操作</div></div>
+          <div class="fact"><div class="v">2.19:1</div><div class="k">最低对比度（#e6a23c/白）</div></div>
+          <div class="fact"><div class="v">24</div><div class="k">#909399 出现次数</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section">五维详评</h2>
+  <div class="dims">
+
+    <div class="dim">
+      <div class="dim-top"><h3>1 · 哲学一致性</h3><div class="score s5">5<span style="font-size:12px;color:#6b7480">/10</span></div></div>
+      <div class="band">Functional · 方向有一半，另半页漂移</div>
+      <p class="ev">
+        业务页的视觉语言是统一且被认真执行的：<code>el-card shadow="never"</code> + <code>size="small"</code> 表格 + 权限驱动按钮 + 统一状态标签。但同一个产品里并存三套语域——深色工具壳（<code>AppLayout.vue:24-25</code>）、营销式登录卡（<code>LoginView.vue:79-86</code> 渐变叠 <code>0 18px 40px rgba(0,0,0,.25)</code>）、裸 Element Plus 字典页（<code>SettingsView.vue:105,107</code> 用 <code>&lt;b&gt;</code> 当标题）。同一业务概念也有两种范式：合同里往来单位是「档案下拉 + 快照」，采购单里币种/结算方式却可自由输入。
+      </p>
+      <div class="tag keep"><b>Keep</b><span>权限驱动按钮 + 后端硬校验的双层放行（<code>DocListPage.vue:133-139,334-342</code>）——体验层可退化、边界在后端。</span></div>
+      <div class="tag fix"><b>Fix</b><span>把三套语域收敛为一套工具型语言：登录/改密/403 三页统一走 <code>--ctms-*</code> 令牌，去掉营销量级投影与 64px 巨型字。</span></div>
+      <div class="tag qw"><b>Quick win</b><span>删掉 <code>LoginView.vue:86</code> 的 <code>0 18px 40px rgba(0,0,0,.25)</code>，换成与卡片语言一致的细边框 + 轻投影。</span></div>
+    </div>
+
+    <div class="dim">
+      <div class="dim-top"><h3>2 · 视觉层级</h3><div class="score s5">5<span style="font-size:12px;color:#6b7480">/10</span></div></div>
+      <div class="band">Functional · 页内一致，外壳无标题语义</div>
+      <p class="ev">
+        <code>标题(15px/600) + 副标题(12.5px/#909399)</code> 在 12 个页面逐字一致，这是真实的一致性资产。但外壳没有层级：<code>AppLayout.vue:22</code> 用 <code>div</code> 承载应用名，实测全站 <code>h1</code>/<code>h2</code> 计数为 <strong>0</strong>，每页自造标题（<code>&lt;b&gt;</code> / 64px <code>div</code> / 18px <code>h1</code> 三套写法）。顶栏三件 13px 级灰字（组织名 + tag + 用户名，<code>TopBar.vue:35,36,72</code>）并列无主次。数据页也更平：合同台账把金额与付款比例压成同级小字（<code>ContractsView.vue:808-819</code>），而首页同类数字却放大到 28px。
+      </p>
+      <div class="tag keep"><b>Keep</b><span>「一主色 + 灰阶辅助」的克制用色，以及各页统一的标题/副标题结构。</span></div>
+      <div class="tag fix"><b>Fix</b><span>每页补语义标题（<code>h1</code> 给页面名、<code>h2</code> 给卡片区块），并把金额列提升为行内第一视觉层（加深 + 右对齐 + 等宽数字）。</span></div>
+      <div class="tag qw"><b>Quick win</b><span>顶栏只保留一层信息：组织名降为 12px 次要色，用户名升为唯一 13px 主文字，角色标签收纳为 <code>+N</code>。</span></div>
+    </div>
+
+    <div class="dim">
+      <div class="dim-top"><h3>3 · 细节执行</h3><div class="score s4">4<span style="font-size:12px;color:#6b7480">/10</span></div></div>
+      <div class="band">Broken · 可见的胶带与绳子</div>
+      <p class="ev">
+        21 个裸色值、12 种字号、<strong>0 个设计令牌</strong>；<code>#909399</code> 出现 24 次、<code>12.5px</code> 24 次，还夹带 11.5/13.5px 亚像素档；<code>.mb{margin-bottom:12px}</code> 被复制 8 份。全站数值列<strong>无一处</strong> <code>tabular-nums</code>，金额无法纵向比对。格式化函数 7 份副本两种口径（空金额在 <code>DocItemsTable.vue:86</code> 渲染 <code>0.00</code>、在 <code>RelatedDocs.vue:22</code> 渲染 <code>—</code>），日期 3 种截断长度。8 个功能色作为文字全部低于 4.5:1（<code>#e6a23c</code> 仅 2.19:1）。
+      </p>
+      <div class="tag keep"><b>Keep</b><span>数量精度跟随物料单位小数位（<code>DocItemsTable.vue:58-65,172-182</code>）——录入端与校验端同源，杜绝脏数据。</span></div>
+      <div class="tag fix"><b>Fix</b><span>落地 <code>:root</code> 令牌集（文字/功能色/6 档字号/4 倍间距）并覆盖 <code>--el-*</code>；<code>utils/format.ts</code> 收敛 7 份格式化函数；全局数值列 <code>tabular-nums</code>。</span></div>
+      <div class="tag qw"><b>Quick win</b><span>文字级功能色成组加深：<code>#909399→#7a7f87</code>、<code>#f56c6c→#c45656</code>、<code>#e6a23c→#b88230</code>、<code>#67c23a→#4e9a51</code>，一次拿到 AA。</span></div>
+    </div>
+
+    <div class="dim">
+      <div class="dim-top"><h3>4 · 功能性</h3><div class="score s5">5<span style="font-size:12px;color:#6b7480">/10</span></div></div>
+      <div class="band">Functional · 能干活的路径都在，护栏不在</div>
+      <p class="ev">
+        为高频录入做的设计是真的：查询支持 Enter、下拉统一 <code>filterable</code>、行项校验精确到「第 N 行：请选择物料档案」、物料/单位支持「现场快建不跳转」、库存侧重算校验 + 按流水修复。但护栏缺失：全项目 <code>beforeunload</code>/<code>onBeforeRouteLeave</code> 命中为 <strong>0</strong>（录 20 行后误点返回即静默丢失）；<code>router/index.ts:311-316</code> 瞬时断网即清 token 踢回登录；12 个列表页 <strong>0 处</strong>批量操作，行内 9 个链接按钮挤在 320px 操作列（<code>DocListPage.vue:472</code>）；<strong>0 个页面</strong>把筛选写进 URL，浏览器回退直接离开页面；详情页侧栏高亮全丢（<code>AppLayout.vue:16</code>）。
+      </p>
+      <div class="tag keep"><b>Keep</b><span>精确到行的中文校验提示与「现场快建」不跳转设计——直接告诉用户改哪一行。</span></div>
+      <div class="tag fix"><b>Fix</b><span><span class="p0">P0</span>未保存离开保护 + 401/网络错误分流 + UTC 日期修正 + 批量操作（改 <code>DocListPage</code> 一个壳覆盖 8 页）。</span></div>
+      <div class="tag qw"><b>Quick win</b><span>筛选与分页 <code>router.replace({ query })</code> 双向同步 + <code>AppLayout.vue:16</code> 改最长前缀匹配，同时拿回深链与导航定位感。</span></div>
+    </div>
+
+    <div class="dim">
+      <div class="dim-top"><h3>5 · 创新性</h3><div class="score s5">5<span style="font-size:12px;color:#6b7480">/10</span></div></div>
+      <div class="band">Competent and unmemorable · 保守合理，但没有「赚到」的动作</div>
+      <p class="ev">
+        整体是成熟的中后台范式，保守本身正确、不额外扣分；但也没有一个为「合同 + 进销存」这个业务定做的小动作：无命令面板、无键盘优先录入、无密度切换、无保存视图，连 220px 侧栏（<code>AppLayout.vue:21</code>）都不可折叠。真正有想法的是三处，且都能指向具体实现：合同框架树的展示层语义边界（<code>ContractsView.vue:56-99,845</code> 用 alert 显式声明不改变筛选/导出语义）、盘点单账面冻结 + 差异行高亮（<code>TakeForm.vue:81-115,405-406</code>）、库存重算校验 + 按流水修复（<code>BalanceView.vue:191-214</code>）。
+      </p>
+      <div class="tag keep"><b>Keep</b><span>那三处「有设计想法」的实现——它们是这套 UI 唯一让人记住的地方，别在重构中抹平。</span></div>
+      <div class="tag fix"><b>Fix</b><span>把三处思路扩展成系统能力：框架树 → 全局主数据树浏览；盘点差异 → 通用「差异高亮 + 一键修正」模式。</span></div>
+      <div class="tag qw"><b>Quick win</b><span>给高频录单页加「最近使用」与键盘快捷键提示（如 <code>Ctrl+Enter</code> 保存并提交），成本极低但立刻有产品感。</span></div>
+    </div>
+
+  </div>
+
+  <h2 class="section">Action Lists</h2>
+  <div class="lists">
+
+    <div class="list">
+      <h3>Keep —— 明确不要破坏</h3>
+      <p class="sub">下一轮迭代的护城河</p>
+      <ul class="check">
+        <li><input type="checkbox" id="k1"><label for="k1">配置驱动壳：12 页收敛为 5 个组件，一致性全部来自它</label></li>
+        <li><input type="checkbox" id="k2"><label for="k2">权限单一真源：后端裁剪菜单 + 路由守卫 + <code>hasPerm</code></label></li>
+        <li><input type="checkbox" id="k3"><label for="k3">数量精度跟随单位小数位，录入与校验同源</label></li>
+        <li><input type="checkbox" id="k4"><label for="k4">行内精确中文错误提示（「第 N 行：…」）</label></li>
+        <li><input type="checkbox" id="k5"><label for="k5">破坏性操作确认 + 影响面提示（<code>usage_count</code>）范式</label></li>
+        <li><input type="checkbox" id="k6"><label for="k6"><code>AppLayout.vue:31-35</code> 把框架陷阱写进注释</label></li>
+      </ul>
+    </div>
+
+    <div class="list">
+      <h3>Fix —— 按每分钟节省的成本排序</h3>
+      <p class="sub">P0 先做，会丢数据 / 产生错误数据</p>
+      <ul class="check">
+        <li><input type="checkbox" id="f1"><label for="f1"><span class="p0">P0</span>未保存离开保护（<code>DocFormPage.vue:271,374</code> + 字典页）</label></li>
+        <li><input type="checkbox" id="f2"><label for="f2"><span class="p0">P0</span>UTC 日期 → 本地日期（4 处：<code>DocFormPage.vue:108</code>、<code>PushDialog.vue:51,106</code>、<code>DashboardView.vue:76</code>）</label></li>
+        <li><input type="checkbox" id="f3"><label for="f3"><span class="p0">P0</span>统一 <code>utils/format.ts</code>：空金额口径 + NaN 分支 + <code>Intl.*</code></label></li>
+        <li><input type="checkbox" id="f4"><label for="f4"><span class="p0">P0</span>批量操作（改 <code>DocListPage</code> 壳 + <code>ContractsView.vue:772</code>）</label></li>
+        <li><input type="checkbox" id="f5"><label for="f5"><span class="p0">P0</span>设计令牌 + 全局 <code>tabular-nums</code>（21 色 / 12 字号）</label></li>
+        <li><input type="checkbox" id="f6"><label for="f6"><span class="p0">P0</span>401 与网络错误分流，断网不再踢登录（<code>router/index.ts:311-316</code>）</label></li>
+        <li><input type="checkbox" id="f7"><label for="f7"><span class="p1">P1</span>侧栏高亮最长前缀匹配（<code>AppLayout.vue:16</code>）</label></li>
+        <li><input type="checkbox" id="f8"><label for="f8"><span class="p1">P1</span>补焦点环 + hover 态 + 装饰图标 <code>aria-hidden</code></label></li>
+        <li><input type="checkbox" id="f9"><label for="f9"><span class="p1">P1</span>空态 / 错误态 / 加载态补齐（字典页 4 张表、抽屉、树页）</label></li>
+      </ul>
+    </div>
+
+    <div class="list">
+      <h3>Quick wins —— 5–15 分钟/项</h3>
+      <p class="sub">性价比最高的一批</p>
+      <ul class="check">
+        <li><input type="checkbox" id="q1"><label for="q1"><code>ContractsView.vue:776</code> 折叠 <code>&lt;span @click&gt;</code> → <code>el-button link</code> + <code>aria-expanded</code></label></li>
+        <li><input type="checkbox" id="q2"><label for="q2"><code>DashboardView.vue:260</code> 整块 alert 当跳转 → 标题栏按钮</label></li>
+        <li><input type="checkbox" id="q3"><label for="q3"><code>ContractsView.vue:750</code> 重置漏 <code>include_deleted</code> 与 <code>page=1</code></label></li>
+        <li><input type="checkbox" id="q4"><label for="q4">行级 loading：<code>DocListPage.vue:279</code> 单标志 → <code>Map&lt;id, boolean&gt;</code></label></li>
+        <li><input type="checkbox" id="q5"><label for="q5"><code>AppLayout.vue:24-25</code> 弃用 3 个 deprecated props → CSS 变量</label></li>
+        <li><input type="checkbox" id="q6"><label for="q6">主键直出 → 「已删除/无权限的仓库（#id）」</label></li>
+        <li><input type="checkbox" id="q7"><label for="q7">分页控件统一 <code>sizes</code> + 恒显，消除忽隐忽现</label></li>
+      </ul>
+    </div>
+
+  </div>
+
+  <footer>
+    方法：Vercel Web Interface Guidelines（web-design-guidelines 钉版）+ critique 5 维框架；源码逐行审查 + Playwright 真实登录取证（1440/1280/1024 三视口，19 张截图，DOM 指标采集）。<br />
+    完整清单：design-audit/前端设计审查与优化建议.md · findings-shell-and-auth.md · findings-doc-components.md · findings-business-views.md · report.json · shots/
+  </footer>
+
+</div>
+</body>
+</html>

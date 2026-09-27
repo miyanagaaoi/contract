@@ -12,6 +12,7 @@ import DocListPage from '@/components/doc/DocListPage.vue'
 import PushDialog from '@/components/doc/PushDialog.vue'
 import { fetchMasterOptions, type Dict } from '@/api'
 import type { DocRecord } from '@/types/doc'
+import { fmtDate } from '@/utils/format'
 
 const API = '/api/purchase/requests'
 const router = useRouter()
@@ -30,9 +31,7 @@ function onPushed(doc: DocRecord) {
   router.push({ name: 'purchase-order-edit', params: { id: String(doc.id) } })
 }
 
-function fmtDate(v: unknown): string {
-  return v ? String(v).slice(0, 10) : '—'
-}
+// fmtDate 统一走 @/utils/format（T1-3）
 
 /** 建议供应商显示名（详情抽屉里避免只显示 ID） */
 const suppliers = ref<Dict[]>([])
@@ -40,7 +39,7 @@ const suppliers = ref<Dict[]>([])
 function supplierName(id: unknown): string {
   if (!id) return '—'
   const hit = suppliers.value.find((s) => s.id === Number(id))
-  return hit ? hit.name : `ID ${id}`
+  return hit ? hit.name : `已删除/无权限的供应商（#${id}）`
 }
 
 onMounted(async () => {

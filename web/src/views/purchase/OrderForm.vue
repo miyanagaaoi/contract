@@ -8,6 +8,7 @@
 import { ref } from 'vue'
 
 import DocFormPage from '@/components/doc/DocFormPage.vue'
+import SupplierDetailDialog from '@/components/SupplierDetailDialog.vue'
 import { fetchMasterOptions, type Dict } from '@/api'
 
 const extra = ref<Dict>({
@@ -40,6 +41,22 @@ async function ensureOptions() {
   await Promise.all(tasks)
 }
 void ensureOptions()
+
+/**
+ * V2.2：供货商**默认显示简称**（下单、对账、口头沟通都用简称）。
+ * 下拉面板把全称作为次要说明补在简称后面，避免两家供货商简称相近时选错。
+ */
+function supplierLabel(s: Dict): string {
+  return (s.short_name as string) || (s.name as string) || ''
+}
+
+/** V2.2：供货商详情弹窗（只读，不离开当前单据） */
+const supplierDialog = ref<InstanceType<typeof SupplierDetailDialog> | null>(null)
+
+function openSupplier(id: number | null | undefined) {
+  if (!id) return
+  supplierDialog.value?.open(id)
+}
 </script>
 
 <template>
@@ -49,10 +66,19 @@ void ensureOptions()
     <template #header>
       <el-col :span="12">
         <el-form-item label="供应商" required>
-          <el-select v-model="extra.supplier_id" filterable placeholder="请选择供应商"
-                     style="width: 100%" @visible-change="ensureOptions">
-            <el-option v-for="s in suppliers" :key="s.id" :label="`${s.name}（${s.code}）`" :value="s.id" />
-          </el-select>
+          <!-- V2.2：下拉显示简称；右侧按钮点开只读供货商档案，不必跳去资料库 -->
+          <div class="field-with-action">
+            <el-select v-model="extra.supplier_id" filterable placeholder="请选择供应商"
+                       @visible-change="ensureOptions">
+              <el-option v-for="s in suppliers" :key="s.id"
+                         :label="supplierLabel(s)" :value="s.id">
+                <span>{{ supplierLabel(s) }}</span>
+                <span v-if="s.short_name && s.short_name !== s.name" class="opt-sub">{{ s.name }}</span>
+              </el-option>
+            </el-select>
+            <el-button size="small" :disabled="!extra.supplier_id"
+                       @click="openSupplier(extra.supplier_id as number | null)">供货商详情</el-button>
+          </div>
         </el-form-item>
       </el-col>
       <el-col :span="12">
@@ -94,4 +120,7 @@ void ensureOptions()
       </el-col>
     </template>
   </DocFormPage>
+
+  <!-- V2.2：供货商详情（只读弹窗） -->
+  <SupplierDetailDialog ref="supplierDialog" />
 </template>

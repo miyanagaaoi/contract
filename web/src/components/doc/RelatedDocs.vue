@@ -10,6 +10,7 @@ import { ref } from 'vue'
 import { fetchContractRelatedDocs } from '@/api'
 import DocStatusTag from '@/components/doc/DocStatusTag.vue'
 import type { ContractRelatedResult } from '@/types/doc'
+import { fmtDate, fmtMoney } from '@/utils/format'
 
 const props = defineProps<{ contractId: number }>()
 
@@ -18,15 +19,9 @@ const data = ref<ContractRelatedResult | null>(null)
 /** 接口不可用标记（404/异常），UI 显示「—」 */
 const unavailable = ref(false)
 
-function fmtMoney(v: unknown): string {
-  if (v === null || v === undefined) return '—'
-  const n = Number(v)
-  return Number.isNaN(n) ? String(v) : n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-function fmtDate(v: unknown): string {
-  return v ? String(v).slice(0, 10) : '—'
-}
+// fmtMoney / fmtDate 统一走 @/utils/format（T1-3）。
+// 此处原为 MasterTablePage 实现的孪生副本，且**漏了 Number.isNaN 分支**，
+// 脏数据会渲染出字面量 "NaN"。
 
 /** 汇总字段中文名（兼容后端扁平键与 counts/amounts 嵌套结构） */
 const SUMMARY_LABELS: Record<string, string> = {
@@ -140,8 +135,8 @@ defineExpose({ load })
 </template>
 
 <style scoped>
-.summary { font-size: 13px; color: #606266; }
-.summary b { color: #f56c6c; }
-.gray { color: #909399; font-size: 12.5px; margin-left: 6px; }
+.summary { font-size: var(--ctms-fs-sm); color: var(--ctms-text-secondary); }
+.summary b { color: var(--ctms-danger-text); }
+.gray { color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); margin-left: 6px; }
 .mt { margin-top: 8px; }
 </style>

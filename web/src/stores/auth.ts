@@ -8,7 +8,8 @@
  */
 import { defineStore } from 'pinia'
 
-import { TOKEN_KEY, http } from '@/api'
+import { http } from '@/api'
+import { getToken, onTokenChange, setToken as persistToken } from '@/utils/token'
 
 export interface AuthUser {
   id: number
@@ -38,7 +39,7 @@ export interface MenuNode {
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
-    token: localStorage.getItem(TOKEN_KEY) || '',
+    token: getToken(),
     user: null as AuthUser | null,
     roles: [] as RoleBrief[],
     perms: [] as string[],
@@ -53,10 +54,10 @@ export const useAuthStore = defineStore('auth', {
   },
 
   actions: {
+    /** 写入令牌：内存态与持久化同步；持久化统一由 `@/utils/token` 负责 */
     setToken(token: string) {
       this.token = token
-      if (token) localStorage.setItem(TOKEN_KEY, token)
-      else localStorage.removeItem(TOKEN_KEY)
+      persistToken(token)
     },
 
     /** 是否有某权限点（超管恒真） */
@@ -106,4 +107,18 @@ export const useAuthStore = defineStore('auth', {
       this.loaded = false
     },
   },
+})
+
+/**
+ * 令牌变化时同步 store（T0-5）。
+ *
+ * 关键场景：`api.ts` 的 401 拦截器调用 `clearToken()` 时，store 里仍留着旧令牌
+ * → `isLoggedIn` 为 true，路由守卫会误判「已登录」而不再跳登录页。订阅后两者
+ * 始终一致；退出登录与主动 setToken 也会经由此路径收敛。
+ *
+ * 注意：`useAuthStore()` 必须写在回调**内部**——模块加载阶段 Pinia 尚未安装。
+ */
+onTokenChange((token) => {
+  const store = useAuthStore()
+  if (store.token !== token) store.token = token
 })

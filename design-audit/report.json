@@ -1,0 +1,2093 @@
+{
+  "shots": [
+    "00-login",
+    "01-dashboard",
+    "02-contracts",
+    "03-master-customers",
+    "04-master-users",
+    "05-purchase-requests",
+    "06-purchase-order-new",
+    "07-sales-orders",
+    "08-stock-balances",
+    "09-stock-in-new",
+    "10-system",
+    "11-change-password",
+    "20-contracts-full",
+    "21-dashboard-1280",
+    "22-contracts-1280",
+    "23-request-new-1280",
+    "21-dashboard-1024",
+    "22-contracts-1024",
+    "23-request-new-1024"
+  ],
+  "runtimeErrors": [],
+  "metrics": {
+    "01-dashboard": {
+      "docScrollW": 1440,
+      "docClientW": 1440,
+      "overflowX": 0,
+      "mainScrollW": 1220,
+      "mainClientW": 1220,
+      "fontSizes": [
+        [
+          "12px",
+          306
+        ],
+        [
+          "16px",
+          173
+        ],
+        [
+          "14px",
+          81
+        ],
+        [
+          "18px",
+          22
+        ],
+        [
+          "13px",
+          19
+        ],
+        [
+          "28px",
+          10
+        ],
+        [
+          "20px",
+          7
+        ]
+      ],
+      "textColors": [
+        [
+          "rgb(96, 98, 102)",
+          63
+        ],
+        [
+          "rgb(64, 158, 255)",
+          27
+        ],
+        [
+          "rgb(192, 196, 204)",
+          25
+        ],
+        [
+          "rgb(122, 127, 135)",
+          16
+        ],
+        [
+          "rgb(48, 49, 51)",
+          14
+        ],
+        [
+          "rgb(144, 147, 153)",
+          11
+        ],
+        [
+          "rgb(255, 255, 255)",
+          1
+        ],
+        [
+          "rgb(184, 130, 48)",
+          1
+        ]
+      ],
+      "smallTargets": [
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 118,
+          "h": 20,
+          "text": "PR202609000112"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 118,
+          "h": 20,
+          "text": "PR202609000110"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000106"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000104"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000100"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000098"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000094"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000092"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000088"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000086"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000082"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000080"
+        }
+      ],
+      "smallTargetCount": 21,
+      "h1": 0,
+      "h2": 0,
+      "ariaLabels": 0,
+      "tables": 1,
+      "rowCount": 20
+    },
+    "02-contracts": {
+      "docScrollW": 1440,
+      "docClientW": 1440,
+      "overflowX": 0,
+      "mainScrollW": 1220,
+      "mainClientW": 1220,
+      "fontSizes": [
+        [
+          "12px",
+          1289
+        ],
+        [
+          "14px",
+          262
+        ],
+        [
+          "16px",
+          70
+        ],
+        [
+          "13.3333px",
+          24
+        ],
+        [
+          "18px",
+          22
+        ],
+        [
+          "0px",
+          4
+        ],
+        [
+          "20px",
+          4
+        ],
+        [
+          "13px",
+          2
+        ]
+      ],
+      "textColors": [
+        [
+          "rgb(96, 98, 102)",
+          278
+        ],
+        [
+          "rgb(64, 158, 255)",
+          65
+        ],
+        [
+          "rgb(168, 171, 178)",
+          26
+        ],
+        [
+          "rgb(192, 196, 204)",
+          25
+        ],
+        [
+          "rgb(230, 162, 60)",
+          21
+        ],
+        [
+          "rgb(245, 108, 108)",
+          21
+        ],
+        [
+          "rgb(103, 194, 58)",
+          20
+        ],
+        [
+          "rgb(122, 127, 135)",
+          20
+        ]
+      ],
+      "smallTargets": [
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--warning el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "状态"
+        },
+        {
+          "sel": "el-button el-button--danger el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "停用"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "详情"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--warning el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "状态"
+        },
+        {
+          "sel": "el-button el-button--danger el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "停用"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "详情"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--warning el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "状态"
+        },
+        {
+          "sel": "el-button el-button--danger el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "停用"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "详情"
+        }
+      ],
+      "smallTargetCount": 83,
+      "h1": 0,
+      "h2": 0,
+      "ariaLabels": 53,
+      "tables": 1,
+      "rowCount": 20
+    },
+    "03-master-customers": {
+      "docScrollW": 1440,
+      "docClientW": 1440,
+      "overflowX": 0,
+      "mainScrollW": 1220,
+      "mainClientW": 1220,
+      "fontSizes": [
+        [
+          "12px",
+          314
+        ],
+        [
+          "14px",
+          95
+        ],
+        [
+          "16px",
+          43
+        ],
+        [
+          "18px",
+          22
+        ],
+        [
+          "13px",
+          3
+        ],
+        [
+          "0px",
+          1
+        ]
+      ],
+      "textColors": [
+        [
+          "rgb(96, 98, 102)",
+          53
+        ],
+        [
+          "rgb(192, 196, 204)",
+          24
+        ],
+        [
+          "rgb(144, 147, 153)",
+          12
+        ],
+        [
+          "rgb(64, 158, 255)",
+          8
+        ],
+        [
+          "rgb(103, 194, 58)",
+          5
+        ],
+        [
+          "rgb(245, 108, 108)",
+          5
+        ],
+        [
+          "rgb(255, 255, 255)",
+          4
+        ],
+        [
+          "rgb(230, 162, 60)",
+          4
+        ]
+      ],
+      "smallTargets": [
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--warning el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "停用"
+        },
+        {
+          "sel": "el-button el-button--danger el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "删除"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--warning el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "停用"
+        },
+        {
+          "sel": "el-button el-button--danger el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "删除"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--success el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "启用"
+        },
+        {
+          "sel": "el-button el-button--danger el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "删除"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--warning el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "停用"
+        },
+        {
+          "sel": "el-button el-button--danger el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "删除"
+        }
+      ],
+      "smallTargetCount": 15,
+      "h1": 0,
+      "h2": 0,
+      "ariaLabels": 5,
+      "tables": 1,
+      "rowCount": 5
+    },
+    "04-master-users": {
+      "docScrollW": 1440,
+      "docClientW": 1440,
+      "overflowX": 0,
+      "mainScrollW": 1220,
+      "mainClientW": 1220,
+      "fontSizes": [
+        [
+          "12px",
+          550
+        ],
+        [
+          "14px",
+          162
+        ],
+        [
+          "16px",
+          44
+        ],
+        [
+          "13px",
+          31
+        ],
+        [
+          "18px",
+          22
+        ],
+        [
+          "0px",
+          1
+        ]
+      ],
+      "textColors": [
+        [
+          "rgb(96, 98, 102)",
+          91
+        ],
+        [
+          "rgb(64, 158, 255)",
+          30
+        ],
+        [
+          "rgb(122, 127, 135)",
+          29
+        ],
+        [
+          "rgb(192, 196, 204)",
+          24
+        ],
+        [
+          "rgb(144, 147, 153)",
+          24
+        ],
+        [
+          "rgb(103, 194, 58)",
+          14
+        ],
+        [
+          "rgb(230, 162, 60)",
+          14
+        ],
+        [
+          "rgb(255, 255, 255)",
+          4
+        ]
+      ],
+      "smallTargets": [
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--warning el-button--small is-link",
+          "w": 54,
+          "h": 18,
+          "text": "重置密码"
+        },
+        {
+          "sel": "el-button el-button--info el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "停用"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--warning el-button--small is-link",
+          "w": 54,
+          "h": 18,
+          "text": "重置密码"
+        },
+        {
+          "sel": "el-button el-button--info el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "停用"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--warning el-button--small is-link",
+          "w": 54,
+          "h": 18,
+          "text": "重置密码"
+        },
+        {
+          "sel": "el-button el-button--info el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "停用"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--warning el-button--small is-link",
+          "w": 54,
+          "h": 18,
+          "text": "重置密码"
+        },
+        {
+          "sel": "el-button el-button--info el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "停用"
+        }
+      ],
+      "smallTargetCount": 42,
+      "h1": 0,
+      "h2": 0,
+      "ariaLabels": 5,
+      "tables": 1,
+      "rowCount": 14
+    },
+    "05-purchase-requests": {
+      "docScrollW": 1440,
+      "docClientW": 1440,
+      "overflowX": 0,
+      "mainScrollW": 1220,
+      "mainClientW": 1220,
+      "fontSizes": [
+        [
+          "12px",
+          1391
+        ],
+        [
+          "14px",
+          337
+        ],
+        [
+          "16px",
+          61
+        ],
+        [
+          "18px",
+          22
+        ],
+        [
+          "13.3333px",
+          22
+        ],
+        [
+          "20px",
+          4
+        ],
+        [
+          "13px",
+          3
+        ],
+        [
+          "0px",
+          1
+        ]
+      ],
+      "textColors": [
+        [
+          "rgb(96, 98, 102)",
+          285
+        ],
+        [
+          "rgb(64, 158, 255)",
+          64
+        ],
+        [
+          "rgb(168, 171, 178)",
+          26
+        ],
+        [
+          "rgb(192, 196, 204)",
+          24
+        ],
+        [
+          "rgb(144, 147, 153)",
+          19
+        ],
+        [
+          "rgb(230, 162, 60)",
+          12
+        ],
+        [
+          "rgb(103, 194, 58)",
+          11
+        ],
+        [
+          "rgb(48, 49, 51)",
+          8
+        ]
+      ],
+      "smallTargets": [
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 118,
+          "h": 20,
+          "text": "PR202609000114"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "查看"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--success el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "提交"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link el-too",
+          "w": 42,
+          "h": 18,
+          "text": "更多"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 118,
+          "h": 20,
+          "text": "PR202609000113"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "查看"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--success el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "提交"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link el-too",
+          "w": 42,
+          "h": 18,
+          "text": "更多"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 118,
+          "h": 20,
+          "text": "PR202609000112"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "查看"
+        }
+      ],
+      "smallTargetCount": 91,
+      "h1": 0,
+      "h2": 0,
+      "ariaLabels": 53,
+      "tables": 1,
+      "rowCount": 20
+    },
+    "06-purchase-order-new": {
+      "docScrollW": 1440,
+      "docClientW": 1440,
+      "overflowX": 0,
+      "mainScrollW": 1220,
+      "mainClientW": 1220,
+      "fontSizes": [
+        [
+          "12px",
+          558
+        ],
+        [
+          "14px",
+          229
+        ],
+        [
+          "16px",
+          73
+        ],
+        [
+          "18px",
+          22
+        ],
+        [
+          "13px",
+          2
+        ]
+      ],
+      "textColors": [
+        [
+          "rgb(96, 98, 102)",
+          124
+        ],
+        [
+          "rgb(168, 171, 178)",
+          29
+        ],
+        [
+          "rgb(192, 196, 204)",
+          24
+        ],
+        [
+          "rgb(144, 147, 153)",
+          15
+        ],
+        [
+          "rgb(64, 158, 255)",
+          6
+        ],
+        [
+          "rgb(255, 255, 255)",
+          3
+        ],
+        [
+          "rgb(48, 49, 51)",
+          2
+        ],
+        [
+          "rgb(122, 127, 135)",
+          1
+        ]
+      ],
+      "smallTargets": [
+        {
+          "sel": "el-button el-button--primary el-button--small is-plain",
+          "w": 60,
+          "h": 24,
+          "text": "添加行"
+        }
+      ],
+      "smallTargetCount": 1,
+      "h1": 0,
+      "h2": 0,
+      "ariaLabels": 26,
+      "tables": 1,
+      "rowCount": 0
+    },
+    "07-sales-orders": {
+      "docScrollW": 1440,
+      "docClientW": 1440,
+      "overflowX": 0,
+      "mainScrollW": 1220,
+      "mainClientW": 1220,
+      "fontSizes": [
+        [
+          "12px",
+          1413
+        ],
+        [
+          "14px",
+          399
+        ],
+        [
+          "16px",
+          62
+        ],
+        [
+          "18px",
+          22
+        ],
+        [
+          "13.3333px",
+          22
+        ],
+        [
+          "20px",
+          4
+        ],
+        [
+          "13px",
+          3
+        ],
+        [
+          "0px",
+          1
+        ]
+      ],
+      "textColors": [
+        [
+          "rgb(96, 98, 102)",
+          312
+        ],
+        [
+          "rgb(64, 158, 255)",
+          64
+        ],
+        [
+          "rgb(144, 147, 153)",
+          31
+        ],
+        [
+          "rgb(168, 171, 178)",
+          27
+        ],
+        [
+          "rgb(192, 196, 204)",
+          24
+        ],
+        [
+          "rgb(103, 194, 58)",
+          20
+        ],
+        [
+          "rgb(48, 49, 51)",
+          4
+        ],
+        [
+          "rgb(255, 255, 255)",
+          3
+        ]
+      ],
+      "smallTargets": [
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 120,
+          "h": 20,
+          "text": "SO202609000022"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "查看"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--success el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "提交"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link el-too",
+          "w": 42,
+          "h": 18,
+          "text": "更多"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 120,
+          "h": 20,
+          "text": "SO202609000021"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "查看"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--success el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "提交"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link el-too",
+          "w": 42,
+          "h": 18,
+          "text": "更多"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 120,
+          "h": 20,
+          "text": "SO202609000020"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "查看"
+        }
+      ],
+      "smallTargetCount": 100,
+      "h1": 0,
+      "h2": 0,
+      "ariaLabels": 49,
+      "tables": 1,
+      "rowCount": 20
+    },
+    "08-stock-balances": {
+      "docScrollW": 1440,
+      "docClientW": 1440,
+      "overflowX": 0,
+      "mainScrollW": 1220,
+      "mainClientW": 1220,
+      "fontSizes": [
+        [
+          "12px",
+          187
+        ],
+        [
+          "14px",
+          145
+        ],
+        [
+          "16px",
+          50
+        ],
+        [
+          "18px",
+          22
+        ],
+        [
+          "20px",
+          4
+        ],
+        [
+          "13px",
+          3
+        ],
+        [
+          "13.3333px",
+          1
+        ],
+        [
+          "0px",
+          1
+        ]
+      ],
+      "textColors": [
+        [
+          "rgb(96, 98, 102)",
+          34
+        ],
+        [
+          "rgb(192, 196, 204)",
+          24
+        ],
+        [
+          "rgb(144, 147, 153)",
+          14
+        ],
+        [
+          "rgb(64, 158, 255)",
+          4
+        ],
+        [
+          "rgb(255, 255, 255)",
+          3
+        ],
+        [
+          "rgb(48, 49, 51)",
+          2
+        ],
+        [
+          "rgb(122, 127, 135)",
+          2
+        ],
+        [
+          "rgb(168, 171, 178)",
+          2
+        ]
+      ],
+      "smallTargets": [
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 54,
+          "h": 18,
+          "text": "流水下钻"
+        }
+      ],
+      "smallTargetCount": 1,
+      "h1": 0,
+      "h2": 0,
+      "ariaLabels": 5,
+      "tables": 1,
+      "rowCount": 1
+    },
+    "09-stock-in-new": {
+      "docScrollW": 1440,
+      "docClientW": 1440,
+      "overflowX": 0,
+      "mainScrollW": 1220,
+      "mainClientW": 1220,
+      "fontSizes": [
+        [
+          "12px",
+          371
+        ],
+        [
+          "14px",
+          156
+        ],
+        [
+          "16px",
+          65
+        ],
+        [
+          "18px",
+          22
+        ],
+        [
+          "13px",
+          2
+        ]
+      ],
+      "textColors": [
+        [
+          "rgb(96, 98, 102)",
+          67
+        ],
+        [
+          "rgb(192, 196, 204)",
+          24
+        ],
+        [
+          "rgb(144, 147, 153)",
+          15
+        ],
+        [
+          "rgb(168, 171, 178)",
+          15
+        ],
+        [
+          "rgb(64, 158, 255)",
+          5
+        ],
+        [
+          "rgb(255, 255, 255)",
+          3
+        ],
+        [
+          "rgb(48, 49, 51)",
+          2
+        ],
+        [
+          "rgb(122, 127, 135)",
+          1
+        ]
+      ],
+      "smallTargets": [
+        {
+          "sel": "el-button el-button--primary el-button--small is-plain",
+          "w": 60,
+          "h": 24,
+          "text": "添加行"
+        }
+      ],
+      "smallTargetCount": 1,
+      "h1": 0,
+      "h2": 0,
+      "ariaLabels": 14,
+      "tables": 1,
+      "rowCount": 0
+    },
+    "10-system": {
+      "docScrollW": 1440,
+      "docClientW": 1440,
+      "overflowX": 0,
+      "mainScrollW": 1220,
+      "mainClientW": 1220,
+      "fontSizes": [
+        [
+          "12px",
+          1544
+        ],
+        [
+          "14px",
+          293
+        ],
+        [
+          "16px",
+          109
+        ],
+        [
+          "18px",
+          22
+        ],
+        [
+          "13px",
+          11
+        ],
+        [
+          "13.3333px",
+          9
+        ],
+        [
+          "28px",
+          3
+        ]
+      ],
+      "textColors": [
+        [
+          "rgb(96, 98, 102)",
+          220
+        ],
+        [
+          "rgb(168, 171, 178)",
+          51
+        ],
+        [
+          "rgb(144, 147, 153)",
+          49
+        ],
+        [
+          "rgb(192, 196, 204)",
+          24
+        ],
+        [
+          "rgb(64, 158, 255)",
+          15
+        ],
+        [
+          "rgb(245, 108, 108)",
+          13
+        ],
+        [
+          "rgb(255, 255, 255)",
+          11
+        ],
+        [
+          "rgb(48, 49, 51)",
+          11
+        ]
+      ],
+      "smallTargets": [],
+      "smallTargetCount": 0,
+      "h1": 0,
+      "h2": 0,
+      "ariaLabels": 48,
+      "tables": 8,
+      "rowCount": 31
+    },
+    "11-change-password": {
+      "docScrollW": 1440,
+      "docClientW": 1440,
+      "overflowX": 0,
+      "mainScrollW": null,
+      "mainClientW": null,
+      "fontSizes": [
+        [
+          "14px",
+          25
+        ],
+        [
+          "16px",
+          9
+        ],
+        [
+          "20px",
+          1
+        ],
+        [
+          "13px",
+          1
+        ]
+      ],
+      "textColors": [
+        [
+          "rgb(96, 98, 102)",
+          4
+        ],
+        [
+          "rgb(0, 0, 0)",
+          1
+        ],
+        [
+          "rgb(122, 127, 135)",
+          1
+        ],
+        [
+          "rgb(255, 255, 255)",
+          1
+        ]
+      ],
+      "smallTargets": [],
+      "smallTargetCount": 0,
+      "h1": 1,
+      "h2": 0,
+      "ariaLabels": 0,
+      "tables": 0,
+      "rowCount": 0
+    },
+    "21-dashboard-1280": {
+      "docScrollW": 1280,
+      "docClientW": 1280,
+      "overflowX": 0,
+      "mainScrollW": 1060,
+      "mainClientW": 1060,
+      "fontSizes": [
+        [
+          "12px",
+          306
+        ],
+        [
+          "16px",
+          173
+        ],
+        [
+          "14px",
+          81
+        ],
+        [
+          "18px",
+          22
+        ],
+        [
+          "13px",
+          19
+        ],
+        [
+          "28px",
+          10
+        ],
+        [
+          "20px",
+          7
+        ]
+      ],
+      "textColors": [
+        [
+          "rgb(96, 98, 102)",
+          63
+        ],
+        [
+          "rgb(64, 158, 255)",
+          27
+        ],
+        [
+          "rgb(192, 196, 204)",
+          25
+        ],
+        [
+          "rgb(122, 127, 135)",
+          16
+        ],
+        [
+          "rgb(48, 49, 51)",
+          14
+        ],
+        [
+          "rgb(144, 147, 153)",
+          11
+        ],
+        [
+          "rgb(255, 255, 255)",
+          1
+        ],
+        [
+          "rgb(184, 130, 48)",
+          1
+        ]
+      ],
+      "smallTargets": [
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 118,
+          "h": 20,
+          "text": "PR202609000112"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 118,
+          "h": 20,
+          "text": "PR202609000110"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000106"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000104"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000100"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000098"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000094"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000092"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000088"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000086"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000082"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000080"
+        }
+      ],
+      "smallTargetCount": 21,
+      "h1": 0,
+      "h2": 0,
+      "ariaLabels": 0,
+      "tables": 1,
+      "rowCount": 20
+    },
+    "22-contracts-1280": {
+      "docScrollW": 1280,
+      "docClientW": 1280,
+      "overflowX": 0,
+      "mainScrollW": 1060,
+      "mainClientW": 1060,
+      "fontSizes": [
+        [
+          "12px",
+          1289
+        ],
+        [
+          "14px",
+          262
+        ],
+        [
+          "16px",
+          70
+        ],
+        [
+          "13.3333px",
+          24
+        ],
+        [
+          "18px",
+          22
+        ],
+        [
+          "0px",
+          4
+        ],
+        [
+          "20px",
+          4
+        ],
+        [
+          "13px",
+          2
+        ]
+      ],
+      "textColors": [
+        [
+          "rgb(96, 98, 102)",
+          278
+        ],
+        [
+          "rgb(64, 158, 255)",
+          65
+        ],
+        [
+          "rgb(168, 171, 178)",
+          26
+        ],
+        [
+          "rgb(192, 196, 204)",
+          25
+        ],
+        [
+          "rgb(230, 162, 60)",
+          21
+        ],
+        [
+          "rgb(245, 108, 108)",
+          21
+        ],
+        [
+          "rgb(103, 194, 58)",
+          20
+        ],
+        [
+          "rgb(122, 127, 135)",
+          20
+        ]
+      ],
+      "smallTargets": [
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--warning el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "状态"
+        },
+        {
+          "sel": "el-button el-button--danger el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "停用"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "详情"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--warning el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "状态"
+        },
+        {
+          "sel": "el-button el-button--danger el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "停用"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "详情"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--warning el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "状态"
+        },
+        {
+          "sel": "el-button el-button--danger el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "停用"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "详情"
+        }
+      ],
+      "smallTargetCount": 83,
+      "h1": 0,
+      "h2": 0,
+      "ariaLabels": 53,
+      "tables": 1,
+      "rowCount": 20
+    },
+    "23-request-new-1280": {
+      "docScrollW": 1280,
+      "docClientW": 1280,
+      "overflowX": 0,
+      "mainScrollW": 1060,
+      "mainClientW": 1060,
+      "fontSizes": [
+        [
+          "12px",
+          531
+        ],
+        [
+          "14px",
+          171
+        ],
+        [
+          "16px",
+          78
+        ],
+        [
+          "18px",
+          22
+        ],
+        [
+          "13px",
+          4
+        ],
+        [
+          "20px",
+          4
+        ]
+      ],
+      "textColors": [
+        [
+          "rgb(96, 98, 102)",
+          111
+        ],
+        [
+          "rgb(168, 171, 178)",
+          28
+        ],
+        [
+          "rgb(192, 196, 204)",
+          24
+        ],
+        [
+          "rgb(144, 147, 153)",
+          16
+        ],
+        [
+          "rgb(64, 158, 255)",
+          5
+        ],
+        [
+          "rgb(255, 255, 255)",
+          3
+        ],
+        [
+          "rgb(48, 49, 51)",
+          3
+        ],
+        [
+          "rgb(122, 127, 135)",
+          3
+        ]
+      ],
+      "smallTargets": [
+        {
+          "sel": "el-button el-button--primary el-button--small is-disabled is",
+          "w": 96,
+          "h": 24,
+          "text": "提取合同明细"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-plain",
+          "w": 60,
+          "h": 24,
+          "text": "添加行"
+        }
+      ],
+      "smallTargetCount": 2,
+      "h1": 0,
+      "h2": 0,
+      "ariaLabels": 29,
+      "tables": 1,
+      "rowCount": 0
+    },
+    "21-dashboard-1024": {
+      "docScrollW": 1024,
+      "docClientW": 1024,
+      "overflowX": 0,
+      "mainScrollW": 804,
+      "mainClientW": 804,
+      "fontSizes": [
+        [
+          "12px",
+          306
+        ],
+        [
+          "16px",
+          173
+        ],
+        [
+          "14px",
+          81
+        ],
+        [
+          "18px",
+          22
+        ],
+        [
+          "13px",
+          19
+        ],
+        [
+          "28px",
+          10
+        ],
+        [
+          "20px",
+          7
+        ]
+      ],
+      "textColors": [
+        [
+          "rgb(96, 98, 102)",
+          63
+        ],
+        [
+          "rgb(64, 158, 255)",
+          27
+        ],
+        [
+          "rgb(192, 196, 204)",
+          25
+        ],
+        [
+          "rgb(122, 127, 135)",
+          16
+        ],
+        [
+          "rgb(48, 49, 51)",
+          14
+        ],
+        [
+          "rgb(144, 147, 153)",
+          11
+        ],
+        [
+          "rgb(255, 255, 255)",
+          1
+        ],
+        [
+          "rgb(184, 130, 48)",
+          1
+        ]
+      ],
+      "smallTargets": [
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 118,
+          "h": 20,
+          "text": "PR202609000112"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 118,
+          "h": 20,
+          "text": "PR202609000110"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000106"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000104"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000100"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000098"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000094"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000092"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000088"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000086"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000082"
+        },
+        {
+          "sel": "el-button el-button--primary is-link",
+          "w": 119,
+          "h": 20,
+          "text": "PR202609000080"
+        }
+      ],
+      "smallTargetCount": 21,
+      "h1": 0,
+      "h2": 0,
+      "ariaLabels": 0,
+      "tables": 1,
+      "rowCount": 20
+    },
+    "22-contracts-1024": {
+      "docScrollW": 1024,
+      "docClientW": 1024,
+      "overflowX": 0,
+      "mainScrollW": 804,
+      "mainClientW": 804,
+      "fontSizes": [
+        [
+          "12px",
+          1289
+        ],
+        [
+          "14px",
+          262
+        ],
+        [
+          "16px",
+          70
+        ],
+        [
+          "13.3333px",
+          24
+        ],
+        [
+          "18px",
+          22
+        ],
+        [
+          "0px",
+          4
+        ],
+        [
+          "20px",
+          4
+        ],
+        [
+          "13px",
+          2
+        ]
+      ],
+      "textColors": [
+        [
+          "rgb(96, 98, 102)",
+          278
+        ],
+        [
+          "rgb(64, 158, 255)",
+          65
+        ],
+        [
+          "rgb(168, 171, 178)",
+          26
+        ],
+        [
+          "rgb(192, 196, 204)",
+          25
+        ],
+        [
+          "rgb(230, 162, 60)",
+          21
+        ],
+        [
+          "rgb(245, 108, 108)",
+          21
+        ],
+        [
+          "rgb(103, 194, 58)",
+          20
+        ],
+        [
+          "rgb(122, 127, 135)",
+          20
+        ]
+      ],
+      "smallTargets": [
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--warning el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "状态"
+        },
+        {
+          "sel": "el-button el-button--danger el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "停用"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "详情"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--warning el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "状态"
+        },
+        {
+          "sel": "el-button el-button--danger el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "停用"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "详情"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "编辑"
+        },
+        {
+          "sel": "el-button el-button--warning el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "状态"
+        },
+        {
+          "sel": "el-button el-button--danger el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "停用"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-link",
+          "w": 30,
+          "h": 18,
+          "text": "详情"
+        }
+      ],
+      "smallTargetCount": 83,
+      "h1": 0,
+      "h2": 0,
+      "ariaLabels": 53,
+      "tables": 1,
+      "rowCount": 20
+    },
+    "23-request-new-1024": {
+      "docScrollW": 1024,
+      "docClientW": 1024,
+      "overflowX": 0,
+      "mainScrollW": 804,
+      "mainClientW": 804,
+      "fontSizes": [
+        [
+          "12px",
+          531
+        ],
+        [
+          "14px",
+          171
+        ],
+        [
+          "16px",
+          78
+        ],
+        [
+          "18px",
+          22
+        ],
+        [
+          "13px",
+          4
+        ],
+        [
+          "20px",
+          4
+        ]
+      ],
+      "textColors": [
+        [
+          "rgb(96, 98, 102)",
+          111
+        ],
+        [
+          "rgb(168, 171, 178)",
+          28
+        ],
+        [
+          "rgb(192, 196, 204)",
+          24
+        ],
+        [
+          "rgb(144, 147, 153)",
+          16
+        ],
+        [
+          "rgb(64, 158, 255)",
+          5
+        ],
+        [
+          "rgb(255, 255, 255)",
+          3
+        ],
+        [
+          "rgb(48, 49, 51)",
+          3
+        ],
+        [
+          "rgb(122, 127, 135)",
+          3
+        ]
+      ],
+      "smallTargets": [
+        {
+          "sel": "el-button el-button--primary el-button--small is-disabled is",
+          "w": 96,
+          "h": 24,
+          "text": "提取合同明细"
+        },
+        {
+          "sel": "el-button el-button--primary el-button--small is-plain",
+          "w": 60,
+          "h": 24,
+          "text": "添加行"
+        }
+      ],
+      "smallTargetCount": 2,
+      "h1": 0,
+      "h2": 0,
+      "ariaLabels": 29,
+      "tables": 1,
+      "rowCount": 0
+    }
+  }
+}

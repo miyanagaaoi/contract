@@ -33,8 +33,10 @@ async function onSubmit() {
     ElMessage.success('密码修改成功')
     router.replace('/')
   } catch (err: unknown) {
+    // T3-5：无 detail 的失败（超时 / 5xx / 断网）此前**完全静默**——
+    // 用户点「保存」后没有任何反馈，只能反复点击。
     const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-    if (detail) ElMessage.error(detail)
+    ElMessage.error(detail || '修改失败，请检查网络后重试')
   } finally {
     loading.value = false
   }
@@ -57,15 +59,18 @@ async function onLogout() {
 
       <el-form label-position="top" @submit.prevent="onSubmit">
         <el-form-item label="原密码">
-          <el-input v-model="oldPassword" type="password" size="large" show-password
+          <el-input v-model="oldPassword" type="password" name="old_password"
+                    autocomplete="current-password" size="large" show-password
                     placeholder="请输入原密码" @keyup.enter="onSubmit" />
         </el-form-item>
         <el-form-item label="新密码">
-          <el-input v-model="newPassword" type="password" size="large" show-password
+          <el-input v-model="newPassword" type="password" name="new_password"
+                    autocomplete="new-password" size="large" show-password
                     placeholder="至少 8 位，含字母与数字" @keyup.enter="onSubmit" />
         </el-form-item>
         <el-form-item label="确认新密码">
-          <el-input v-model="confirmPassword" type="password" size="large" show-password
+          <el-input v-model="confirmPassword" type="password" name="confirm_password"
+                    autocomplete="new-password" size="large" show-password
                     placeholder="再次输入新密码" @keyup.enter="onSubmit" />
         </el-form-item>
         <div class="actions">
@@ -92,8 +97,8 @@ async function onLogout() {
   padding: 30px 34px;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.25);
 }
-h1 { margin: 0 0 6px; font-size: 18px; }
-.sub { color: #909399; font-size: 12.5px; margin: 0 0 18px; line-height: 1.7; }
-.warn { color: #e6a23c; }
+h1 { margin: 0 0 6px; font-size: var(--ctms-fs-lg); }
+.sub { color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); margin: 0 0 18px; line-height: 1.7; }
+.warn { color: var(--ctms-warning-text); }
 .actions { display: flex; gap: 10px; }
 </style>

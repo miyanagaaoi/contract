@@ -18,8 +18,20 @@ const emit = defineEmits<{ created: [item: Dict] }>()
 const TITLE: Record<string, string> = {
   product: '新增物料档案', 'product-type': '新增商品类型', uom: '新增计量单位',
 }
+/**
+ * 接口路径必须带 `/master` 前缀。
+ *
+ * 原先写作 `/products` / `/product-types` / `/uoms`，而 `http` 的 baseURL 是 `/api`，
+ * 拼出来就是 `/api/products` —— 后端真实路由是 `/api/master/products`
+ * （见 app/routers/master.py），因此**快速新增必然 404**。
+ *
+ * 这个缺陷此前没被 e2e 发现：11-master-product.spec.ts 只覆盖了「名称为空」的
+ * 前端校验分支，从未真正提交过请求。
+ */
 const PATH: Record<string, string> = {
-  product: '/products', 'product-type': '/product-types', uom: '/uoms',
+  product: '/master/products',
+  'product-type': '/master/product-types',
+  uom: '/master/uoms',
 }
 
 const visible = ref(false)
@@ -45,12 +57,13 @@ async function open() {
   reset()
   visible.value = true
   try {
+    // 同样必须带 /master 前缀：原先这两个下拉一直是空的（404 被 catch 静默吞掉）
     if (props.kind === 'product' || props.kind === 'product-type') {
-      const res: Dict = await fetchMasterList('/product-types')
+      const res: Dict = await fetchMasterList('/master/product-types')
       typeTree.value = (res.tree ?? res.items ?? []) as Dict[]
     }
     if (props.kind === 'product') {
-      const res: Dict = await fetchMasterList('/uoms')
+      const res: Dict = await fetchMasterList('/master/uoms')
       uoms.value = (res.items ?? []) as Dict[]
     }
   } catch {
@@ -89,7 +102,7 @@ defineExpose({ open })
 </script>
 
 <template>
-  <el-dialog v-model="visible" :title="title" width="480px" append-to-body>
+  <el-dialog v-model="visible" :title="title" width="min(480px, 92vw)" append-to-body>
     <el-form label-width="92px" :disabled="saving">
       <template v-if="kind === 'uom'">
         <el-form-item label="编码" required>

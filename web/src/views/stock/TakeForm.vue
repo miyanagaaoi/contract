@@ -366,7 +366,7 @@ async function onApproveConfirm(payload: { mode: ApproveMode; reason: string }) 
     </DocFormPage>
 
     <!-- 生成行项 -->
-    <el-dialog v-model="genVisible" title="生成盘点行项" width="620px" append-to-body>
+    <el-dialog v-model="genVisible" title="生成盘点行项" width="min(620px, 92vw)" append-to-body>
       <el-alert type="info" :closable="false" show-icon class="mb"
                 title="账面数量取该仓库当前结存（生成时冻结）；实盘数量默认等于账面，随后在详情页修改。" />
       <el-form label-width="100px">
@@ -397,11 +397,11 @@ async function onApproveConfirm(payload: { mode: ApproveMode; reason: string }) 
 </template>
 
 <style scoped>
-.mb { margin-bottom: 12px; }
-.gray { color: #909399; font-size: 12.5px; }
-.tips { margin-top: 8px; color: #909399; font-size: 12px; }
-.is-plus { color: #67c23a; font-weight: 600; }
-.is-minus { color: #f56c6c; font-weight: 600; }
+.mb { margin-bottom: var(--ctms-gap); }
+.gray { color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
+.tips { margin-top: 8px; color: var(--ctms-text-muted); font-size: var(--ctms-fs-xs); }
+.is-plus { color: var(--ctms-success-text); font-weight: 600; }
+.is-minus { color: var(--ctms-danger-text); font-weight: 600; }
 :deep(.diff-plus-row td) { background: #f0f9eb !important; }
 :deep(.diff-minus-row td) { background: #fef0f0 !important; }
 </style>

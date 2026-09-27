@@ -10,18 +10,16 @@
 import { ref } from 'vue'
 
 import { fetchContract, fetchContractRelatedDocs, type Dict } from '@/api'
+import { fmtMoney } from '@/utils/format'
 
 const visible = ref(false)
 const loading = ref(false)
 const contract = ref<Dict | null>(null)
+const failed = ref(false)
 const related = ref<Dict[]>([])
 
-function fmtMoney(v: unknown): string {
-  if (v === null || v === undefined || v === '') return '0.00'
-  const n = Number(v)
-  if (!Number.isFinite(n)) return '0.00'
-  return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
+// fmtMoney 统一走 @/utils/format（T1-3）：空值由 '0.00' 改为 '—'，
+// 消除「空」与「零」在界面上不可辨的问题。
 
 /** 打开抽屉并加载指定合同（`id` 为空时不动作） */
 async function open(id: number | null | undefined) {
@@ -30,10 +28,13 @@ async function open(id: number | null | undefined) {
   loading.value = true
   contract.value = null
   related.value = []
+  failed.value = false
   try {
     contract.value = await fetchContract(id)
   } catch {
-    // 拦截器已提示
+    // T3-5：原先只靠拦截器 toast —— toast 一消失，抽屉里就只剩一片空白，
+    // 用户无法判断是"加载中"还是"出错了"。这里显式记录失败状态供模板渲染。
+    failed.value = true
   }
   try {
     const res: Dict = await fetchContractRelatedDocs(id)
@@ -51,6 +52,9 @@ defineExpose({ open })
 <template>
   <el-drawer v-model="visible" title="合同详情（只读）" size="46%" :destroy-on-close="false">
     <div v-loading="loading">
+      <el-alert v-if="failed && !loading" type="error" :closable="false" show-icon class="mb"
+                title="合同详情加载失败"
+                description="请关闭后重试；若持续失败请检查网络或联系管理员。" />
       <template v-if="contract">
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="合同编号">{{ contract.contract_no || '—' }}</el-descriptions-item>
@@ -102,5 +106,5 @@ defineExpose({ open })
 </template>
 
 <style scoped>
-.gray { color: #909399; font-size: 12px; }
+.gray { color: var(--ctms-text-muted); font-size: var(--ctms-fs-xs); }
 </style>

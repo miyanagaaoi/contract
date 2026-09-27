@@ -141,6 +141,8 @@ def seed_auth(db: Session) -> dict:
 
     - 角色按 `permissions.ROLE_PRESETS` 创建，**仅在新建时**写入权限点，
       避免覆盖管理员后续的角色调整；
+    - `sysadmin` 例外：每次启动把新增的权限点补齐（见 `_backfill_sysadmin_perms`），
+      否则新版本功能上线后管理员会莫名 403；
     - 超管账号首次创建后 `must_change_pwd=True`，首登强制改密（AC-V2-08）。
     """
     from .dicts import get_sys_params
@@ -177,13 +179,43 @@ def seed_auth(db: Session) -> dict:
         db.commit()
         admin_created = True
 
+    perms_backfilled = _backfill_sysadmin_perms(db)
+
     get_sys_params(db)   # 首次调用落库默认系统参数
     return {
         "roles_created": roles_created,
         "perms_created": perms_created,
+        "perms_backfilled": perms_backfilled,
         "admin_created": admin_created,
         "admin_username": ADMIN_USERNAME,
     }
+
+
+def _backfill_sysadmin_perms(db: Session) -> int:
+    """把 `permissions.py` 里**新增**的权限点补到 `sysadmin` 角色上（幂等）。
+
+    背景：权限点是代码常量（唯一真源），而角色-权限关系落库。所以新版本新增权限点后，
+    **已部署的库**里 sysadmin 并不会自动拥有它 —— 表现是"功能上线了，管理员却
+    403 / 菜单里看不到"，只能靠人工跑 `sync_builtin_roles` 才知道要修。
+
+    这里只做**加法**，且只作用于 `sysadmin`：
+    - 该角色的语义就是"全部权限"，补齐不会违背任何人的管理意图；
+    - 其余内置角色**不动** —— 管理员可能手工调过它们的权限点，
+      自动重置会覆盖这些调整（那属于 `sync_builtin_roles` 的显式动作）。
+    """
+    from .models_auth import Role, RolePermission
+    from .permissions import PERM_CODES
+
+    role = db.query(Role).filter(Role.code == "sysadmin").first()
+    if role is None:
+        return 0
+    missing = sorted(set(PERM_CODES) - set(role.perm_codes))
+    if not missing:
+        return 0
+    for code in missing:
+        db.add(RolePermission(role_id=role.id, perm_code=code))
+    db.commit()
+    return len(missing)
 
 
 def sync_builtin_roles(db: Session) -> dict:

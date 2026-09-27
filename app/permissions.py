@@ -121,6 +121,10 @@ PERMISSIONS: list[tuple[str, str, str, str]] = [
     ("system.backup.create", "生成备份", "system", "button"),
     ("system.backup.download", "下载备份", "system", "button"),
     ("system.about.view", "关于", "system", "button"),
+
+    # ---- V2.2：单据打印模板（版面可视化调整） ----
+    ("system.print.view", "打印模板查看", "system", "menu"),
+    ("system.print.edit", "打印模板维护", "system", "button"),
 ]
 
 PERM_CODES: set[str] = {p[0] for p in PERMISSIONS}
@@ -186,7 +190,9 @@ MENUS: list[dict] = [
               "perm": "master.uom.view"},
              {"key": "m-wh", "title": "仓库", "path": "/master/warehouses",
               "perm": "master.wh.view"}]},
-         {"key": "m-system", "title": "系统管理", "path": "/system", "perm": "system.dict.view"}]},
+         {"key": "m-system", "title": "系统管理", "path": "/system", "perm": "system.dict.view"},
+         {"key": "m-print", "title": "打印模板", "path": "/system/print-templates",
+          "perm": "system.print.view"}]},
 ]
 
 # 数据范围

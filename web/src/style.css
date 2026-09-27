@@ -1,8 +1,149 @@
+/*
+ * 全局样式与设计令牌（T0-3）。
+ *
+ * 背景：审查发现全站有 21 个裸色值、12 种字号，且 `web/src` 内 **0 个 CSS 变量**
+ * （`var(--el-*)` 也未被覆盖）——所有视觉参数都是 Element Plus 默认值加随手取的
+ * 近似值散落在 40+ 个 `<style scoped>` 里，导致任何一次品牌调整都要动 15+ 个文件。
+ *
+ * 本批次只**新增**令牌，不替换任何现有样式（零视觉变化）。
+ * 替换分三步走：对比度 → 字号 → 间距，见 design-audit/前端改动计划.md T3-1。
+ */
+
+:root {
+  /* ---------- 文字 ---------- */
+  --ctms-text: #303133;             /* 正文（对比度 13.02:1） */
+  --ctms-text-secondary: #606266;   /* 次级正文（6.11:1） */
+  --ctms-text-muted: #7a7f87;       /* 次要文字；替代 #909399（3.08:1 不达标） */
+  --ctms-text-placeholder: #a8abb2;
+
+  /* ---------- 功能色 ----------
+   * 文字用深色（均 ≥4.5:1），底色仍可用 Element Plus 的浅色版本。
+   * 原 #e6a23c 作文字时对比度仅 2.19:1，是全站最低。
+   */
+  /* 与 Element Plus 默认主色保持一致：项目自定义样式与组件库必须同源，
+     否则会出现「两套主色」。若要换品牌色，需一并覆盖 --el-color-primary
+     及其 light-3/5/7/8/9、dark-2 派生色。 */
+  --ctms-primary: #409eff;
+  --ctms-danger-text: #c45656;
+  --ctms-warning-text: #b88230;
+  --ctms-success-text: #4e9a51;
+
+  /* ---------- 字号（6 档，替代现有 12 档） ---------- */
+  --ctms-fs-xs: 12px;    /* 表格内辅助信息 */
+  --ctms-fs-sm: 13px;    /* 次要说明（吸收 11.5 / 12.5 / 13.5px） */
+  --ctms-fs-base: 14px;  /* 正文与表格 */
+  --ctms-fs-md: 16px;    /* 区块标题 */
+  --ctms-fs-lg: 20px;    /* KPI 数字 */
+  --ctms-fs-xl: 28px;    /* 看板大数字 */
+
+  /* ---------- 间距（4 的倍数，替代现有 4/6/8/10/12 混用） ---------- */
+  --ctms-gap-xs: 4px;
+  --ctms-gap-sm: 8px;
+  --ctms-gap: 12px;
+  --ctms-gap-md: 16px;
+
+  /* ---------- 其它 ---------- */
+  --ctms-radius: 4px;
+  --ctms-sidebar-bg: #1f2d3d;
+  --ctms-bg: #f5f7fa;              /* 页面底色 */
+
+  /* 深色侧栏 + 浅色文档混搭时，让浏览器原生控件（滚动条、输入框）跟随浅色 */
+  color-scheme: light;
+}
+
 html,
 body,
 #app {
   height: 100%;
   margin: 0;
+}
+
+/*
+ * 数值列等宽数字（T3-2）。
+ *
+ * 表格中的金额/数量此前用比例字形，逐行比对时数位无法对齐；审查实测全站
+ * `font-variant-numeric: tabular-nums` 命中为 0。表格是唯一需要纵向比数的场景，
+ * 因此只作用于 el-table，不影响正文排版。
+ */
+.el-table {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 表格「操作」列可读性与对齐（V2.2 · 操作列反馈）。
+ *
+ * 1) 文字太淡：Element Plus 的 link 按钮直接取 `--el-color-primary`（#409eff），
+ *    白底对比度只有 3.02:1，在 size="small" 的 12px 字号下明显发虚。这里把表格内
+ *    的 link 按钮统一换成**同色系深色变体**（均 ≥4.5:1），只改表格，不动页面按钮。
+ * 2) 「更多」掉行：`el-dropdown` 自带 `vertical-align: top`，与相邻 `el-button`
+ *    的 `middle` 不同基线；`el-button + el-button` 的间距规则也不匹配它，
+ *    于是「更多」既贴不到前一个按钮、又错位到下一行。用 `.row-actions`
+ *    容器（inline-flex + gap + nowrap）把行内动作拉回同一行。
+ *    各页面把操作列的按钮包进 `<div class="row-actions">` 即生效。
+ */
+.el-table .el-button.is-link {
+  font-weight: 500;
+}
+.el-table .el-button.is-link.el-button--primary {
+  --el-button-text-color: #1f6fdc;
+  --el-button-hover-text-color: #1559b8;
+}
+.el-table .el-button.is-link.el-button--success {
+  --el-button-text-color: #3d7f40;
+  --el-button-hover-text-color: #2f6a32;
+}
+.el-table .el-button.is-link.el-button--warning {
+  --el-button-text-color: #96682a;
+  --el-button-hover-text-color: #7d5622;
+}
+.el-table .el-button.is-link.el-button--danger {
+  --el-button-text-color: #c0392b;
+  --el-button-hover-text-color: #a32e22;
+}
+
+.el-table .cell .row-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  white-space: nowrap;
+}
+/* 容器内由 gap 统一控制间距，抵消 Element Plus 的相邻按钮 margin */
+.el-table .cell .row-actions .el-button + .el-button {
+  margin-left: 0;
+}
+.el-table .cell .row-actions .el-dropdown {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  line-height: 1;
+}
+.el-table .cell .row-actions .el-dropdown .el-button {
+  margin-left: 0;
+}
+
+/*
+ * 表单里「选择框 + 行内动作」同行（V2.2：供货商下拉 + 供货商详情按钮）。
+ * 与 DocFormPage 的 `.contract-input` 同一思路：动作按钮贴着它服务的字段，
+ * 而不是另占一行/独占半屏。
+ */
+.field-with-action {
+  display: flex;
+  align-items: center;
+  gap: var(--ctms-gap-sm);
+  width: 100%;
+}
+.field-with-action > .el-select,
+.field-with-action > .el-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* el-select 选项里的次要说明（如供货商全称）；主文字保持简称，必要时才展开全称 */
+.opt-sub {
+  margin-left: var(--ctms-gap-sm);
+  color: var(--ctms-text-muted);
+  font-size: var(--ctms-fs-xs);
 }
 
 body {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { registerUnsavedGuard, unregisterUnsavedGuard } from '@/utils/unsaved'
 import {
   createTag,
   deleteTag,
@@ -28,7 +29,7 @@ async function saveTypes() {
   try {
     await saveContractTypes(types.value)
     ElMessage.success('合同类型已保存')
-    await loadTypes()
+    await quiet(loadTypes)
   } catch (e) { ElMessage.error(apiError(e)) } finally { typesSaving.value = false }
 }
 
@@ -46,7 +47,7 @@ async function saveSubjectsNow() {
   try {
     await saveSubjects(subjects.value)
     ElMessage.success('我方公司已保存')
-    await loadSubjects()
+    await quiet(loadSubjects)
   } catch (e) { ElMessage.error(apiError(e)) } finally { subjectsSaving.value = false }
 }
 
@@ -88,7 +89,7 @@ function addItem() {
 function removeItem(i: number) { items.value.splice(i, 1) }
 async function saveItemsNow() {
   itemsSaving.value = true
-  try { await saveItemTypes(items.value); await loadItems(); ElMessage.success('行项类型已保存') }
+  try { await saveItemTypes(items.value); await quiet(loadItems); ElMessage.success('行项类型已保存') }
   catch (e) { ElMessage.error(apiError(e)) } finally { itemsSaving.value = false }
 }
 
@@ -96,8 +97,83 @@ function apiError(e: any): string {
   return e?.response?.data?.detail || '操作失败'
 }
 
+// ---------- 未保存离开保护（T1-1） ----------
+/**
+ * 四个页签里 types / subjects / items 是「表内编辑 + 手动保存」，切菜单或刷新会
+ * 静默丢弃修改；tags 是即时保存，不参与脏标记。
+ *
+ * `flush: 'sync'` 是必需的：服务端回填都包在 `quiet()` 的同步区间内，若用默认的
+ * pre flush，watch 回调会在 `quiet()` 退出后才执行，抑制标志已经失效。
+ */
+const dirty = ref(false)
+let suppressDirty = false
+
+watch(
+  [types, subjects, items],
+  () => { if (!suppressDirty) dirty.value = true },
+  { deep: true, flush: 'sync' },
+)
+
+/** 服务端回填期间抑制脏标记；回填完成即代表与服务端一致 */
+async function quiet<T>(fn: () => Promise<T>): Promise<T> {
+  suppressDirty = true
+  try {
+    return await fn()
+  } finally {
+    suppressDirty = false
+    dirty.value = false
+  }
+}
+
+function hasUnsaved(): boolean {
+  return dirty.value && !typesSaving.value && !subjectsSaving.value && !itemsSaving.value
+}
+
+function onBeforeUnload(e: BeforeUnloadEvent): void {
+  if (!hasUnsaved()) return
+  // 浏览器只在设置了 returnValue 时弹原生确认框
+  e.preventDefault()
+  e.returnValue = ''
+}
+
+/**
+ * 未保存离开确认。
+ *
+ * 不能在此使用 `onBeforeRouteLeave`：本组件被 `SystemView` 作为**子组件**渲染，
+ * 而该守卫只对路由组件生效（在子组件里调用不报错但注册无效）。
+ * 改为注册到 `@/utils/unsaved`，由全局 `router.beforeEach` 统一调用。
+ */
+async function confirmDiscard(): Promise<boolean> {
+  if (!hasUnsaved()) return true
+  try {
+    await ElMessageBox.confirm('当前有未保存的字典修改，确定离开？', '未保存的修改', {
+      type: 'warning', confirmButtonText: '离开', cancelButtonText: '留在本页',
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+onMounted(() => {
+  registerUnsavedGuard(confirmDiscard)
+  window.addEventListener('beforeunload', onBeforeUnload)
+})
+onBeforeUnmount(() => {
+  unregisterUnsavedGuard()
+  window.removeEventListener('beforeunload', onBeforeUnload)
+})
+
 onMounted(async () => {
-  await Promise.all([loadTypes(), loadSubjects(), loadTags(), loadItems()])
+  // 初始回填必须包 quiet：否则 watch 会把服务端数据当成用户编辑，
+  // 一进页面就变成「有未保存修改」。
+  try {
+    await quiet(() => Promise.all([loadTypes(), loadSubjects(), loadTags(), loadItems()]))
+  } catch (e) {
+    // T3-5：原先没有 catch —— 任一字典接口失败时四张表全空，控制台抛
+    // unhandled rejection，用户完全不知道发生了什么。
+    ElMessage.error(apiError(e))
+  }
 })
 </script>
 
@@ -190,7 +266,7 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.mb { margin-bottom: 12px; }
-.mt { margin-top: 12px; }
-.gray { color: #909399; font-size: 13px; }
+.mb { margin-bottom: var(--ctms-gap); }
+.mt { margin-top: var(--ctms-gap); }
+.gray { color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
 </style>

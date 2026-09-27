@@ -18,6 +18,6 @@ const fields: MasterField[] = [
 
 <template>
   <TreeMasterPage title="组织架构" subtitle="最多 5 级；删除前必须无子节点且无归属账号"
-                  api="/system/org-units" perm-view="master.org.view" perm-edit="master.org.edit"
+                  api="/system/org-units" perm-edit="master.org.edit"
                   node-label="节点" :fields="fields" />
 </template>

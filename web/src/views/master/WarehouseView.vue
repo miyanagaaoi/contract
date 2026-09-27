@@ -23,6 +23,6 @@ const fields: MasterField[] = [
 
 <template>
   <MasterTablePage title="仓库" subtitle="多仓库库存；已有库存或单据记录时不能删除"
-                   api="/master/warehouses" perm-view="master.wh.view" perm-edit="master.wh.edit"
+                   api="/master/warehouses" perm-edit="master.wh.edit"
                    :columns="columns" :fields="fields" status-mode="bool" />
 </template>

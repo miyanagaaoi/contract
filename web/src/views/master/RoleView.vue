@@ -212,7 +212,7 @@ onMounted(async () => {
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑角色' : '新增角色'" width="720px">
+    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑角色' : '新增角色'" width="min(720px, 92vw)">
       <el-form label-width="90px">
         <el-row :gutter="12">
           <el-col :span="12">
@@ -251,7 +251,7 @@ onMounted(async () => {
 
 <style scoped>
 .head { display: flex; align-items: center; justify-content: space-between; }
-.title { font-weight: 600; font-size: 15px; }
-.subtitle { margin-left: 10px; color: #909399; font-size: 12.5px; }
+.title { font-weight: 600; font-size: var(--ctms-fs-md); }
+.subtitle { margin-left: 10px; color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
 .perm-box { width: 100%; max-height: 320px; overflow: auto; border: 1px solid #e4e7ed; border-radius: 4px; padding: 6px 10px; }
 </style>

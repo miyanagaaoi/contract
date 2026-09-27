@@ -318,9 +318,12 @@ onMounted(async () => {
           <el-table-column prop="detail" label="详情" min-width="200" show-overflow-tooltip />
           <el-table-column prop="ip" label="IP" width="130" />
         </el-table>
-        <el-pagination v-if="logTotal > logPageSize" class="pager" background layout="total, prev, pager, next"
+        <el-pagination v-if="logTotal > logPageSize" class="pager" background
+                       layout="total, prev, pager, next, sizes"
                        :total="logTotal" :current-page="logPage" :page-size="logPageSize"
-                       @current-change="(p: number) => { logPage = p; loadLogs() }" />
+                       :page-sizes="[10, 20, 50, 100]"
+                       @current-change="(p: number) => { logPage = p; loadLogs() }"
+                       @size-change="(s: number) => { logPageSize = s; logPage = 1; loadLogs() }" />
       </el-tab-pane>
 
       <el-tab-pane label="变更历史" name="changes">
@@ -363,9 +366,11 @@ onMounted(async () => {
           <el-table-column prop="note" label="备注" min-width="140" show-overflow-tooltip />
         </el-table>
         <el-pagination v-if="changeTotal > changePageSize" class="pager" background
-                       layout="total, prev, pager, next" :total="changeTotal"
+                       layout="total, prev, pager, next, sizes" :total="changeTotal"
                        :current-page="changePage" :page-size="changePageSize"
-                       @current-change="(p: number) => { changePage = p; loadChanges() }" />
+                       :page-sizes="[10, 20, 50, 100]"
+                       @current-change="(p: number) => { changePage = p; loadChanges() }"
+                       @size-change="(s: number) => { changePageSize = s; changePage = 1; loadChanges() }" />
       </el-tab-pane>
 
       <el-tab-pane label="备份" name="backup">
@@ -416,14 +421,14 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.title { font-weight: 600; font-size: 15px; }
-.subtitle { margin-left: 10px; color: #909399; font-size: 12.5px; }
+.title { font-weight: 600; font-size: var(--ctms-fs-md); }
+.subtitle { margin-left: 10px; color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
 .narrow { max-width: 720px; }
-.tip { margin-left: 10px; color: #909399; font-size: 12.5px; }
-.mt12 { margin-top: 12px; }
-.mb12 { margin-bottom: 12px; }
-.pager { margin-top: 12px; justify-content: flex-end; }
-.sep { margin: 0 6px; color: #909399; }
-.gray { color: #909399; }
+.tip { margin-left: 10px; color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
+.mt12 { margin-top: var(--ctms-gap); }
+.mb12 { margin-bottom: var(--ctms-gap); }
+.pager { margin-top: var(--ctms-gap); justify-content: flex-end; }
+.sep { margin: 0 6px; color: var(--ctms-text-muted); }
+.gray { color: var(--ctms-text-muted); }
 .count { margin-right: 12px; }
 </style>

@@ -22,6 +22,6 @@ const fields: MasterField[] = [
 
 <template>
   <MasterTablePage title="计量单位" subtitle="数量精度由单位小数位决定；已被物料引用时不能删除"
-                   api="/master/uoms" perm-view="master.uom.view" perm-edit="master.uom.edit"
+                   api="/master/uoms" perm-edit="master.uom.edit"
                    :columns="columns" :fields="fields" status-mode="bool" />
 </template>

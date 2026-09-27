@@ -12,7 +12,7 @@ defineProps<{ nodes: MenuNode[] }>()
   <template v-for="node in nodes" :key="node.key">
     <el-sub-menu v-if="node.children && node.children.length" :index="node.key">
       <template #title>
-        <el-icon v-if="node.icon"><component :is="node.icon" /></el-icon>
+        <el-icon v-if="node.icon" aria-hidden="true"><component :is="node.icon" /></el-icon>
         <span>{{ node.title }}</span>
       </template>
       <MenuTree :nodes="node.children" />

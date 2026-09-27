@@ -178,7 +178,9 @@ def run(admin: str, c: Cleaner) -> None:
     _, warehouse = req("POST", "/master/warehouses", {"code": f"W{TS % 1000:03d}", "name": f"M2仓库{TS}"},
                        token=admin)
     c.warehouses.append(warehouse["id"])
-    _, supplier = req("POST", "/master/suppliers", {"name": f"M2供应商{TS}"}, token=admin)
+    # V2.2（BR-V2.2-01）：供应商简称必填
+    _, supplier = req("POST", "/master/suppliers",
+                      {"name": f"M2供应商{TS}", "short_name": f"M2供{TS % 10000:04d}"}, token=admin)
     c.suppliers.append(supplier["id"])
     _, customer = req("POST", "/master/customers", {"name": f"M2客户{TS}"}, token=admin)
     c.customers.append(customer["id"])

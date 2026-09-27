@@ -251,11 +251,14 @@ onMounted(async () => {
       </el-table-column>
     </el-table>
 
-    <el-pagination v-if="total > pageSize" class="pager" background layout="total, prev, pager, next"
+    <!-- T4-1b：补 sizes 与 @size-change（缺后者会导致改每页条数不重新加载） -->
+    <el-pagination class="pager" background layout="total, prev, pager, next, sizes"
                    :total="total" :current-page="page" :page-size="pageSize"
-                   @current-change="(p: number) => { page = p; load() }" />
+                   :page-sizes="[10, 20, 50, 100]"
+                   @current-change="(p: number) => { page = p; load() }"
+                   @size-change="(s: number) => { pageSize = s; page = 1; load() }" />
 
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑账号' : '新增账号'" width="620px">
+    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑账号' : '新增账号'" width="min(620px, 92vw)">
       <el-form label-width="100px">
         <el-row :gutter="12">
           <el-col :span="12">
@@ -303,7 +306,7 @@ onMounted(async () => {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="pwdVisible" title="重置密码" width="420px">
+    <el-dialog v-model="pwdVisible" title="重置密码" width="min(420px, 92vw)">
       <el-form label-width="90px">
         <el-form-item label="账号">
           <span>{{ pwdTarget?.real_name }}（{{ pwdTarget?.username }}）</span>
@@ -323,9 +326,9 @@ onMounted(async () => {
 
 <style scoped>
 .head { display: flex; align-items: center; justify-content: space-between; }
-.title { font-weight: 600; font-size: 15px; }
-.subtitle { margin-left: 10px; color: #909399; font-size: 12.5px; }
-.pager { margin-top: 12px; justify-content: flex-end; }
+.title { font-weight: 600; font-size: var(--ctms-fs-md); }
+.subtitle { margin-left: 10px; color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
+.pager { margin-top: var(--ctms-gap); justify-content: flex-end; }
 .mr4 { margin-right: 4px; }
-.gray { color: #909399; font-size: 12.5px; }
+.gray { color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
 </style>

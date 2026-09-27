@@ -53,7 +53,7 @@ function submit() {
 </script>
 
 <template>
-  <el-dialog v-model="visible" :title="meta.title" width="480px" append-to-body>
+  <el-dialog v-model="visible" :title="meta.title" width="min(480px, 92vw)" append-to-body>
     <el-alert :title="meta.tip" :type="meta.danger ? 'warning' : 'info'" :closable="false" show-icon class="mb" />
     <div class="subject">目标单据：<b>{{ subject }}</b></div>
     <el-form label-width="80px" class="mt">
@@ -73,7 +73,7 @@ function submit() {
 </template>
 
 <style scoped>
-.mb { margin-bottom: 12px; }
+.mb { margin-bottom: var(--ctms-gap); }
 .mt { margin-top: 4px; }
-.subject { font-size: 13px; color: #606266; }
+.subject { font-size: var(--ctms-fs-sm); color: var(--ctms-text-secondary); }
 </style>

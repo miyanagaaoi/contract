@@ -91,7 +91,10 @@ class Box:
         return data
 
     def supplier(self, name: str | None = None, **extra) -> dict:
-        payload = {"name": name or f"供应商_{uuid.uuid4().hex[:6]}", **extra}
+        full = name or f"供应商_{uuid.uuid4().hex[:6]}"
+        # V2.2（BR-V2.2-01）：供应商简称必填；工厂给默认值，用例要专门验证时可覆盖
+        extra.setdefault("short_name", full[:16])
+        payload = {"name": full, **extra}
         resp = self.client.post(f"{API}/suppliers", headers=self.h, json=payload)
         assert resp.status_code == 200, resp.text
         data = resp.json()
@@ -211,6 +214,48 @@ class TestParty:
         created = box.supplier(supply_scope="钢材/五金", payment_days=45)
         assert created["supply_scope"] == "钢材/五金"
         assert created["payment_days"] == 45
+
+    # ---- V2.2（BR-V2.2-01）：供货商简称必填 ----
+
+    def test_supplier_requires_short_name(self, box):
+        """新建供应商缺简称 → 422；简称只填空白同样拒绝。"""
+        for payload in ({"name": f"无简称供应商_{uuid.uuid4().hex[:6]}"},
+                        {"name": f"空简称供应商_{uuid.uuid4().hex[:6]}", "short_name": "   "}):
+            resp = box.client.post(f"{API}/suppliers", headers=box.h, json=payload)
+            assert resp.status_code == 422, resp.text
+            assert "简称不能为空" in resp.json()["detail"]
+
+    def test_supplier_short_name_kept_and_searchable(self, box):
+        """简称落库、可被关键词检索，并出现在下拉选项里（单据页要按简称显示）。"""
+        short = f"钢材{uuid.uuid4().hex[:4]}"
+        created = box.supplier(short_name=short)
+        assert created["short_name"] == short
+
+        listed = box.client.get(f"{API}/suppliers", headers=box.h,
+                                params={"keyword": short}).json()
+        assert [row["id"] for row in listed["items"]] == [created["id"]]
+
+        options = box.client.get(f"{API}/options/supplier", headers=box.h,
+                                 params={"keyword": short}).json()
+        assert options and options[0]["short_name"] == short
+
+    def test_supplier_update_cannot_clear_short_name(self, box):
+        """编辑时不允许把已有简称清空；不传该字段则保持原值。"""
+        created = box.supplier(short_name="宝钢")
+        cleared = box.client.put(f"{API}/suppliers/{created['id']}", headers=box.h,
+                                 json={"short_name": ""})
+        assert cleared.status_code == 422, cleared.text
+        assert "简称不能为空" in cleared.json()["detail"]
+
+        untouched = box.client.put(f"{API}/suppliers/{created['id']}", headers=box.h,
+                                   json={"contact_name": "张工"})
+        assert untouched.status_code == 200, untouched.text
+        assert untouched.json()["short_name"] == "宝钢"
+
+    def test_customer_short_name_still_optional(self, box):
+        """客户不受影响：客户往来习惯是全称，简称仍为选填。"""
+        created = box.customer()
+        assert created["short_name"] in (None, "")
 
     def test_reject_duplicate_name(self, box):
         name = f"重名客户_{uuid.uuid4().hex[:6]}"

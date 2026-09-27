@@ -35,7 +35,7 @@ const fields: MasterField[] = [
 
 <template>
   <MasterTablePage title="客户信息" subtitle="销售方向的甲方档案；合同表单可按类型引用"
-                   api="/master/customers" perm-view="master.customer.view"
+                   api="/master/customers"
                    perm-edit="master.customer.edit" :columns="columns" :fields="fields"
                    keyword-placeholder="名称 / 编码 / 简称 / 联系人" />
 </template>

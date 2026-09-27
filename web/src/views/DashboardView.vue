@@ -9,6 +9,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { fetchDashboard, updateContract, type Dict } from '@/api'
+import { fmtDate, fmtMoney, todayLocal } from '@/utils/format'
 
 const router = useRouter()
 const data = ref<Dict>({ stats: {}, expiring: [], expired: [] })
@@ -73,7 +74,7 @@ async function markReleased(row: Dict) {
       '质保释放确认',
       { type: 'warning', confirmButtonText: '标记已释放', cancelButtonText: '取消' },
     )
-    const today = new Date().toISOString().slice(0, 10)
+    const today = todayLocal()
     await updateContract(row.id, { warranty_released: true, warranty_release_date: today })
     ElMessage.success('已标记释放')
     load()
@@ -82,14 +83,7 @@ async function markReleased(row: Dict) {
   }
 }
 
-function fmtDate(s: string | null | undefined): string {
-  return s ? String(s).slice(0, 10) : '—'
-}
-
-function fmtMoney(v: unknown): string {
-  const n = Number(v || 0)
-  return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
+// fmtDate / fmtMoney 统一走 @/utils/format（T1-3）：空值不再伪装成 0.00
 
 onMounted(load)
 </script>
@@ -98,16 +92,16 @@ onMounted(load)
   <div v-loading="loading">
     <!-- 统计卡 -->
     <el-row :gutter="12" class="mb">
-      <el-col :span="6">
+      <el-col :span="6" :xs="12" :sm="12">
         <el-card shadow="never" class="card"><div class="num">{{ data.stats.total ?? 0 }}</div><div class="label">合同总数（有效）</div></el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="6" :xs="12" :sm="12">
         <el-card shadow="never" class="card"><div class="num">{{ data.stats.frameworks ?? 0 }}</div><div class="label">框架合同</div></el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="6" :xs="12" :sm="12">
         <el-card shadow="never" class="card warn"><div class="num">{{ data.stats.expiring_count ?? 0 }}</div><div class="label">质保即将到期（{{ data.stats.window_days ?? 30 }} 天内）</div></el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="6" :xs="12" :sm="12">
         <el-card shadow="never" class="card danger"><div class="num">{{ data.stats.expired_count ?? 0 }}</div><div class="label">质保已到期（未处理）</div></el-card>
       </el-col>
     </el-row>
@@ -262,18 +256,18 @@ onMounted(load)
 </template>
 
 <style scoped>
-.mb { margin-bottom: 12px; }
-.mt { margin-top: 12px; }
+.mb { margin-bottom: var(--ctms-gap); }
+.mt { margin-top: var(--ctms-gap); }
 .card { text-align: center; }
-.card.todo .num { color: #409eff; }
-.num { font-size: 28px; font-weight: 700; color: #303133; }
-.card.warn .num { color: #e6a23c; }
-.card.danger .num { color: #f56c6c; }
-.label { color: #909399; font-size: 13px; margin-top: 4px; }
-.sub { color: #909399; font-size: 12.5px; margin-left: 6px; }
-.foot { margin-top: 8px; color: #909399; font-size: 12.5px; }
+.card.todo .num { color: var(--ctms-primary); }
+.num { font-size: var(--ctms-fs-xl); font-weight: 700; color: var(--ctms-text); }
+.card.warn .num { color: var(--ctms-warning-text); }
+.card.danger .num { color: var(--ctms-danger-text); }
+.label { color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); margin-top: 4px; }
+.sub { color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); margin-left: 6px; }
+.foot { margin-top: 8px; color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
 .ov { text-align: center; }
-.ovnum { font-size: 20px; font-weight: 600; color: #303133; }
-.statuses { margin-top: 12px; }
+.ovnum { font-size: var(--ctms-fs-lg); font-weight: 600; color: var(--ctms-text); }
+.statuses { margin-top: var(--ctms-gap); }
 .mr4 { margin-right: 4px; }
 </style>

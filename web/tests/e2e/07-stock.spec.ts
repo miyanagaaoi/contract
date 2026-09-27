@@ -123,13 +123,15 @@ test.describe('库存管理', () => {
     await expect(page.getByRole('button', { name: '新增' })).toBeVisible()
   })
 
-  // ⚠️ 环境前提：真实库中内置角色的权限分配是**历史写入**的，新增的 `stock.transfer.*`
-  // 需先执行 `python -m app.init_db --sync-roles` 才会授予既有角色（`e2e_admin` 是
-  // `sysadmin` **角色**而非超管，权限取自角色的 role_permissions）。
+  // 环境前提（已满足）：真实库中内置角色的权限分配是**历史写入**的，新增的
+  // `stock.transfer.*` 需先执行 `python -m app.init_db --sync-roles` 才会授予既有
+  // 角色（`e2e_admin` 是 `sysadmin` **角色**而非超管，权限取自 role_permissions）。
   // 未同步前，前端路由守卫会把访问者导向 403 —— 这本身说明权限控制是生效的（不是缺陷）。
-  // 因此该用例在前端可达性上依赖一项运维动作，本地默认跳过；UAT 前先同步权限即可放开。
-  // 参见 `19-go-live-checklist.md` §8.2 与 `24-v2.1-acceptance.md`。
-  test.skip('调拨单：列表与新增页可达（需先执行 --sync-roles）', async ({ page }) => {
+  //
+  // 2026-09-26：已实测确认 `e2e_admin`(sysadmin) 具备全部 `stock.transfer.*`
+  // （GET /api/auth/me 的 perms 含 stock.transfer.view/create/edit/submit/approve/void/export），
+  // 前提条件满足，因此放开该用例，不再默认跳过。
+  test('调拨单：列表与新增页可达', async ({ page }) => {
     await login(page, 'admin')
 
     await page.goto('/stock/transfers')

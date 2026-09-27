@@ -1,30 +1,61 @@
-# 构建上下文排除（docker build 时减小体积/避免带入本地数据）
+# 构建上下文排除（docker build 时减小体积/避免带入本地数据与环境相关依赖）
+#
+# 注意 `.dockerignore` 的模式是**相对构建上下文根**的路径匹配，不是"任意层级"：
+# 写成 `node_modules` 只能排除根目录下的同名目录。原先正是这样写的，导致
+# `web/node_modules`（约 140MB，Windows 平台依赖）被原样送进构建上下文，
+# 并在前端阶段 `COPY web/ ./` 时**覆盖**容器内 `npm ci` 装出来的 Linux 依赖
+# （win32 的 esbuild/rollup 二进制混入 Linux 构建），既慢又不可复现。
+# 因此凡"可能出现在任意层级"的目录一律用 `**/` 前缀。
+
+# ---- 版本控制与本地数据 ----
 .git
-.venv
+.gitignore
 app/.venv
+**/.venv
 app/data
 app/uploads
 app/backups
 app/logs
-app/tests
-app/tools
 **/__pycache__
 **/*.py[cod]
 *.egg-info
-node_modules
+**/.pytest_cache
+
+# ---- 依赖与前端产物（一律用 **/ 前缀，见文件头说明） ----
+**/node_modules
 .npm-cache
 web/dist
+
+# ---- 测试与报告产物（不进镜像） ----
+app/tests
+app/tools
+web/tests
+web/test-results
+web/tests/e2e-report
+web/playwright-report
+
+# ---- 文档、脚本与本机构建配置 ----
 docs
 import_template
 scripts
 deploy
+design-audit
+web/design-audit
 preview-mvp2.html
 README.md
 setup.bat
 start-all.bat
+.github
+.dsh
+.browser4-cli
+.browser4-state
+
+# ---- 环境与密钥 ----
 .env
 .env.*
 *.md
 prompt*.txt
+
+# ---- 操作系统噪音 ----
 .DS_Store
 Thumbs.db

@@ -9,6 +9,7 @@ import DocListPage from '@/components/doc/DocListPage.vue'
 import PushDialog from '@/components/doc/PushDialog.vue'
 import { fetchMasterOptions, type Dict } from '@/api'
 import type { DocRecord } from '@/types/doc'
+import { fmtDate, fmtMoney } from '@/utils/format'
 
 const router = useRouter()
 const listRef = ref<InstanceType<typeof DocListPage> | null>(null)
@@ -24,15 +25,7 @@ function onPushed(doc: DocRecord) {
   router.push({ name: 'stock-in-edit', params: { id: String(doc.id) } })
 }
 
-function fmtMoney(v: unknown): string {
-  if (v === null || v === undefined) return '—'
-  const n = Number(v)
-  return Number.isNaN(n) ? String(v) : n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-function fmtDate(v: unknown): string {
-  return v ? String(v).slice(0, 10) : '—'
-}
+// fmtMoney / fmtDate 统一走 @/utils/format（T1-3）
 
 /** 收货仓库显示名（详情抽屉里避免只显示 ID） */
 const warehouses = ref<Dict[]>([])
@@ -40,7 +33,7 @@ const warehouses = ref<Dict[]>([])
 function warehouseName(id: unknown): string {
   if (!id) return '—'
   const hit = warehouses.value.find((w) => w.id === Number(id))
-  return hit ? hit.name : `ID ${id}`
+  return hit ? hit.name : `已删除/无权限的仓库（#${id}）`
 }
 
 onMounted(async () => {

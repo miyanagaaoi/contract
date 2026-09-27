@@ -3,6 +3,7 @@
  * 盘点单列表（T-V2-28）：全盘 / 抽盘；审核时按差异自动生成盘盈入库 / 盘亏出库单。
  */
 import DocListPage from '@/components/doc/DocListPage.vue'
+import PostStatusTag from '@/components/doc/PostStatusTag.vue'
 
 const TAKE_TYPE_LABEL: Record<string, string> = { full: '全盘', partial: '抽盘' }
 </script>
@@ -19,9 +20,7 @@ const TAKE_TYPE_LABEL: Record<string, string> = { full: '全盘', partial: '抽�
         {{ TAKE_TYPE_LABEL[String(detail.take_type)] || '—' }}
       </el-descriptions-item>
       <el-descriptions-item label="过账状态">
-        <el-tag :type="detail.posted ? 'success' : 'info'" size="small">
-          {{ detail.posted ? '已过账' : '未过账' }}
-        </el-tag>
+        <PostStatusTag :posted="detail.posted" />
       </el-descriptions-item>
       <el-descriptions-item label="盘盈入库单">{{ detail.generated_in_no || '—' }}</el-descriptions-item>
       <el-descriptions-item label="盘亏出库单">{{ detail.generated_out_no || '—' }}</el-descriptions-item>

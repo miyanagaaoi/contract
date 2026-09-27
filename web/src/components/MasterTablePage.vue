@@ -19,13 +19,15 @@ import {
 } from '@/api'
 import QuickCreateDialog from '@/components/QuickCreateDialog.vue'
 import { useAuthStore } from '@/stores/auth'
+import { fmtMoney } from '@/utils/format'
 import type { ExtraFilter, MasterColumn, MasterField } from '@/types/master'
 
 const props = withDefaults(defineProps<{
   title: string
   subtitle?: string
   api: string
-  permView: string
+  // permView 已移除（T4-3）：查看权限由路由 meta.perm 强制校验（见 router/index.ts），
+  // 本组件从未消费该 prop —— 属冗余死代码，留着会让人误以为前端另有一道防线。
   permEdit: string
   columns: MasterColumn[]
   fields: MasterField[]
@@ -223,11 +225,7 @@ async function remove(row: Dict) {
   await load()
 }
 
-function fmtMoney(v: unknown): string {
-  if (v === null || v === undefined || v === '') return '—'
-  const n = Number(v)
-  return Number.isNaN(n) ? String(v) : n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
+// fmtMoney 统一走 @/utils/format（T1-3）
 
 onMounted(async () => {
   await loadOptions()
@@ -307,11 +305,14 @@ onMounted(async () => {
       <template #empty>暂无数据</template>
     </el-table>
 
-    <el-pagination v-if="total > pageSize" class="pager" background layout="total, prev, pager, next"
+    <!-- T4-1b：补 sizes（原先无法改每页条数）与 @size-change（缺它会导致改条数不生效） -->
+    <el-pagination class="pager" background layout="total, prev, pager, next, sizes"
                    :total="total" :current-page="page" :page-size="pageSize"
-                   @current-change="(p: number) => { page = p; load() }" />
+                   :page-sizes="[10, 20, 50, 100]"
+                   @current-change="(p: number) => { page = p; load() }"
+                   @size-change="(s: number) => { pageSize = s; page = 1; load() }" />
 
-    <el-dialog v-model="dialogVisible" :title="editingId ? `编辑${title}` : `新增${title}`" width="620px">
+    <el-dialog v-model="dialogVisible" :title="editingId ? `编辑${title}` : `新增${title}`" width="min(620px, 92vw)">
       <el-form label-width="110px">
         <el-row :gutter="12">
           <el-col v-for="f in fields" :key="f.prop" :span="f.span || 12">
@@ -367,9 +368,9 @@ onMounted(async () => {
 <style scoped>
 .quick-line { display: flex; align-items: center; gap: 6px; width: 100%; }
 .head { display: flex; align-items: center; justify-content: space-between; }
-.title { font-weight: 600; font-size: 15px; }
-.subtitle { margin-left: 10px; color: #909399; font-size: 12.5px; }
+.title { font-weight: 600; font-size: var(--ctms-fs-md); }
+.subtitle { margin-left: 10px; color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
 .filters { margin-bottom: 4px; }
-.pager { margin-top: 12px; justify-content: flex-end; }
-.tip { margin-left: 8px; color: #909399; font-size: 12px; }
+.pager { margin-top: var(--ctms-gap); justify-content: flex-end; }
+.tip { margin-left: var(--ctms-gap-sm); color: var(--ctms-text-muted); font-size: var(--ctms-fs-xs); }
 </style>

@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
+import { clearToken, getToken } from '@/utils/token'
 import type {
   ContractRelatedResult,
   DocChangeLog,
@@ -14,13 +15,24 @@ import type {
   TakeCountInput,
 } from '@/types/doc'
 
-export const TOKEN_KEY = 'ctms_token'
+/**
+ * 令牌导出保留（T0-5）：真源已下沉到 `@/utils/token`，此处仅转发，
+ * 避免既有 `import { TOKEN_KEY } from '@/api'` 的调用点被迫同步改动。
+ */
+export { TOKEN_KEY } from '@/utils/token'
 
 export const http = axios.create({ baseURL: '/api', timeout: 20000 })
 
 // ---------- V2.0：登录态注入与统一错误处理（对应 12-erp-system-design.md §3.6） ----------
+/**
+ * 令牌一律经 `@/utils/token` 读取。
+ *
+ * 原先此处直接读 localStorage，而 `stores/auth.ts` 另存一份 `state.token`；
+ * 401 时只清 localStorage、不回写 store，于是出现「store 有值 / 本地无值」的
+ * 分裂态（`isLoggedIn` 仍为 true）。改由订阅机制保证两者同步。
+ */
 http.interceptors.request.use((config) => {
-  const token = localStorage.getItem(TOKEN_KEY)
+  const token = getToken()
   if (token) {
     // AxiosHeaders 在 1.x 下支持属性赋值；用 any 规避类型细节
     ;(config.headers as Record<string, string>).Authorization = `Bearer ${token}`
@@ -33,13 +45,21 @@ http.interceptors.response.use(
   (error) => {
     const status = error?.response?.status
     const detail = error?.response?.data?.detail
+    // 无 response：请求根本没到服务端（断网 / DNS / 超时 / CORS / 后端未启动）。
+    // 这类错误**不得**按未登录处理，否则内网瞬时抖动会把已登录用户踢回登录页，
+    // 连同当前页与未保存的录入一起丢掉。
+    const isNetworkError = !error?.response
     if (status === 401) {
-      // 令牌缺失/过期/账号被停用：清本地令牌回登录页（带 redirect 便于登录后返回）
-      localStorage.removeItem(TOKEN_KEY)
+      // 令牌缺失/过期/账号被停用：清令牌回登录页（带 redirect 便于登录后返回）。
+      // clearToken 会通知订阅者，Pinia store 随之同步清空（不再单边清理）
+      clearToken()
       if (!location.pathname.startsWith('/login')) {
         const redirect = encodeURIComponent(location.pathname + location.search)
-        location.href = `/login?redirect=${redirect}`
+        // replace 而非 href：不在历史里留下一个注定 401 的页面
+        location.replace(`/login?redirect=${redirect}`)
       }
+    } else if (isNetworkError) {
+      ElMessage.error('网络异常，请检查内网连接后重试')
     } else if (status === 403) {
       ElMessage.error(typeof detail === 'string' ? detail : '无权限执行该操作')
     } else if (typeof detail === 'string') {
@@ -484,6 +504,44 @@ export async function openDocPrint(path: string): Promise<void> {
 export async function fetchContractRelatedDocs(id: number): Promise<ContractRelatedResult> {
   const { data } = await http.get(`/contracts/${id}/related-docs`)
   return data as ContractRelatedResult
+}
+
+// ==================== V2.2：单据打印模板（BR-V2.2-02） ====================
+
+/** 打印模板列表（八类单据）+ 编辑界面元数据（区块/字段/列目录） */
+export async function fetchPrintTemplates(): Promise<Dict> {
+  const { data } = await http.get('/system/print-templates')
+  return data
+}
+
+/** 单个单据类型的模板（含出厂默认值对照，用于「恢复默认」与差异提示） */
+export async function fetchPrintTemplate(kind: string): Promise<Dict> {
+  const { data } = await http.get(`/system/print-templates/${kind}`)
+  return data
+}
+
+/** 保存模板（整表替换语义；后端会归一化，未知字段会被丢弃） */
+export async function savePrintTemplate(kind: string, config: Dict): Promise<Dict> {
+  const { data } = await http.put(`/system/print-templates/${kind}`, { config })
+  return data
+}
+
+/** 恢复出厂模板 */
+export async function resetPrintTemplate(kind: string): Promise<Dict> {
+  const { data } = await http.post(`/system/print-templates/${kind}/reset`)
+  return data
+}
+
+/**
+ * 预览：用**提交的（可能尚未保存的）配置**渲染样例单据，返回完整 HTML。
+ *
+ * 走 POST + `responseType: 'text'`：配置是结构化 JSON（塞进 URL 会超长），
+ * 拿到 HTML 后写进 iframe 的 `srcdoc`，因此不需要额外的带令牌 URL。
+ */
+export async function previewPrintTemplate(kind: string, config: Dict): Promise<string> {
+  const { data } = await http.post(`/system/print-templates/${kind}/preview`, { config },
+                                   { responseType: 'text' })
+  return data as string
 }
 
 /** 库存结存列表 */

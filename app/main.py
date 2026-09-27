@@ -29,6 +29,7 @@ from .routers import (
     imports,
     master,
     meta,
+    print_templates,
     purchase,
     sales,
     settings,
@@ -65,6 +66,7 @@ app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(system.router)
+app.include_router(print_templates.router)
 app.include_router(master.router)
 app.include_router(meta.router)
 app.include_router(dashboard.router)
