@@ -8,10 +8,10 @@ import { fetchFeishuAuthorizeUrl, fetchFeishuConfig } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 
 /**
- * sessionStorage 键：飞书要求 `redirect_uri` 与后台登记地址**完全一致**，
- * 不能在 URL 上追加 `?mode=`/`?redirect=`，因此"登录还是绑定""回哪一页"只能暂存在这里。
+ * 回跳页地址的暂存键：飞书要求 `redirect_uri` 与后台登记地址**完全一致**，
+ * 不能在 URL 上追加 `?redirect=`；丢了只会回首页，不影响正确性。
+ * （"登录还是绑定"的场景签在 `state` 里，不依赖 sessionStorage。）
  */
-const FEISHU_MODE_KEY = 'ctms_feishu_mode'
 const FEISHU_REDIRECT_KEY = 'ctms_feishu_redirect'
 
 const router = useRouter()
@@ -40,8 +40,7 @@ async function onFeishuLogin() {
   feishuLoading.value = true
   error.value = ''
   try {
-    const { url } = await fetchFeishuAuthorizeUrl()
-    sessionStorage.setItem(FEISHU_MODE_KEY, 'login')
+    const { url } = await fetchFeishuAuthorizeUrl('login')
     sessionStorage.setItem(FEISHU_REDIRECT_KEY, (route.query.redirect as string) || '/')
     window.location.href = url
   } catch (err: unknown) {

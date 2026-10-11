@@ -622,9 +622,15 @@ export async function fetchFeishuConfig(): Promise<FeishuConfig> {
   return data
 }
 
-/** 取带一次性 state 的授权地址（前端整页跳转过去） */
-export async function fetchFeishuAuthorizeUrl(): Promise<{ url: string }> {
-  const { data } = await http.get('/auth/feishu/authorize-url')
+/**
+ * 取带一次性 state 的授权地址（前端整页跳转过去）。
+ *
+ * `mode=bind` 用于**自助绑定**（场景会签进 state 随回调返回，前端据此选分支）。
+ */
+export async function fetchFeishuAuthorizeUrl(
+  mode: 'login' | 'bind' = 'login',
+): Promise<{ url: string; mode: string }> {
+  const { data } = await http.get('/auth/feishu/authorize-url', { params: { mode } })
   return data
 }
 

@@ -16,6 +16,8 @@ import {
   fetchBackups,
   fetchChangeLogs,
   fetchFeishuAdminConfig,
+  fetchFeishuAuthorizeUrl,
+  fetchFeishuBindInfo,
   fetchNumberRules,
   fetchOperationLogs,
   fetchSysParams,
@@ -23,6 +25,7 @@ import {
   saveNumberRules,
   saveSysParams,
   sendFeishuTestMessage,
+  unbindFeishu,
   type Dict,
 } from '@/api'
 import { useAuthStore } from '@/stores/auth'
@@ -207,6 +210,60 @@ const COUNT_LABELS: Dict = {
 const feishu = ref<Dict | null>(null)
 const feishuBusy = ref(false)
 const canFeishuEdit = computed(() => auth.hasPerm('system.feishu.edit'))
+// 当前登录账号**自己**的飞书绑定（绑定后才能免登并接收提醒；V2.4）
+const myBind = ref<Dict>({ bound: false })
+
+// 访问地址与飞书回调地址是否一致。不一致时绑定**必然失败**：
+// 登录态在 localStorage、令牌在内存，都是按 origin 隔离的，跨 origin 会丢。
+const currentOrigin = window.location.origin
+const redirectOrigin = computed(() => {
+  const target = String(feishu.value?.redirect_uri || '')
+  try {
+    return target ? new URL(target).origin : ''
+  } catch {
+    return ''
+  }
+})
+const originMismatch = computed(() => !!redirectOrigin.value && redirectOrigin.value !== currentOrigin)
+
+async function loadMyBind() {
+  try {
+    myBind.value = await fetchFeishuBindInfo()
+  } catch {
+    myBind.value = { bound: false }
+  }
+}
+
+/** 发起自助绑定：整页跳转飞书授权页；回调页据 `state` 里的场景调绑定接口 */
+async function bindMyFeishu() {
+  feishuBusy.value = true
+  try {
+    const { url } = await fetchFeishuAuthorizeUrl('bind')
+    window.location.href = url
+  } catch (err: unknown) {
+    ElMessage.error(_feishuError(err, '无法发起飞书绑定'))
+    feishuBusy.value = false
+  }
+}
+
+async function unbindMyFeishu() {
+  try {
+    await ElMessageBox.confirm('解绑后将无法用飞书免登，也不再收到飞书提醒（可随时重新绑定）。',
+                               '提示', { type: 'warning', confirmButtonText: '确定解绑' })
+  } catch {
+    return
+  }
+  feishuBusy.value = true
+  try {
+    await unbindFeishu()
+    ElMessage.success('已解绑')
+    await Promise.all([loadMyBind(), loadFeishu()])
+  } catch (err: unknown) {
+    ElMessage.error(_feishuError(err, '解绑失败'))
+  } finally {
+    feishuBusy.value = false
+  }
+}
 
 /** 无权限（403）或未启用时置空：tab 内只显示一条说明，不影响其它系统管理功能。 */
 async function loadFeishu() {
@@ -263,7 +320,10 @@ async function onTabChange(name: string) {
   else if (name === 'changes') await loadChanges()
   else if (name === 'backup') await loadBackups()
   else if (name === 'about') await loadAbout()
-  else if (name === 'feishu') await loadFeishu()
+  else if (name === 'feishu') {
+    await loadFeishu()
+    await loadMyBind()
+  }
 }
 
 onMounted(async () => {
@@ -483,6 +543,27 @@ onMounted(async () => {
                   title="飞书接入未启用，或当前账号没有查看权限"
                   description="启用需在后端配置 CTMS_FEISHU_ENABLED=1 以及 app_id / app_secret / redirect_uri；查看权限点为 system.feishu.view。" />
         <template v-else>
+          <!-- 访问地址 ≠ 回调地址时，绑定一定失败（登录态按 origin 隔离） -->
+          <el-alert v-if="originMismatch" type="warning" :closable="false" show-icon class="mb12"
+                    title="当前访问地址与飞书回调地址不一致，绑定 / 免登会失败"
+                    :description="`你正在用 ${currentOrigin} 访问，而飞书回调地址是 ${redirectOrigin}。请改用 ${redirectOrigin} 打开本系统后再操作（两处必须完全一致）。`" />
+
+          <!-- 绑定入口：配好接入后第一件事就是把自己绑上，否则点「飞书登录」会被拒绝 -->
+          <el-descriptions :column="1" border class="mb12">
+            <el-descriptions-item label="我的飞书绑定">
+              <el-tag v-if="myBind.bound" type="success" size="small">
+                已绑定：{{ myBind.display_name || '—' }}
+              </el-tag>
+              <el-tag v-else type="info" size="small">未绑定</el-tag>
+              <el-button v-if="!myBind.bound" type="primary" size="small"
+                         style="margin-left: 12px" :loading="feishuBusy"
+                         @click="bindMyFeishu">绑定飞书</el-button>
+              <el-button v-else size="small" style="margin-left: 12px" :loading="feishuBusy"
+                         @click="unbindMyFeishu">解绑</el-button>
+              <span class="tip">绑定后才能用飞书免登，并接收待办 / 到期提醒。</span>
+            </el-descriptions-item>
+          </el-descriptions>
+
           <el-descriptions :column="2" border>
             <el-descriptions-item label="接入状态">
               <el-tag :type="feishu.enabled ? 'success' : 'info'" size="small">

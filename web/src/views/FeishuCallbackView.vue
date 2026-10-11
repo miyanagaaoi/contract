@@ -13,8 +13,10 @@
  * - `login`（默认）：免登 —— 用授权码换本系统令牌并进入系统；
  * - `bind`：自助绑定 —— 已登录用户把自己的飞书身份绑到当前账号。
  *
- * 模式与回跳地址存在 `sessionStorage`：因为飞书要求 `redirect_uri` 与后台登记的
- * 地址**完全一致**，不能在 URL 上追加 `?mode=...`。
+ * **场景（登录/绑定）从 `state` 里读**，不依赖 sessionStorage：飞书要求 `redirect_uri`
+ * 与后台登记地址完全一致，不能在 URL 上追加 `?mode=`；而 sessionStorage 是**按 origin 隔离**的，
+ * 从 `localhost` 跳回内网 IP 时会丢，导致绑定被误当成登录。签进 `state` 则一定随回调带回。
+ * （回跳地址仍放 sessionStorage —— 丢了只会回首页，不影响正确性。）
  */
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -23,8 +25,12 @@ import { ElMessage } from 'element-plus'
 import { bindFeishu } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 
-const FEISHU_MODE_KEY = 'ctms_feishu_mode'
 const FEISHU_REDIRECT_KEY = 'ctms_feishu_redirect'
+
+/** 从已签名的 `state` 读场景（第 3 段）；签名由后端校验，前端只借此选分支。 */
+function modeFromState(state: string): 'login' | 'bind' {
+  return state.split('.')[2] === 'bind' ? 'bind' : 'login'
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -37,9 +43,8 @@ onMounted(async () => {
   const code = String(route.query.code || '')
   const state = String(route.query.state || '')
   const denied = String(route.query.error || '')
-  const mode = sessionStorage.getItem(FEISHU_MODE_KEY) || 'login'
+  const mode = modeFromState(state)
   const redirect = sessionStorage.getItem(FEISHU_REDIRECT_KEY) || '/'
-  sessionStorage.removeItem(FEISHU_MODE_KEY)
   sessionStorage.removeItem(FEISHU_REDIRECT_KEY)
 
   if (denied) {
