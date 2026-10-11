@@ -156,8 +156,12 @@ def apply_items(db: Session, doc, rows: list[dict] | None, *,
 
 
 def total_amount_of(doc) -> Decimal:
-    """行项金额合计（空行项时返回 0，注意 sum 的初值必须是 Decimal，否则 int 无 quantize）。"""
-    return sum((it.amount or Decimal("0") for it in (doc.items or [])),
+    """行项金额合计（空行项时返回 0，注意 sum 的初值必须是 Decimal，否则 int 无 quantize）。
+
+    V2.5：财务单据（付款单/收款单/发票）**没有行项**，金额来自 `total_amount` 字段，
+    故这里对无 `items` 关系的模型返回 0（调用方优先读 `doc.total_amount`）。
+    """
+    return sum((it.amount or Decimal("0") for it in (getattr(doc, "items", None) or [])),
                Decimal("0")).quantize(Decimal("0.01"))
 
 
@@ -172,7 +176,8 @@ def _ensure_status(doc, allowed: set[str], action: str) -> None:
 
 def submit(db: Session, doc, user) -> None:
     _ensure_status(doc, {"draft"}, "提交")
-    if not doc.items:
+    # V2.5：财务单据是表头型单据（无物料行项），不套用"至少一行行项"的校验
+    if hasattr(doc, "items") and not doc.items:
         raise ValueError("单据没有行项，不能提交")
     doc.status = "submitted"
     doc.submitted_by = getattr(user, "id", None)
@@ -252,6 +257,11 @@ def unapprove(db: Session, doc, reason: str, user) -> None:
     from . import push_service
 
     push_service.assert_no_downstream(db, doc)          # AC-V2-24
+    # V2.5：财务下游保护 —— 已记账的付款单/收款单/发票核销会依赖本单据的金额，
+    # 反审核会让它们的进度失去依据，因此必须先处理下游（BR-V2.5-04）。
+    from . import finance_service
+
+    finance_service.assert_no_finance_downstream(db, doc)
     old = doc.status
     doc.status = "submitted" if old == "approved" else "draft"
     doc.approved_by = None
@@ -435,12 +445,37 @@ def fmt_doc(db: Session, doc, *, with_items: bool = True) -> dict:
                   "generated_out_id", "generated_out_no",
                   # V2.1/N13：调拨单调出/调入仓库
                   "from_warehouse_id", "from_warehouse_name",
-                  "to_warehouse_id", "to_warehouse_name"):
+                  "to_warehouse_id", "to_warehouse_name",
+                  # V2.5：财务域（付款/收款/发票特有字段 + 目标单据的回写金额）
+                  "pay_account", "recv_account", "paid_amount", "received_amount",
+                  "invoiced_amount", "invoice_direction", "invoice_code", "invoice_no",
+                  "invoice_type", "invoice_date", "tax_rate", "amount", "tax_amount",
+                  "party_id", "party_name", "auth_status", "allocated_amount"):
         if hasattr(doc, field):
             value = getattr(doc, field)
             data[field] = value.isoformat() if isinstance(value, date) else value
     if with_items:
-        data["items"] = [fmt_item(it) for it in (doc.items or [])]
+        data["items"] = [fmt_item(it) for it in (getattr(doc, "items", None) or [])]
+
+    # ---- V2.5：财务域 ----
+    if doc.doc_type in ("purchase_order", "sales_order"):
+        # 六条进度（唯一真源：`finance_service.progress_of`，列表与导出共用同一口径）
+        from . import finance_service
+
+        data["progress"] = finance_service.progress_of(doc)
+    if doc.doc_type in ("payment", "receipt", "invoice"):
+        from . import finance_service
+
+        data["allocations"] = finance_service.fmt_allocations(doc)
+        data["unallocated_amount"] = float(finance_service.unallocated_amount(doc))
+        data["allocated_amount"] = float(finance_service.allocations_total(doc))
+    if doc.doc_type == "invoice":
+        # 发票有自己的状态/认证标签（不并入全局 DOC_STATUS，见 models_doc 说明）
+        from ..models_doc import INVOICE_AUTH_STATUS, INVOICE_DIRECTIONS, INVOICE_STATUS
+
+        data["status_label"] = INVOICE_STATUS.get(doc.status, doc.status)
+        data["invoice_direction_label"] = INVOICE_DIRECTIONS.get(doc.invoice_direction, "")
+        data["auth_status_label"] = INVOICE_AUTH_STATUS.get(doc.auth_status, doc.auth_status)
     return data
 
 
@@ -469,7 +504,9 @@ def apply_doc_filters(query, model, *, keyword: str | None = None, status: str |
         conds = [model.doc_no.like(like), model.source_doc_no.like(like),
                  model.contract_no.like(like), model.remark.like(like)]
         for field in ("supplier_name", "customer_name", "customer_name_text", "warehouse_name",
-                      "subject_name", "from_subject_name", "to_subject_name"):
+                      "subject_name", "from_subject_name", "to_subject_name",
+                      # V2.5：发票按票号/代码与往来单位检索（采购/销售单据无这些列，hasattr 跳过）
+                      "invoice_no", "invoice_code", "party_name"):
             if hasattr(model, field):
                 conds.append(getattr(model, field).like(like))
         query = query.filter(or_(*conds))

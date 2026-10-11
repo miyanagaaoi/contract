@@ -168,9 +168,11 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
     def _create(request: Request, payload: dict = Body(...),
                 user: User = Depends(create_perm), db: Session = Depends(get_db)):
         doc = _new_doc(db, payload, user)
+        # V2.5：财务单据（付款/收款/发票）无物料行项，`len(doc.items)` 会 AttributeError
+        line_count = len(getattr(doc, "items", None) or [])
         audit_service.log(db, user, module=perm_prefix.split(".")[0], action="create",
                           object_type=kind, object_id=doc.id, object_no=doc.doc_no,
-                          detail=f"新增{label}（{len(doc.items)} 行）", request=request)
+                          detail=f"新增{label}（{line_count} 行）", request=request)
         db.commit()
         return doc_service.fmt_doc(db, doc)
 
