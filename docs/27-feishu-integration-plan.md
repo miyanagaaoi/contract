@@ -178,15 +178,43 @@ CTMS_FEISHU_BASE_URL=http://192.168.31.27:8080   # 卡片跳转链接的根地�
 - 每日提醒（复用既有计划任务机制，见 `docs/08` §57 / `docs/09` §9 / `deploy` 容器 cron）：
   `python -m app.tools.feishu_digest --kind warranty,stock,todo`
 
-### 4.6 飞书侧配置清单（运维/管理员在开发者后台完成）
+### 4.6 飞书侧配置清单（管理员/运维在开发者后台完成）
 
-1. [open.feishu.cn/app](https://open.feishu.cn/app) 创建**企业自建应用**（内部使用，管理员审核即可，无需飞书审核）。
-2. 记下 **App ID / App Secret**（凭证与基础信息）。
-3. 开启**机器人**能力；发布后把使用人加入机器人**可用范围**（否则发送报 230013）。
-4. 申请权限：`im:message:send_as_bot`（发消息）；如需按手机号/邮箱预匹配再加通讯录只读权限（可选，§5.2）。
-5. 安全设置 → **重定向 URL** 登记 `CTMS_FEISHU_REDIRECT_URI`（**必须与请求完全一致**）。
-6. 发版并提交管理员审核（任一权限/功能变更都需重新发版）。
-7. **本次不需要**配置"事件与回调"，也**不需要**填 IP 白名单。
+> 官方依据：[创建并配置应用](https://open.feishu.cn/document/mass-messaging-to-designated-departments/create-app-request-permission)、
+> [应用配置说明](https://open.feishu.cn/document/develop-an-echo-bot/faq)、
+> [配置应用可用范围](https://open.feishu.cn/document/develop-process/test-and-release-app/availability)、
+> [获取用户信息](https://open.feishu.cn/document/ukTMukTMukTM/uIDO4UjLygDO14iM4gTN)。
+
+| # | 配置项 | 后台位置 | 影响本系统哪个功能 | 缺失时的现象 |
+|---|---|---|---|---|
+| 1 | 创建**企业自建应用** | [open.feishu.cn/app](https://open.feishu.cn/app) → 创建企业自建应用 | 全部 | — |
+| 2 | 抄下 **App ID / App Secret** | 基础信息 → 凭证与基础信息 | 全部 | 连通性检查失败 |
+| 3 | 添加**机器人**能力 | 应用能力 → 添加应用能力 → 机器人 → 添加 | 消息推送（免登不受影响） | 发消息报错 |
+| 4 | 开通权限 `im:message:send_as_bot` | 开发配置 → 权限管理 → API 权限 | 待办 / 审核结果 / 每日提醒 | 发消息 401/权限错误 |
+| 5 | 登记**重定向 URL** | 开发配置 → 安全设置 → 重定向 URL | 飞书免登 | 授权页报错，免登走不通 |
+| 6 | 配置**可用范围** | 应用发布 → 版本管理与发布 → 创建版本 → 版本详情 → 可用范围（或管理员在管理后台 → 工作台 → 应用管理 → 应用可用范围） | 推送投递 | 发消息报 **230013** |
+| 7 | 发布应用 | 应用发布 → 版本管理与发布 → 创建版本 | 使 1~6 生效 | 配置不生效 |
+
+**明确不需要的**（少开权限，减小攻击面）：
+
+- ❌ **事件订阅 / 回调地址 / 长连接** —— 本方案只**主动出网发消息**，不接收事件；
+- ❌ **通讯录类权限** —— `authen/v1/user_info` 的基础字段（`open_id`/`union_id`/`name`/`tenant_key`）
+  官方标注**无权限要求**；只有 `user_id`/`mobile`/`email` 等敏感字段才需要额外权限，
+  而本系统**一个都不用**（§5.2 已明确不按手机号/邮箱自动匹配账号）；
+- ❌ **群自定义机器人 webhook** —— 那是另一条路（无应用身份、不支持卡片回调、无数据访问权限），
+  与本方案使用的**应用机器人** `im/v1/messages` 不是一回事，不要混用；
+- ❌ 机器人**不需要**被拉进任何群：推送是给个人（`receive_id_type=open_id`）发单聊消息。
+
+**加速验证的官方机制**：`测试企业和人员 → 创建测试企业 → 关联应用`后切换到**测试版应用**，
+该版本"权限和配置变更都会直接生效，**无需管理员审核**"；正式版每次改动都必须重新发版审核。
+本方案的重定向 URL 内网地址实测（§8 风险 1）建议就在测试版上做。
+
+**本系统侧的验证入口**：系统管理 → **飞书接入** → 「连通性检查」（等价于取一次应用令牌）、
+「发送测试消息」（给当前账号发一张卡片，失败会直接显示原因）。
+
+**排错对照**：`230013` → 第 6 项可用范围未覆盖该用户；授权页报 `20029` → 第 5 项重定向 URL
+与请求不一致（见[官方排错文档](https://open.larkoffice.com/document/faq/trouble-shooting/how-to-resolve-the-authorization-page-20029-error)）；
+连通性检查失败 → 第 2 项密钥或服务器出网/代理问题。
 
 ## 5. 关键设计决策
 
