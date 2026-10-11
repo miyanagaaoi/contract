@@ -27,8 +27,10 @@ app/logs
 web/dist
 
 # ---- 测试与报告产物（不进镜像） ----
+# ⚠️ `app/tools` **不能排除**：其中既有 E2E 账号种子，也有 V2.3 的数据迁移工具
+# （`migrate_sqlite_to_pg.py` / `backfill_subject_v23.py`）——运维需要在容器内执行
+# `docker exec <容器> python -m app.tools.migrate_sqlite_to_pg`。
 app/tests
-app/tools
 web/tests
 web/test-results
 web/tests/e2e-report

@@ -8,9 +8,12 @@ services:
       - "8080:8000"     # 访问 http://<服务器IP>:8080；如宝塔已占 8080 可改其他端口
     volumes:
       - ctms_data:/data # 持久化 SQLite + 附件 + 日志（删容器数据不丢）
-    # 可选：连接外部 PostgreSQL 时取消注释并替换连接串
+    # V2.3：镜像已内置 psycopg2，可直接连外部 PostgreSQL；取消注释并替换连接串即可：
     # environment:
-    #   CTMS_DB_URL: postgresql+psycopg2://ctms:CHANGE_ME@host:5432/ctms
+    #   CTMS_DB_URL: postgresql+psycopg2://postgres:CHANGE_ME@192.168.31.27:5444/ctms
+    # 迁移既有 SQLite 数据（容器内执行，SQLite 文件放 /data）：
+    #   docker exec ctms python -m app.tools.migrate_sqlite_to_pg \
+    #     --sqlite /data/ctms.db --pg-url "postgresql+psycopg2://postgres:CHANGE_ME@192.168.31.27:5444/ctms"
 
 volumes:
   ctms_data:

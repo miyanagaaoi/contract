@@ -2,34 +2,48 @@
 # 用法：
 #   cd deploy && docker compose up -d --build
 # 说明：nginx 托管前端静态(web/dist)，/api 反代到 app；数据目录已映射为卷。
+#
+# V2.3（N5）：**默认改为 PostgreSQL 部署**（原默认 SQLite）。
+#   - `db` 服务随栈一起启动，数据落在 `pgdata` 卷，容器删除不丢；
+#   - 应用镜像已内置 psycopg2（见 deploy/Dockerfile），开箱即可连 PG；
+#   - 如仍想用 SQLite：注释掉 app 的 CTMS_DB_URL、以及 db 服务与 depends_on 即可。
 version: "3.9"
 
 services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ctms
+      POSTGRES_USER: ctms
+      POSTGRES_PASSWORD: CHANGE_ME          # 上线前务必修改，并与下方 CTMS_DB_URL 保持一致
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ctms -d ctms"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # 仅内网使用，不对外暴露端口；需要本机排查时再放开：
+    # ports:
+    #   - "5444:5432"
+
   app:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
     restart: unless-stopped
     environment:
-      # 默认 SQLite；需要 PostgreSQL 时取消下行并启用 db 服务
-      # CTMS_DB_URL: postgresql+psycopg2://ctms:CHANGE_ME@db:5432/ctms
+      CTMS_DB_URL: postgresql+psycopg2://ctms:CHANGE_ME@db:5432/ctms
       CTMS_UPLOAD_DIR: /data/uploads
       CTMS_LOG_DIR: /data/logs
     volumes:
       - ctms_data:/data
+    depends_on:
+      db:
+        condition: service_healthy
     expose:
       - "8000"
-
-  # 可选：PostgreSQL（若启用需先在镜像安装 psycopg2：见 app/requirements-pg.txt）
-  # db:
-  #   image: postgres:16
-  #   restart: unless-stopped
-  #   environment:
-  #     POSTGRES_DB: ctms
-  #     POSTGRES_USER: ctms
-  #     POSTGRES_PASSWORD: CHANGE_ME
-  #   volumes:
-  #     - pgdata:/var/lib/postgresql/data
 
   web:
     image: nginx:alpine
@@ -44,4 +58,4 @@ services:
 
 volumes:
   ctms_data:
-  # pgdata:
+  pgdata:

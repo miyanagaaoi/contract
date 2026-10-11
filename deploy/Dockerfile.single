@@ -21,8 +21,9 @@ ENV PYTHONUNBUFFERED=1 \
     CTMS_LOG_DIR=/data/logs \
     CTMS_SERVE_STATIC=1 \
     CTMS_WEB_DIST=/srv/web/dist
-COPY app/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY app/requirements.txt app/requirements-pg.txt /app/
+# V2.3：一并安装 PostgreSQL 驱动，单容器镜像可通过 CTMS_DB_URL 直连 PostgreSQL
+RUN pip install --no-cache-dir -r /app/requirements.txt -r /app/requirements-pg.txt
 COPY app/ /app/app/
 COPY --from=fe /build/dist /srv/web/dist
 
