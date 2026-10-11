@@ -37,6 +37,10 @@ if str(ROOT) not in sys.path:
 # ---------------------------------------------------------------- 关键：必须最先执行
 _TMP_DB = Path(tempfile.gettempdir()) / "ctms_pytest.db"
 os.environ["CTMS_DB_URL"] = f"sqlite:///{_TMP_DB.as_posix()}"
+# 飞书接入在测试中**强制关闭**（V2.4）：直接赋值优先于 `.env` 的 setdefault，
+# 否则开发机把 `.env` 配好之后，用例会真的去调飞书 API（出网、依赖外部服务），
+# 并使「默认关闭时整体降级」这类断言失效。
+os.environ["CTMS_FEISHU_ENABLED"] = "0"
 # 测试用固定密钥，避免依赖开发机 app/data/.jwt_secret
 os.environ.setdefault("CTMS_JWT_SECRET", "pytest-only-secret-not-for-production-0123456789")
 
