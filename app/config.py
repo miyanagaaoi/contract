@@ -1,16 +1,76 @@
 """应用配置。
 
-优先级：环境变量 > 本地默认。正式部署可用 env 覆盖：
+优先级：**真实环境变量 > `.env` 文件 > 代码默认值**。正式部署可用 env 覆盖：
 - CTMS_DB_URL       SQLAlchemy 连接串（默认 SQLite app/data/ctms.db；正式可切 PostgreSQL）
 - CTMS_UPLOAD_DIR   附件目录
 - CTMS_LOG_DIR      日志目录
+- CTMS_ENV_FILE     `.env` 文件路径（默认项目根目录 `.env`）
+
+`.env` 由本模块自行加载（零依赖，见 `load_env_file`）：项目不引入 python-dotenv，
+但"照 `.env.example` 填一个 `.env` 就能生效"是最自然的用法，否则它就是必然的踩坑点
+（已真实发生过：填完值却不生效，且没有任何报错）。
 """
 import os
 from pathlib import Path
 
-_env = os.environ.get
+
+def parse_env_text(text: str) -> dict[str, str]:
+    """解析 `.env` 文本 → 键值对（纯函数，便于单测）。
+
+    支持：`KEY=VALUE`、`#` 注释、空行、`export ` 前缀、值两侧成对引号。
+    **不支持**变量展开、多行值、命令替换 —— 那是 shell 的职责，配置文件里不该有。
+
+    设计取舍：不合法的行**静默跳过**。配置问题不该让服务起不来 —— 缺值会各自走默认值
+    或降级分支（例如飞书没配就整体降级），比"启动即崩"更符合内网系统的运维习惯。
+    """
+    result: dict[str, str] = {}
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        key, sep, value = line.partition("=")
+        if not sep:
+            continue
+        key = key.strip()
+        # 只接受合法环境变量名，避免把 `Foo Bar=x` 之类塞进 os.environ
+        if not key or not (key[0].isalpha() or key[0] == "_"):
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        result[key] = value
+    return result
+
+
+def load_env_file(path: Path | None = None) -> Path | None:
+    """把 `.env` 注入 `os.environ`，返回实际加载的文件路径（没有文件则 None）。
+
+    **已有环境变量优先**（用 `os.environ.setdefault`）：生产上由 NSSM / Docker Compose /
+    systemd 注入的值，永远不会被仓库里那份 `.env` 覆盖 —— 这是刻意的，
+    避免"本地文件意外改写生产配置"这种最难排查的事故。
+    """
+    target = path or Path(os.environ.get("CTMS_ENV_FILE") or (BASE_DIR.parent / ".env"))
+    try:
+        if not target.is_file():
+            return None
+        data = parse_env_text(target.read_text(encoding="utf-8"))
+    except OSError:
+        return None
+    for key, value in data.items():
+        os.environ.setdefault(key, value)
+    return target
+
 
 BASE_DIR = Path(__file__).resolve().parent          # app/
+
+# ⚠️ 必须在**任何配置读取之前**执行：下面的目录 / 数据库 / 密钥都是模块级常量，
+#    在 import 那一刻就被 os.environ 定死了。
+load_env_file()
+
+_env = os.environ.get
+
 DATA_DIR = BASE_DIR / "data"                        # SQLite 数据文件目录
 UPLOAD_DIR = Path(_env("CTMS_UPLOAD_DIR") or (BASE_DIR / "uploads"))
 LOG_DIR = Path(_env("CTMS_LOG_DIR") or (BASE_DIR / "logs"))
