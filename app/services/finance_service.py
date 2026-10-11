@@ -26,7 +26,7 @@
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import func
@@ -601,3 +601,54 @@ def summary(db: Session) -> dict:
 def finance_over_condition(db: Session, model, kind: str):
     """财务单据自身"超额核销"的库侧条件（列表筛选用）。"""
     return over_condition(db, model, kind)
+
+
+# ==================== 应收/应付账龄（M3） ====================
+
+AGING_BUCKETS: list[tuple[str, str, int, int | None]] = [
+    ("b0_30", "0-30 天", 0, 30),
+    ("b31_60", "31-60 天", 31, 60),
+    ("b61_90", "61-90 天", 61, 90),
+    ("b90_plus", "90 天以上", 91, None),
+]
+
+
+def aging(db: Session, *, as_of: date | None = None) -> dict:
+    """应收/应付账龄（按**单据日期**分档；`as_of` 缺省今天，便于测试与月末口径）。
+
+    口径与资金概览**同源**（已审核/已完成、未删除、含税差额 > 0），
+    账龄天数 = `as_of` − `doc_date`（自然日）。
+
+    起算日取**单据日期**而不是到期日：后者需要给采购单/销售订单加"付款/收款到期日"字段
+    与录入项（口径待业务确认，见 `docs/31` M3 待办）；先按单据日期分档，零字段改动且够用。
+    """
+    today = as_of or date.today()
+    out: dict = {"as_of": today.isoformat(), "buckets": [
+        {"code": c, "label": l} for c, l, _lo, _hi in AGING_BUCKETS]}
+    for key, model, field in (("purchase", PurchaseOrder, "paid_amount"),
+                              ("sales", SalesOrder, "received_amount")):
+        expr = _open_expr(model, field)
+        rows = (db.query(model.doc_date, model.total_amount, getattr(model, field))
+                .filter(model.status.in_(("approved", "completed")),
+                        model.deleted.is_(False), expr > 0)
+                .all())
+        amounts = {c: 0.0 for c, _l, _lo, _hi in AGING_BUCKETS}
+        counts = {c: 0 for c, _l, _lo, _hi in AGING_BUCKETS}
+        total = 0.0
+        for doc_date, total_amount, done in rows:
+            open_amount = float((total_amount or 0) - (done or 0))
+            days = (today - doc_date).days if doc_date else 0
+            for code, _label, low, high in AGING_BUCKETS:
+                if days >= low and (high is None or days <= high):
+                    amounts[code] += open_amount
+                    counts[code] += 1
+                    break
+            total += open_amount
+        out[key] = {
+            "total": round(total, 2),
+            "count": sum(counts.values()),
+            "buckets": [{"code": c, "label": l,
+                         "amount": round(amounts[c], 2), "count": counts[c]}
+                        for c, l, _lo, _hi in AGING_BUCKETS],
+        }
+    return out

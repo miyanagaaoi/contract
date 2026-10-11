@@ -277,6 +277,14 @@ def finance_summary(_user: User = Depends(require_perm("finance.payment.view")),
     return finance_service.summary(db)
 
 
+@router.get("/aging", summary="应收/应付账龄（按单据日期分档）")
+def finance_aging(as_of: str | None = Query(None, description="基准日 YYYY-MM-DD，缺省今天"),
+                  _user: User = Depends(require_perm("finance.payment.view")),
+                  db: Session = Depends(get_db)):
+    day = _guard(db, doc_service.parse_doc_date, as_of) if as_of else None
+    return finance_service.aging(db, as_of=day)
+
+
 @router.get("/meta", summary="财务模块元数据（结算方式/票种/方向/状态）")
 def finance_meta(_user: User = Depends(require_perm("finance.payment.view")),
                  _db: Session = Depends(get_db)):

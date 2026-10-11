@@ -696,6 +696,12 @@ export async function fetchFinanceSummary(): Promise<Dict> {
   return data
 }
 
+/** 应收/应付账龄（按单据日期分档；asOf 用于月末口径） */
+export async function fetchFinanceAging(asOf?: string): Promise<Dict> {
+  const { data } = await http.get('/finance/aging', { params: asOf ? { as_of: asOf } : {} })
+  return data
+}
+
 /** 发票确认入账（记账，回写收票/开票金额） */
 export async function confirmInvoice(id: number): Promise<Dict> {
   const { data } = await http.post(`/finance/invoices/${id}/confirm`)

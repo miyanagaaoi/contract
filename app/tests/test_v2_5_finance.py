@@ -922,3 +922,30 @@ class TestSummary:
         me = client.get("/api/auth/me", headers=box.login(client, box.user("finance"))).json()
         finance_menu = next(m for m in me["menus"] if m["key"] == "finance")
         assert "finance-overview" in {c["key"] for c in finance_menu["children"]}
+
+
+# ===================== 账龄（M3-02） =====================
+
+class TestAging:
+    def test_aging_buckets_by_doc_date(self, client, box, admin):
+        """账龄按**单据日期**分档：45 天前的未付采购单落到 31-60 档。"""
+        from app.models_doc import PurchaseOrder
+
+        po_id = box.purchase_order(amount="6000")
+        with SessionLocal() as db:
+            db.get(PurchaseOrder, po_id).doc_date = date.today() - __import__("datetime").timedelta(days=45)
+            db.commit()
+        fin_h = box.login(client, box.user("finance"))
+        body = client.get("/api/finance/aging", headers=fin_h).json()
+        bucket = next(b for b in body["purchase"]["buckets"] if b["code"] == "b31_60")
+        assert bucket["amount"] >= 6000.0 and bucket["count"] >= 1
+        # 基准日可指定（月末口径）：把基准日提前 60 天，同一张单应落到 0-30 档
+        earlier = (date.today() - __import__("datetime").timedelta(days=60)).isoformat()
+        body2 = client.get("/api/finance/aging", params={"as_of": earlier}, headers=fin_h).json()
+        assert body2["as_of"] == earlier
+        assert all(b["amount"] == 0 for b in body2["purchase"]["buckets"]
+                   if b["code"] in ("b31_60", "b61_90", "b90_plus"))
+
+    def test_aging_requires_permission(self, client, box):
+        assert client.get("/api/finance/aging",
+                          headers=box.login(client, box.user("keeper"))).status_code == 403

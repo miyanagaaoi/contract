@@ -12,13 +12,14 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { fetchFinanceSummary, type Dict } from '@/api'
+import { fetchFinanceAging, fetchFinanceSummary, type Dict } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { fmtDate, fmtMoney } from '@/utils/format'
 
 const auth = useAuthStore()
 const router = useRouter()
 const data = ref<Dict | null>(null)
+const aging = ref<Dict | null>(null)
 const loading = ref(false)
 
 const canRecalc = computed(() => auth.hasPerm('finance.payment.approve'))
@@ -27,6 +28,7 @@ async function load() {
   loading.value = true
   try {
     data.value = await fetchFinanceSummary()
+    aging.value = await fetchFinanceAging()
   } catch {
     data.value = null      // 无权限/接口异常：页面显示空态，不影响其它功能
   } finally {
@@ -108,7 +110,32 @@ onMounted(load)
         </span>
       </div>
 
-      <el-row :gutter="12">
+      <div class="block-title">
+        账龄（按单据日期，基准日 {{ aging?.as_of || '今天' }}）
+      </div>
+      <el-table :data="aging?.buckets || []" size="small" border class="aging">
+        <el-table-column prop="label" label="账龄区间" width="120" />
+        <el-table-column label="采购待付" align="right">
+          <template #default="{ row }">
+            {{ fmtMoney(aging?.purchase?.buckets?.find((b: Dict) => b.code === row.code)?.amount || 0) }}
+            （{{ aging?.purchase?.buckets?.find((b: Dict) => b.code === row.code)?.count || 0 }} 张）
+          </template>
+        </el-table-column>
+        <el-table-column label="销售待收" align="right">
+          <template #default="{ row }">
+            {{ fmtMoney(aging?.sales?.buckets?.find((b: Dict) => b.code === row.code)?.amount || 0) }}
+            （{{ aging?.sales?.buckets?.find((b: Dict) => b.code === row.code)?.count || 0 }} 张）
+          </template>
+        </el-table-column>
+        <el-table-column label="合计" align="right" width="140">
+          <template #default="{ row }">
+            <b>{{ fmtMoney((aging?.purchase?.buckets?.find((b: Dict) => b.code === row.code)?.amount || 0)
+              + (aging?.sales?.buckets?.find((b: Dict) => b.code === row.code)?.amount || 0)) }}</b>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <el-row :gutter="12" class="blocks">
         <el-col :span="12">
           <div class="block-title">金额最大的待付款采购单</div>
           <el-table :data="data.purchase?.open_payment?.top || []" size="small" border>
@@ -157,6 +184,8 @@ onMounted(load)
 .stat .value.green { color: #1f9d55; }
 .stat .tip { color: var(--ctms-text-muted); font-size: var(--ctms-fs-xs); }
 .alerts { display: flex; align-items: center; gap: 10px; margin: 4px 0 var(--ctms-gap); flex-wrap: wrap; }
-.block-title { font-weight: 600; margin-bottom: 6px; }
+.block-title { font-weight: 600; margin: 10px 0 6px; }
+.aging { margin-bottom: var(--ctms-gap); }
+.blocks { margin-top: 4px; }
 .tip { color: var(--ctms-text-muted); font-size: var(--ctms-fs-xs); }
 </style>
