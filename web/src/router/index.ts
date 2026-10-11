@@ -20,9 +20,23 @@ const router = createRouter({
       meta: { title: '登录', public: true },
     },
     {
+      // V2.4：飞书授权回调落点。**必须与飞书后台登记的 redirect_uri 完全一致**，
+      // 因此它不能携带任何额外 query；"登录还是绑定"通过 sessionStorage 传递。
+      path: '/feishu/callback', name: 'feishu-callback',
+      component: () => import('@/views/FeishuCallbackView.vue'),
+      meta: { title: '飞书登录', public: true },
+    },
+    {
       path: '/change-password', name: 'change-password',
       component: () => import('@/views/ChangePasswordView.vue'),
       meta: { title: '修改密码' },
+    },
+    {
+      // 飞书扫码自动建号后没有任何角色 → 所有带 perm 的路由都会 403。
+      // 这个页面是唯一放行的落点，并轮询等待管理员分配角色（`/auth/me` 的 pending_roles）。
+      path: '/pending', name: 'pending-role',
+      component: () => import('@/views/PendingRoleView.vue'),
+      meta: { title: '等待分配角色' },
     },
     {
       path: '/403', name: 'forbidden',
@@ -337,6 +351,19 @@ router.beforeEach(async (to) => {
 
   if (auth.user?.must_change_pwd && to.path !== '/change-password') {
     return { path: '/change-password' }
+  }
+
+  // 无任何启用角色（飞书自动建号后的初始状态）：
+  // 所有业务路由都是 403，先送到「等待分配角色」页；角色一分配好（`/auth/me` 说 false）
+  // 就自动离开该页。判定只在后端做，前端不凭 roles.length 自行推断。
+  //
+  // `/change-password` 必须放行：管理员新建的无角色账号仍带 must_change_pwd，
+  // 若一并拦到 /pending，用户就永远改不了初始密码（已经踩过一次：E2E 用例卡在 /login）。
+  if (auth.pendingRoles && to.path !== '/pending' && to.path !== '/change-password') {
+    return { path: '/pending' }
+  }
+  if (!auth.pendingRoles && to.path === '/pending') {
+    return { path: '/' }
   }
 
   const perm = to.meta.perm as string | undefined

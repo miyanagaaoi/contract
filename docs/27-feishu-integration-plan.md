@@ -3,7 +3,8 @@
 > 触发：业务方提出"把本系统接入飞书"。
 > 已确认范围：**① 飞书免登**（用飞书账号登录本系统）+ **② 消息推送 / 到期提醒**（待办、质保到期、库存预警推到飞书）。
 > 已确认网络条件：**服务器可出公网，但本系统没有公网可达的域名/IP**。
-> 文档状态：**待评审**（本文是施工方案，不是已冻结规格；落地前需按 `00-sdd-process.md` 补 `27` 对应的规格条目与 AC）。
+> 文档状态：**已实施（M1 免登 + M2 推送 + M3 每日提醒），分支 `exp/feishu-integration`**。
+> 代码落点与 §4 基本一致，实现时的差异与验证证据见 §10；尚未并入 `main`，待评审后合并。
 
 ---
 
@@ -107,7 +108,7 @@ app/tools/feishu_digest.py  # 每日提醒 CLI（计划任务调用），复用 
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
 | GET | `/api/auth/feishu/config` | 公开 | 返回 `{enabled, authorize_url, redirect_uri}`；关闭时前端不显示入口 |
-| POST | `/api/auth/feishu/login` | 公开 | body `{code, state}` → 校验 state → 换令牌 → 取 `open_id` → 查绑定 → 签发本系统 JWT。失败：`401` 未绑定 / `400` state 失效 |
+| POST | `/api/auth/feishu/login` | 公开 | body `{code, state}` → 校验 state → 换令牌 → 取 `open_id` → 查绑定 → **未绑定则自动建号（零角色）** → 签发本系统 JWT。返回 `auto_provisioned` / `pending_roles`。失败：`400` state 失效；`CTMS_FEISHU_AUTO_PROVISION=0` 时未绑定回 `401` |
 | GET | `/api/auth/feishu/bind-info` | 登录态 | 当前账号绑定状态 |
 | POST | `/api/auth/feishu/bind` | 登录态 | **自助绑定**：body `{code, state}`，把当前登录账号与飞书身份绑定 |
 | DELETE | `/api/auth/feishu/bind` | 登录态 | 自助解绑 |
@@ -170,36 +171,92 @@ CTMS_FEISHU_APP_ID=cli_xxxxxxxxxxxxxxxx
 CTMS_FEISHU_APP_SECRET=CHANGE_ME          # 仅环境变量，禁止入库/入 git
 CTMS_FEISHU_REDIRECT_URI=http://192.168.31.27:8080/feishu/callback
 CTMS_FEISHU_BASE_URL=http://192.168.31.27:8080   # 卡片跳转链接的根地址
+CTMS_FEISHU_AUTO_PROVISION=1                     # 未绑定飞书账号扫码 → 自动建号（零角色，待管理员分配）
 ```
 
 - `app_secret` **只从环境变量读**，与 `CTMS_JWT_SECRET` 同策略；不入 KV 库、不进日志、错误信息中脱敏。
+  取值来自飞书后台 **基础信息 → 凭证与基础信息 → App Secret**，必须与 `CTMS_FEISHU_APP_ID` 属于**同一个应用**。
+- ✅ **`.env` 会被自动加载**（V2.4 起，零依赖实现见 `config.py::load_env_file`）：
+  把 `.env.example` 复制为项目根目录 `.env` 填值即可，无需任何第三方库。
+  优先级为 **真实环境变量 > `.env` > 代码默认值**（用 `os.environ.setdefault`，
+  `.env` **不会**覆盖已注入的环境变量 —— 这是为了防止"本地文件改写生产配置"这类
+  最难排查的事故；`CTMS_ENV_FILE` 可指定其它路径）。
+  也完全可以不用 `.env`：`set` / `$env:` / NSSM `AppEnvironmentExtra` /
+  compose `environment:` / systemd `Environment=` 都等价。环境变量在**进程启动时**读取
+  （模块级常量），改完必须**重启后端**。
+- 四项必须齐全才会启用：`CTMS_FEISHU_ENABLED` + `APP_ID` + `APP_SECRET` + `REDIRECT_URI`；
+  缺任何一项，飞书功能整体降级（**包括消息推送**，因为 `feishu_ready()` 是单一开关）。
 - 出网白名单（443）：`open.feishu.cn`、`accounts.feishu.cn`；如有出口代理，需为 `httpx` 配置代理（具体参数落地时确认）。
 - 每日提醒（复用既有计划任务机制，见 `docs/08` §57 / `docs/09` §9 / `deploy` 容器 cron）：
   `python -m app.tools.feishu_digest --kind warranty,stock,todo`
 
-### 4.6 飞书侧配置清单（运维/管理员在开发者后台完成）
+### 4.6 飞书侧配置清单（管理员/运维在开发者后台完成）
 
-1. [open.feishu.cn/app](https://open.feishu.cn/app) 创建**企业自建应用**（内部使用，管理员审核即可，无需飞书审核）。
-2. 记下 **App ID / App Secret**（凭证与基础信息）。
-3. 开启**机器人**能力；发布后把使用人加入机器人**可用范围**（否则发送报 230013）。
-4. 申请权限：`im:message:send_as_bot`（发消息）；如需按手机号/邮箱预匹配再加通讯录只读权限（可选，§5.2）。
-5. 安全设置 → **重定向 URL** 登记 `CTMS_FEISHU_REDIRECT_URI`（**必须与请求完全一致**）。
-6. 发版并提交管理员审核（任一权限/功能变更都需重新发版）。
-7. **本次不需要**配置"事件与回调"，也**不需要**填 IP 白名单。
+> 官方依据：[创建并配置应用](https://open.feishu.cn/document/mass-messaging-to-designated-departments/create-app-request-permission)、
+> [应用配置说明](https://open.feishu.cn/document/develop-an-echo-bot/faq)、
+> [配置应用可用范围](https://open.feishu.cn/document/develop-process/test-and-release-app/availability)、
+> [获取用户信息](https://open.feishu.cn/document/ukTMukTMukTM/uIDO4UjLygDO14iM4gTN)。
+
+| # | 配置项 | 后台位置 | 影响本系统哪个功能 | 缺失时的现象 |
+|---|---|---|---|---|
+| 1 | 创建**企业自建应用** | [open.feishu.cn/app](https://open.feishu.cn/app) → 创建企业自建应用 | 全部 | — |
+| 2 | 抄下 **App ID / App Secret** | 基础信息 → 凭证与基础信息 | 全部 | 连通性检查失败 |
+| 3 | 添加**机器人**能力 | 应用能力 → 添加应用能力 → 机器人 → 添加 | 消息推送（免登不受影响） | 发消息报错 |
+| 4 | 开通权限 `im:message:send_as_bot` | 开发配置 → 权限管理 → API 权限 | 待办 / 审核结果 / 每日提醒 | 发消息 401/权限错误 |
+| 5 | 登记**重定向 URL** | 开发配置 → 安全设置 → 重定向 URL | 飞书免登 | 授权页报错，免登走不通 |
+| 6 | 配置**可用范围** | 应用发布 → 版本管理与发布 → 创建版本 → 版本详情 → 可用范围（或管理员在管理后台 → 工作台 → 应用管理 → 应用可用范围） | 推送投递 | 发消息报 **230013** |
+| 7 | 发布应用 | 应用发布 → 版本管理与发布 → 创建版本 | 使 1~6 生效 | 配置不生效 |
+
+**明确不需要的**（少开权限，减小攻击面）：
+
+- ❌ **事件订阅 / 回调地址 / 长连接** —— 本方案只**主动出网发消息**，不接收事件；
+- ❌ **通讯录类权限** —— `authen/v1/user_info` 的基础字段（`open_id`/`union_id`/`name`/`tenant_key`）
+  官方标注**无权限要求**；只有 `user_id`/`mobile`/`email` 等敏感字段才需要额外权限，
+  而本系统**一个都不用**（§5.2 已明确不按手机号/邮箱自动匹配账号）；
+- ❌ **群自定义机器人 webhook** —— 那是另一条路（无应用身份、不支持卡片回调、无数据访问权限），
+  与本方案使用的**应用机器人** `im/v1/messages` 不是一回事，不要混用；
+- ❌ 机器人**不需要**被拉进任何群：推送是给个人（`receive_id_type=open_id`）发单聊消息。
+
+**加速验证的官方机制**：`测试企业和人员 → 创建测试企业 → 关联应用`后切换到**测试版应用**，
+该版本"权限和配置变更都会直接生效，**无需管理员审核**"；正式版每次改动都必须重新发版审核。
+本方案的重定向 URL 内网地址实测（§8 风险 1）建议就在测试版上做。
+
+**本系统侧的验证入口**：系统管理 → **飞书接入** → 「连通性检查」（等价于取一次应用令牌）、
+「发送测试消息」（给当前账号发一张卡片，失败会直接显示原因）。
+
+**排错对照**：`230013` → 第 6 项可用范围未覆盖该用户；授权页报 `20029` → 第 5 项重定向 URL
+与请求不一致（见[官方排错文档](https://open.larkoffice.com/document/faq/trouble-shooting/how-to-resolve-the-authorization-page-20029-error)）；
+连通性检查失败 → 第 2 项密钥或服务器出网/代理问题。
 
 ## 5. 关键设计决策
 
-### 5.1 账号匹配：默认"先绑定后免登"（安全优先）
+### 5.1 账号匹配：未绑定**自动建号但零角色**（V2.5 业务口径）
 
-免登拿到 `open_id` 后如何对上本系统账号？三选一：
+免登拿到 `open_id` 后如何对上本系统账号？四种做法：
 
 | 方案 | 做法 | 评价 |
 |---|---|---|
-| **A（推荐）** | 管理员在用户管理页预先绑定，或用户先密码登录后自助绑定；未绑定 → `401「飞书账号尚未绑定系统账号，请联系管理员」` | 无越权风险，审计清晰；代价是首个用户要有初始绑定动作 |
-| B | 按 `user_info.mobile`/`email` 自动匹配 `users.phone`/`email` | 便捷，但手机号/邮箱**未经实时核验**（官方明确），改号/复用即越权；仅可作为**预匹配建议**交给管理员确认 |
-| C | 首次免登自动建号 | **禁止**：绕过角色与数据范围，等于把内网系统的权限边界交给飞书通讯录 |
+| A | 管理员在用户管理页预先绑定，或用户先密码登录后自助绑定；未绑定 → `401「飞书账号尚未绑定系统账号，请联系管理员」` | 无越权风险，审计清晰；代价是每个新人都要有一次"先建号 / 先绑定"的人工动作 |
+| B | 按 `user_info.mobile`/`email` 自动匹配 `users.phone`/`email` | 便捷，但手机号/邮箱**未经实时核验**（官方明确），改号/复用即越权；**始终不采用** |
+| C | 首次免登自动建号**并自动给角色/数据范围** | **禁止**：等于把内网系统的权限边界交给飞书通讯录 |
+| **D（V2.5 落地）** | 首次免登自动建号，**但不给任何角色**；账号落在「等待分配角色」页，由管理员在「账号管理 / 飞书接入」分配角色后才可用 | 省掉"先建号"的人工动作，同时**权限边界一点没放松**：没有角色就没有权限点、没有菜单、数据范围保持最窄（`SELF`）。风险在于账号会随手增加，靠"待分配角色"清单让管理员收口 |
 
-落地取 **A**，B 仅作为「待认领绑定」列表的辅助建议（对齐既有 `PartyDraftView` 历史档案认领的交互习惯）。
+**落地取 D**，并把 A 保留为可切换的收紧档：`CTMS_FEISHU_AUTO_PROVISION=0` 即退回
+"未绑定一律 401"，用于出现越权争议或临时审计时一键关闭（无需改代码、无需回滚）。
+
+D 的边界（实现必须守住，`test_v2_4_feishu.py::TestLoginByCode` 逐条固定）：
+
+1. **只新建，不匹配**：绝不按手机号/邮箱认领既有账号（方案 B 的风险）；
+   登录名与既有账号冲突时加 `_2`/`_3` 后缀，**不覆盖**既有账号的任何字段。
+2. **零角色**：新账号 `roles = []`，`collect_perms()` 为空，`data_scope_of()` 为 `SELF`。
+3. **密码随机**：`password_hash` 写随机串，管理员重置密码前该账号**只能**飞书登录；
+   同理 `must_change_pwd=False`（否则会把没有原密码的用户永久卡在改密页）。
+4. **留痕**：写 `feishu_signup` 操作日志（`detail` 含"未分配角色"与 `open_id`），
+   登录本身另写 `feishu_login`。
+5. **可见**：`GET /api/system/feishu/config` 返回 `pending_role_users`（待分配角色清单），
+   `GET /api/system/users?awaiting_role=true` 可按同一口径筛选。
+6. **登录名来源**：`employee_no` → 邮箱前缀 → 手机号 → `fs_<open_id 尾 10 位>`，
+   只保留 `[A-Za-z0-9._-]`；姓名（中文往往清洗为空）只用于 `real_name`。
 
 ### 5.2 令牌处理
 
@@ -213,8 +270,14 @@ CTMS_FEISHU_BASE_URL=http://192.168.31.27:8080   # 卡片跳转链接的根地�
 
 ### 5.4 免登账号的密码与首登改密
 
-- `users.password_hash` 为 NOT NULL，免登账号仍需一个密码哈希（管理员创建时随机生成即可），否则表约束与审计口径都要动。
-- **口径待确认**：`must_change_pwd=True` 的用户经飞书免登时，是否仍强制跳改密页？建议**免登路径跳过强制改密**（否则免登体验自相矛盾），仅在密码登录路径保留强制。该条需业务方签字确认后写入规格。
+- `users.password_hash` 为 NOT NULL，免登账号仍需一个密码哈希；**自动建号时写随机串**
+  （`secrets.token_urlsafe(32)`），管理员重置密码前该账号无法用密码登录。
+- **自动建号的账号 `must_change_pwd=False`**：既没有初始密码，强制改密会在改密页
+  "要求原密码"处把用户卡死。人工创建/管理员重置的账号仍保持既有口径（首次登录强制改密）。
+- 密码登录路径的强制改密逻辑**完全不变**；免登路径沿用 `must_change_pwd` 字段本身
+  （自动建号时必然为 `False`，因此不会出现"免登被弹到改密页"的自相矛盾体验）。
+- **无角色账号的落点**：`/api/auth/me` 返回 `pending_roles=true`，前端路由守卫统一送到
+  `/pending`（等待分配角色页）并每 10 秒复查；否则用户点任何菜单都只会看到 403。
 
 ## 6. 里程碑与验收
 
@@ -229,7 +292,10 @@ CTMS_FEISHU_BASE_URL=http://192.168.31.27:8080   # 卡片跳转链接的根地�
 
 | 编号 | 场景 | 期望 |
 |---|---|---|
-| AC-FS-01 | 飞书账号未绑定，点飞书登录 | 落回登录页并提示"尚未绑定，请联系管理员"；**不签发任何令牌** |
+| AC-FS-01 | `CTMS_FEISHU_AUTO_PROVISION=0` 时飞书账号未绑定，点飞书登录 | 落回登录页并提示"尚未绑定，请联系管理员"；**不签发任何令牌**，不建号 |
+| AC-FS-01B | 未绑定的飞书账号扫码登录（默认口径） | **自动建号并绑定**：登录名取自工号/邮箱前缀/手机号（冲突加后缀），`real_name` 取飞书名；签发本系统 JWT，`auto_provisioned=true`、`pending_roles=true` |
+| AC-FS-01C | 自动建号后的权限与落点 | 该账号 `roles=[]`、`perms=[]`、`menus=[]`、数据范围 `SELF`；前端落在 `/pending`（等待分配角色页），管理员分配角色后自动进入系统 |
+| AC-FS-01D | 同一飞书账号二次扫码 | 复用同一账号（不重复建号，`auto_provisioned=false`）；登录名已存在的既有账号**不被覆盖** |
 | AC-FS-02 | 已绑定账号免登 | 进入系统，`/api/auth/me` 返回的角色/权限/菜单与密码登录**完全一致** |
 | AC-FS-03 | `state` 被篡改或超 10 分钟 | `400`，不换令牌（CSRF 防护） |
 | AC-FS-04 | 解绑后再免登 | `401`；该用户密码登录仍可用 |
@@ -241,7 +307,8 @@ CTMS_FEISHU_BASE_URL=http://192.168.31.27:8080   # 卡片跳转链接的根地�
 | AC-FS-10 | 无 `im:message:send_as_bot` 权限 / 用户不在机器人可用范围 | 自检与测试消息给出**可读的**中文提示与错误码，不 500 |
 | AC-FS-11 | 后端重启（outbox 有 pending） | 未发送通知在重启后继续发送，不丢 |
 
-**回归基线**：`pytest`（329 项）、前端 Playwright E2E（81 项）、冒烟 M1/M2/M3 必须全绿——飞书功能默认关闭时对既有行为**零影响**。
+**回归基线**：`pytest`（329 项）、前端 Playwright E2E（82 项，含 V2.5 新增的
+`17-pending-role.spec.ts`）、冒烟 M1/M2/M3 必须全绿——飞书功能默认关闭时对既有行为**零影响**。
 
 ## 7. 明确不做（本次范围外）
 
@@ -272,3 +339,99 @@ CTMS_FEISHU_BASE_URL=http://192.168.31.27:8080   # 卡片跳转链接的根地�
 - 消息：[发送消息 im/v1/messages](https://open.feishu.cn/document/server-docs/im-v1/message/create) · [消息卡片交互](https://open.feishu.cn/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/configuring-card-interactions)
 - 事件订阅（M4 备查）：[事件概述](https://open.feishu.cn/document/ukTMukTMukTM/uUTNz4SN1MjL1UzM) · [长连接接收事件](https://open.feishu.cn/document/ukTMukTMukTM/uYDNxYjL2QTM24iN0EjN/event-subscription-configure-/request-url-configuration-case)
 - 审批（范围外，备查）：[创建审批实例](https://open.feishu.cn/document/server-docs/approval-v4/instance/create)
+
+---
+
+## 10. 实施记录（M1 免登 + M2 推送 + M3 每日提醒）
+
+分支：`exp/feishu-integration`（基线为 V2.3 成果提交之后的 `main`）。
+
+### 10.1 实际文件落点
+
+| 类型 | 文件 |
+|---|---|
+| 配置 | `app/config.py`（`FEISHU_*` + `feishu_ready()`，默认**关闭**） |
+| 模型 | `app/models_auth.py::UserIdentity`、`app/models_notify.py::Notification` |
+| 权限 | `app/permissions.py`：新增 `system.feishu.view/edit`；`DOC_VIEW_PERM` / `DOC_APPROVE_PERM` 上移为单一真源（看板与飞书推送共用） |
+| 服务 | `app/services/feishu/{__init__,client,identity_service,card,notify_service}.py` |
+| 路由 | `app/routers/feishu.py`（`/api/auth/feishu/*` 免登与绑定、`/api/system/feishu/*` 运维） |
+| 触发点 | `app/routers/doc_routes.py`：submit / approve / reject / complete / void / unapprove 各自**同事务入队** |
+| 线程与任务 | `app/main.py` lifespan 启停发送线程；`app/tools/feishu_digest.py` 每日摘要 CLI |
+| 前端 | 新增 `web/src/views/FeishuCallbackView.vue`；改 `LoginView.vue`、`stores/auth.ts`、`router/index.ts`、`api.ts`、`views/master/UserView.vue`、`views/system/SystemView.vue` |
+| 测试 | `app/tests/test_v2_4_feishu.py`（41 项，飞书 API 全部 mock，不外网） |
+
+V2.5 增补（自动建号）：`web/src/views/PendingRoleView.vue`（等待分配角色页）、
+`app/services/permission_service.py::pending_role`（待分配状态唯一判定）、
+`app/config.py::FEISHU_AUTO_PROVISION`。
+
+### 10.2 与本文方案的差异（均为简化或加固，不改变业务口径）
+
+1. **没有引入任何新依赖**：出网用标准库 `urllib.request`，未加 `httpx` / `lark-oapi`；
+   原方案里的 `errors.py` 合并进 `client.py`（错误类 + 已确认错误码的中文映射）。
+2. `UserIdentity` 落在 `models_auth.py`（认证域）而不是新建 models 文件；
+   `Notification` 独立为 `models_notify.py`。
+3. **发现并修复一个真实缺陷**：发送前的原子抢占若用
+   `query.update(synchronize_session=False)`，session 中那份**陈旧对象**会在后续 flush 时
+   把 `status` / `attempts` 的旧值写回，**覆盖抢占结果**（表现为 attempts 不增长、
+   或消息已发出却被改回 pending）。修复为抢占后立即 `db.expire_all()`，
+   并由 `test_send_failure_backs_off_then_fails` 固定住该行为。
+4. 重试语义：`next_retry_at` 为空表示"可立即发送"；退避 1 / 5 / 30 分钟，
+   达到 `CTMS_FEISHU_MAX_ATTEMPTS`（默认 5）次后转 `failed`，管理页可一键重试。
+
+### 10.3 验证证据
+
+```
+app/.venv/Scripts/python.exe -m pytest app/tests -q   → 370 passed（既有 329 + 新增 41）
+cd web && npm run build                               → ✓ built（无导入/语法错误）
+```
+
+新增用例覆盖 AC-FS-01~09：默认关闭时整体降级、`state` 篡改/超时/重放、绑定冲突与换绑、
+未绑定拒绝且审计留痕、免登签发**本系统** JWT、outbox 幂等、入队冲突不污染业务事务、
+发送成功/失败退避/原子抢占、每日摘要同日去重与"无内容不打扰"、卡片链接映射完整性。
+
+### 10.4 合并前仍需完成
+
+1. **实测飞书后台是否接受 `http://<内网IP>/feishu/callback` 作为重定向 URL**（§8 风险 1）——
+   这决定免登能否成立，必须在真实企业自建应用上验证，不能靠代码推断；
+2. 真实租户端到端联调：发卡片、点按钮跳回内网系统、免登闭环；
+3. 规格回写：`docs/11` §14.5（消息推送）/§14.8（对接外部系统）与 `docs/01` §6
+   的"范围外"清单需加评审变更批注；
+4. Playwright E2E 未覆盖飞书入口（依赖真实飞书授权页，属外部依赖），
+   当前以接口/服务层测试 + 手工联调替代。
+
+---
+
+## 11. 变更记录：V2.5 未绑定自动建号（2026-02）
+
+业务要求：**有人扫码登录飞书、但尚未绑定系统账号时，按飞书账号信息自动新建账号，
+角色等待管理员分配。**
+
+方案与安全边界见 §5.1 方案 D、§5.4；改动落点：
+
+| 层 | 文件 | 改动 |
+|---|---|---|
+| 配置 | `app/config.py` | 新增 `CTMS_FEISHU_AUTO_PROVISION`（默认 `1`）；置 `0` 退回旧口径 |
+| 服务 | `app/services/feishu/identity_service.py` | 新增 `username_candidates` / `unique_username` / `provision_user_from_feishu`；`login_by_code` 未绑定时建号并返回 `auto_provisioned` / `pending_roles` |
+| 服务 | `app/services/permission_service.py` | 新增 `pending_role(db, user)`：没有任何**启用**角色的唯一判定（登录与 `/me` 同源） |
+| 服务 | `app/services/user_service.py` | `fmt_user` 增加 `awaiting_role` 与角色 `enabled`；`list_users` 支持 `awaiting_role` 筛选 |
+| 路由 | `app/routers/feishu.py` | 登录响应加 `auto_provisioned` / `pending_roles`；管理配置接口加 `auto_provision`、`pending_role_users`、`pending_role_total` |
+| 路由 | `app/routers/auth.py`、`app/routers/system.py` | `/auth/me` 加 `pending_roles`；`GET /system/users` 加 `awaiting_role` 参数 |
+| 前端 | `PendingRoleView.vue`（新增）+ `router/index.ts` | `/pending` 路由与守卫：无角色 → 只放行该页，每 10 秒复查，分配后自动进入 |
+| 前端 | `FeishuCallbackView.vue`、`LoginView.vue`、`stores/auth.ts` | 提示"已自动创建账号，等待分配角色"并分流到 `/pending`；store 增加 `pendingRoles` |
+| 前端 | `UserView.vue`、`SystemView.vue`、`api.ts` | 账号管理加「角色分配：待分配角色」筛选与「分配角色」入口；飞书接入页加待分配清单与一键分配角色 |
+| 测试 | `app/tests/test_v2_4_feishu.py` | 49 项（原 41 + 自动建号 8）：自动建号零权限、二次扫码复用、开关关闭回退 401、登录名冲突不覆盖既有账号、并发建号冲突回退、`/me` pending、管理员可见性与分配后解除 pending |
+| 测试 | `web/tests/e2e/17-pending-role.spec.ts` | **新增**：零角色 → `/pending` → 管理员分配角色 → 10 秒内自动进入首页（不依赖飞书授权页，可 CI 稳定运行） |
+
+```
+app/.venv/Scripts/python.exe -m pytest app/tests -q   → 396 passed
+cd web && npm run build                               → ✓ built
+cd web && npx playwright test 17-pending-role         → 1 passed（独立 8123/5273 环境，临时库）
+官方 01-auth / 04-permission / 10-layout 用例回归        → 22 passed（仅把断言里的 dev 端口换成验证端口）
+```
+
+> 端到端验证是在**独立端口 + 临时库**上做的（本机已有 8000/5173 开发服务在跑、连的是真实演示库）：
+> 临时库位于已 gitignore 的 `.dsh/verify/`，验证后连同临时 Playwright/Vite 配置一并删除，
+> 未触碰真实库与正在运行的服务。
+
+上游规格回写（未完成项，与 §10.4 一并处理）：`docs/11` §6 的账号开通流程、
+`docs/16-permission-matrix.md` 的"新账号默认无角色"说明需补一句评审批注。

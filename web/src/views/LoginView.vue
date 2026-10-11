@@ -1,10 +1,18 @@
 <script setup lang="ts">
 /** 登录页（AC-V2-01/02/08）：失败提示以表单下方红字呈现，不做弹窗。 */
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
+import { fetchFeishuAuthorizeUrl, fetchFeishuConfig } from '@/api'
 import { useAuthStore } from '@/stores/auth'
+
+/**
+ * 回跳页地址的暂存键：飞书要求 `redirect_uri` 与后台登记地址**完全一致**，
+ * 不能在 URL 上追加 `?redirect=`；丢了只会回首页，不影响正确性。
+ * （"登录还是绑定"的场景签在 `state` 里，不依赖 sessionStorage。）
+ */
+const FEISHU_REDIRECT_KEY = 'ctms_feishu_redirect'
 
 const router = useRouter()
 const route = useRoute()
@@ -14,6 +22,33 @@ const username = ref('')
 const password = ref('')
 const loading = ref(false)
 const error = ref('')
+
+const feishuEnabled = ref(false)
+const feishuLoading = ref(false)
+
+/** 飞书入口默认隐藏：只有后端明确返回 enabled 才显示（未启用时登录页零感知，AC-FS-09）。 */
+onMounted(async () => {
+  try {
+    feishuEnabled.value = !!(await fetchFeishuConfig()).enabled
+  } catch {
+    feishuEnabled.value = false     // 接口异常也不能影响密码登录
+  }
+})
+
+/** 发起飞书免登：整页跳转到飞书授权页 */
+async function onFeishuLogin() {
+  feishuLoading.value = true
+  error.value = ''
+  try {
+    const { url } = await fetchFeishuAuthorizeUrl('login')
+    sessionStorage.setItem(FEISHU_REDIRECT_KEY, (route.query.redirect as string) || '/')
+    window.location.href = url
+  } catch (err: unknown) {
+    const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    error.value = detail || '无法发起飞书登录，请联系管理员'
+    feishuLoading.value = false
+  }
+}
 
 async function onSubmit() {
   if (!username.value.trim() || !password.value) {
@@ -30,6 +65,12 @@ async function onSubmit() {
       return
     }
     await auth.fetchMe(true)
+    // 无任何角色（如飞书自动建号、管理员尚未分配）→ 送到「等待分配角色」页，
+    // 否则会被路由守卫按 meta.perm 挡到 403，用户看不出发生了什么。
+    if (auth.pendingRoles) {
+      router.replace('/pending')
+      return
+    }
     const redirect = (route.query.redirect as string) || '/'
     router.replace(redirect)
   } catch (err: unknown) {
@@ -66,6 +107,14 @@ async function onSubmit() {
         </el-button>
       </el-form>
 
+      <!-- V2.4 飞书免登：后端未启用时整块不渲染，密码登录完全不受影响 -->
+      <template v-if="feishuEnabled">
+        <div class="divider"><span>或</span></div>
+        <el-button size="large" class="full" :loading="feishuLoading" @click="onFeishuLogin">
+          飞书登录
+        </el-button>
+      </template>
+
       <p class="foot">内网系统 · 忘记密码请联系系统管理员重置</p>
     </div>
   </div>
@@ -92,5 +141,20 @@ async function onSubmit() {
 .sub { color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); margin: 0 0 20px; }
 .err { color: var(--ctms-danger-text); font-size: var(--ctms-fs-sm); margin: 0 0 10px; }
 .full { width: 100%; margin-top: 4px; }
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 2px;
+  color: var(--ctms-text-muted);
+  font-size: var(--ctms-fs-xs);
+}
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--ctms-border, #e5e7eb);
+}
 .foot { margin-top: 16px; font-size: var(--ctms-fs-xs); color: var(--ctms-text-muted); text-align: center; }
 </style>

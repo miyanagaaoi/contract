@@ -8,17 +8,26 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import SettingsView from '@/views/SettingsView.vue'
 import {
+  assignUserRoles,
+  checkFeishuConnectivity,
   createBackup,
   deleteBackup,
   downloadBackup,
   fetchAbout,
   fetchBackups,
   fetchChangeLogs,
+  fetchFeishuAdminConfig,
+  fetchFeishuAuthorizeUrl,
+  fetchFeishuBindInfo,
   fetchNumberRules,
   fetchOperationLogs,
+  fetchRoleOptions,
   fetchSysParams,
+  retryFeishuFailed,
   saveNumberRules,
   saveSysParams,
+  sendFeishuTestMessage,
+  unbindFeishu,
   type Dict,
 } from '@/api'
 import { useAuthStore } from '@/stores/auth'
@@ -199,11 +208,168 @@ const COUNT_LABELS: Dict = {
   customers: '客户', suppliers: '供应商', products: '物料',
 }
 
+// ---- V2.4：飞书接入（配置自检 / 测试消息 / 失败通知重试） ----
+const feishu = ref<Dict | null>(null)
+const feishuBusy = ref(false)
+const canFeishuEdit = computed(() => auth.hasPerm('system.feishu.edit'))
+// 当前登录账号**自己**的飞书绑定（绑定后才能免登并接收提醒；V2.4）
+const myBind = ref<Dict>({ bound: false })
+
+// 访问地址与飞书回调地址是否一致。不一致时绑定**必然失败**：
+// 登录态在 localStorage、令牌在内存，都是按 origin 隔离的，跨 origin 会丢。
+const currentOrigin = window.location.origin
+const redirectOrigin = computed(() => {
+  const target = String(feishu.value?.redirect_uri || '')
+  try {
+    return target ? new URL(target).origin : ''
+  } catch {
+    return ''
+  }
+})
+const originMismatch = computed(() => !!redirectOrigin.value && redirectOrigin.value !== currentOrigin)
+
+async function loadMyBind() {
+  try {
+    myBind.value = await fetchFeishuBindInfo()
+  } catch {
+    myBind.value = { bound: false }
+  }
+}
+
+/** 发起自助绑定：整页跳转飞书授权页；回调页据 `state` 里的场景调绑定接口 */
+async function bindMyFeishu() {
+  feishuBusy.value = true
+  try {
+    const { url } = await fetchFeishuAuthorizeUrl('bind')
+    window.location.href = url
+  } catch (err: unknown) {
+    ElMessage.error(_feishuError(err, '无法发起飞书绑定'))
+    feishuBusy.value = false
+  }
+}
+
+async function unbindMyFeishu() {
+  try {
+    await ElMessageBox.confirm('解绑后将无法用飞书免登，也不再收到飞书提醒（可随时重新绑定）。',
+                               '提示', { type: 'warning', confirmButtonText: '确定解绑' })
+  } catch {
+    return
+  }
+  feishuBusy.value = true
+  try {
+    await unbindFeishu()
+    ElMessage.success('已解绑')
+    await Promise.all([loadMyBind(), loadFeishu()])
+  } catch (err: unknown) {
+    ElMessage.error(_feishuError(err, '解绑失败'))
+  } finally {
+    feishuBusy.value = false
+  }
+}
+
+/** 无权限（403）或未启用时置空：tab 内只显示一条说明，不影响其它系统管理功能。 */
+async function loadFeishu() {
+  try {
+    feishu.value = await fetchFeishuAdminConfig()
+  } catch {
+    feishu.value = null
+  }
+}
+
+function _feishuError(err: unknown, fallback: string): string {
+  return (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || fallback
+}
+
+async function checkFeishu() {
+  feishuBusy.value = true
+  try {
+    const data = await checkFeishuConnectivity()
+    ElMessage.success(`飞书连通正常（应用令牌 ${data.token_prefix}）`)
+  } catch (err: unknown) {
+    ElMessage.error(_feishuError(err, '飞书连通性检查失败'))
+  } finally {
+    feishuBusy.value = false
+  }
+}
+
+async function sendFeishuTest() {
+  feishuBusy.value = true
+  try {
+    await sendFeishuTestMessage()
+    ElMessage.success('测试消息已发送，请在飞书里查看')
+  } catch (err: unknown) {
+    ElMessage.error(_feishuError(err, '测试消息发送失败'))
+  } finally {
+    feishuBusy.value = false
+  }
+}
+
+async function retryFeishu() {
+  feishuBusy.value = true
+  try {
+    const data = await retryFeishuFailed()
+    ElMessage.success(`已重置 ${data.reset} 条失败通知，稍后自动重发`)
+    await loadFeishu()
+  } catch (err: unknown) {
+    ElMessage.error(_feishuError(err, '重置失败通知失败'))
+  } finally {
+    feishuBusy.value = false
+  }
+}
+
+// ---- V2.5：飞书扫码自动建号的「待分配角色」账号（能登录但没有任何菜单） ----
+const assignVisible = ref(false)
+const assignTarget = ref<Dict | null>(null)
+const assignRoleIds = ref<number[]>([])
+const assignSaving = ref(false)
+const roleOptions = ref<Dict[]>([])
+
+/** 分配角色要走 `PUT /system/users/{id}`（master.user.edit）+ 角色列表（master.role.view） */
+const canAssignRole = computed(
+  () => auth.hasPerm('master.user.edit') && auth.hasPerm('master.role.view'))
+
+async function loadRoleOptions() {
+  if (!canAssignRole.value || roleOptions.value.length) return
+  try {
+    roleOptions.value = (await fetchRoleOptions())
+      .filter((r: Dict) => r.enabled !== false)
+  } catch {
+    roleOptions.value = []      // 无权限 / 接口异常：退化为"去账号管理页分配"
+  }
+}
+
+function openAssign(row: Dict) {
+  assignTarget.value = row
+  assignRoleIds.value = []
+  assignVisible.value = true
+  void loadRoleOptions()
+}
+
+async function saveAssign() {
+  if (!assignTarget.value) return
+  if (!assignRoleIds.value.length) return ElMessage.warning('请至少选择一个角色')
+  assignSaving.value = true
+  try {
+    await assignUserRoles(assignTarget.value.id, assignRoleIds.value)
+    ElMessage.success('角色已分配，该账号现在可以正常使用系统')
+    assignVisible.value = false
+    await loadFeishu()
+  } catch {
+    // 拦截器已提示（无权限 / 后端校验失败）
+  } finally {
+    assignSaving.value = false
+  }
+}
+
 async function onTabChange(name: string) {
   if (name === 'logs') await loadLogs()
   else if (name === 'changes') await loadChanges()
   else if (name === 'backup') await loadBackups()
   else if (name === 'about') await loadAbout()
+  else if (name === 'feishu') {
+    await loadFeishu()
+    await loadMyBind()
+  }
 }
 
 onMounted(async () => {
@@ -416,7 +582,145 @@ onMounted(async () => {
           </el-descriptions-item>
         </el-descriptions>
       </el-tab-pane>
+
+      <!-- V2.4：飞书接入（免登 + 消息推送） -->
+      <el-tab-pane label="飞书接入" name="feishu">
+        <el-alert v-if="!feishu" type="info" :closable="false" show-icon
+                  title="飞书接入未启用，或当前账号没有查看权限"
+                  description="启用需在后端配置 CTMS_FEISHU_ENABLED=1 以及 app_id / app_secret / redirect_uri；查看权限点为 system.feishu.view。" />
+        <template v-else>
+          <!-- 访问地址 ≠ 回调地址时，绑定一定失败（登录态按 origin 隔离） -->
+          <el-alert v-if="originMismatch" type="warning" :closable="false" show-icon class="mb12"
+                    title="当前访问地址与飞书回调地址不一致，绑定 / 免登会失败"
+                    :description="`你正在用 ${currentOrigin} 访问，而飞书回调地址是 ${redirectOrigin}。请改用 ${redirectOrigin} 打开本系统后再操作（两处必须完全一致）。`" />
+
+          <!-- 绑定入口：配好接入后第一件事就是把自己绑上，否则点「飞书登录」会被拒绝 -->
+          <el-descriptions :column="1" border class="mb12">
+            <el-descriptions-item label="我的飞书绑定">
+              <el-tag v-if="myBind.bound" type="success" size="small">
+                已绑定：{{ myBind.display_name || '—' }}
+              </el-tag>
+              <el-tag v-else type="info" size="small">未绑定</el-tag>
+              <el-button v-if="!myBind.bound" type="primary" size="small"
+                         style="margin-left: 12px" :loading="feishuBusy"
+                         @click="bindMyFeishu">绑定飞书</el-button>
+              <el-button v-else size="small" style="margin-left: 12px" :loading="feishuBusy"
+                         @click="unbindMyFeishu">解绑</el-button>
+              <span class="tip">绑定后才能用飞书免登，并接收待办 / 到期提醒。</span>
+            </el-descriptions-item>
+          </el-descriptions>
+
+          <el-descriptions :column="2" border>
+            <el-descriptions-item label="接入状态">
+              <el-tag :type="feishu.enabled ? 'success' : 'info'" size="small">
+                {{ feishu.enabled ? '已启用' : '未启用' }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="App ID">{{ feishu.app_id || '未配置' }}</el-descriptions-item>
+            <el-descriptions-item label="回调地址">{{ feishu.redirect_uri || '未配置' }}</el-descriptions-item>
+            <el-descriptions-item label="API 域名">{{ feishu.api_base }}</el-descriptions-item>
+            <el-descriptions-item label="已绑定 / 账号总数">
+              {{ feishu.bound_users }} / {{ feishu.total_users }}
+            </el-descriptions-item>
+            <!-- V2.5：未绑定的飞书账号扫码后自动建号（零角色，等待管理员分配） -->
+            <el-descriptions-item label="未绑定自动建号">
+              <el-tag :type="feishu.auto_provision ? 'success' : 'info'" size="small">
+                {{ feishu.auto_provision ? '已开启' : '已关闭（未绑定一律拒绝）' }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="通知发送线程">
+              {{ feishu.outbox?.worker_running ? '运行中' : '未运行' }}
+            </el-descriptions-item>
+            <el-descriptions-item label="待发 / 失败 / 今日已发">
+              {{ feishu.outbox?.pending ?? 0 }} / {{ feishu.outbox?.failed ?? 0 }} /
+              {{ feishu.outbox?.sent_today ?? 0 }}
+            </el-descriptions-item>
+          </el-descriptions>
+
+          <div class="mt12">
+            <el-button :loading="feishuBusy" @click="checkFeishu">连通性检查</el-button>
+            <el-button v-if="canFeishuEdit" type="primary" :loading="feishuBusy"
+                       @click="sendFeishuTest">发送测试消息</el-button>
+            <el-button v-if="canFeishuEdit" :loading="feishuBusy" @click="retryFeishu">
+              重试失败通知
+            </el-button>
+          </div>
+
+          <el-table v-if="feishu.outbox?.recent_failures?.length" class="mt12"
+                    :data="feishu.outbox.recent_failures" size="small">
+            <el-table-column prop="event_key" label="消息" min-width="220" />
+            <el-table-column prop="attempts" label="尝试" width="70" />
+            <el-table-column prop="error" label="失败原因" min-width="260" />
+            <el-table-column prop="created_at" label="创建时间" width="160" />
+          </el-table>
+          <p v-else class="tip mt12">最近没有发送失败的通知。</p>
+
+          <p v-if="feishu.unbound_users?.length" class="tip mt12">
+            未绑定飞书的启用账号：
+            <span v-for="u in feishu.unbound_users" :key="u.id" class="count">
+              {{ u.real_name || u.username }}
+            </span>
+            <span v-if="feishu.total_users - feishu.bound_users > feishu.unbound_users.length">
+              （仅列出前 {{ feishu.unbound_users.length }} 个）
+            </span>
+          </p>
+
+          <!--
+            V2.5：飞书扫码自动建号但**没有任何角色**的账号。
+            它们能登录却看不到任何菜单，不在这里主动暴露的话，只能等用户打来电话。
+          -->
+          <template v-if="feishu.pending_role_total">
+            <el-alert class="mt12" type="warning" :closable="false" show-icon
+                      title="有账号等待分配角色（飞书扫码自动建号）"
+                      :description="`共 ${feishu.pending_role_total} 个账号已被自动创建但没有任何角色：能登录、看不到任何菜单。请分配角色后再让他们使用。`" />
+            <el-table class="mt12" :data="feishu.pending_role_users" size="small" border>
+              <el-table-column prop="username" label="登录名" width="150" />
+              <el-table-column prop="real_name" label="姓名" width="120" />
+              <el-table-column prop="feishu_name" label="飞书名" width="120">
+                <template #default="{ row }">{{ row.feishu_name || '—' }}</template>
+              </el-table-column>
+              <el-table-column prop="created_at" label="建号时间" width="170">
+                <template #default="{ row }">{{ row.created_at || '—' }}</template>
+              </el-table-column>
+              <el-table-column prop="last_login_at" label="最近登录" width="170">
+                <template #default="{ row }">{{ row.last_login_at || '—' }}</template>
+              </el-table-column>
+              <el-table-column label="操作" width="140">
+                <template #default="{ row }">
+                  <el-button v-if="canAssignRole" link type="primary" size="small"
+                             @click="openAssign(row)">分配角色</el-button>
+                  <span v-else class="tip">请到「账号管理」分配角色</span>
+                </template>
+              </el-table-column>
+            </el-table>
+            <p v-if="feishu.pending_role_total > (feishu.pending_role_users?.length || 0)"
+               class="tip mt12">
+              （仅列出最近 {{ feishu.pending_role_users?.length }} 个，全部待分配账号见「账号管理 → 角色分配：待分配角色」）
+            </p>
+          </template>
+        </template>
+      </el-tab-pane>
     </el-tabs>
+
+    <!-- 分配角色（只提交 role_ids，其它字段不动） -->
+    <el-dialog v-model="assignVisible" title="分配角色" width="min(460px, 92vw)">
+      <el-form label-width="90px">
+        <el-form-item label="账号">
+          <span>{{ assignTarget?.real_name }}（{{ assignTarget?.username }}）</span>
+        </el-form-item>
+        <el-form-item label="角色" required>
+          <el-select v-model="assignRoleIds" multiple filterable style="width: 100%"
+                     placeholder="选择至少一个角色">
+            <el-option v-for="r in roleOptions" :key="r.id" :label="r.name" :value="r.id" />
+          </el-select>
+        </el-form-item>
+        <div class="tip">分配后该账号立即获得对应权限，无需重新登录（权限每次请求都重新计算）。</div>
+      </el-form>
+      <template #footer>
+        <el-button @click="assignVisible = false">取消</el-button>
+        <el-button type="primary" :loading="assignSaving" @click="saveAssign">保存</el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 

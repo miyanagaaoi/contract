@@ -609,6 +609,97 @@ export async function recalcStock(fix = false): Promise<StockRecalcResult> {
   return data as StockRecalcResult
 }
 
+// ---------- V2.4：飞书接入（免登 / 自助绑定 / 运维） ----------
+
+export interface FeishuConfig {
+  enabled: boolean
+  redirect_uri: string | null
+}
+
+/** 登录页据此决定是否显示「飞书登录」入口（公开接口，默认关闭时不显示） */
+export async function fetchFeishuConfig(): Promise<FeishuConfig> {
+  const { data } = await http.get('/auth/feishu/config')
+  return data
+}
+
+/**
+ * 取带一次性 state 的授权地址（前端整页跳转过去）。
+ *
+ * `mode=bind` 用于**自助绑定**（场景会签进 state 随回调返回，前端据此选分支）。
+ */
+export async function fetchFeishuAuthorizeUrl(
+  mode: 'login' | 'bind' = 'login',
+): Promise<{ url: string; mode: string }> {
+  const { data } = await http.get('/auth/feishu/authorize-url', { params: { mode } })
+  return data
+}
+
+/** 当前账号的飞书绑定状态 */
+export async function fetchFeishuBindInfo(): Promise<Dict> {
+  const { data } = await http.get('/auth/feishu/bind-info')
+  return data
+}
+
+/** 自助绑定：把自己的飞书身份绑到当前账号 */
+export async function bindFeishu(code: string, state: string): Promise<Dict> {
+  const { data } = await http.post('/auth/feishu/bind', { code, state })
+  return data
+}
+
+/** 解绑当前账号的飞书身份 */
+export async function unbindFeishu(): Promise<Dict> {
+  const { data } = await http.delete('/auth/feishu/bind')
+  return data
+}
+
+/** 系统管理：接入状态、已绑定人数、outbox 概览 */
+export async function fetchFeishuAdminConfig(): Promise<Dict> {
+  const { data } = await http.get('/system/feishu/config')
+  return data
+}
+
+/** 连通性自检（会真实出网取应用令牌） */
+export async function checkFeishuConnectivity(): Promise<Dict> {
+  const { data } = await http.post('/system/feishu/check')
+  return data
+}
+
+/** 给当前账号发一条测试卡片（同步返回失败原因） */
+export async function sendFeishuTestMessage(): Promise<Dict> {
+  const { data } = await http.post('/system/feishu/test-message')
+  return data
+}
+
+/** 把失败的通知重置为待发（手动重试） */
+export async function retryFeishuFailed(): Promise<Dict> {
+  const { data } = await http.post('/system/feishu/retry-failed')
+  return data
+}
+
+/** 管理员解绑某账号的飞书身份（换人/离职场景） */
+export async function adminUnbindFeishu(userId: number): Promise<Dict> {
+  const { data } = await http.post('/system/feishu/unbind', { user_id: userId })
+  return data
+}
+
+// ---------- V2.5：飞书自动建号的「待分配角色」账号 ----------
+
+/** 角色下拉（分配角色用；需要 `master.role.view`） */
+export async function fetchRoleOptions(): Promise<Dict[]> {
+  const { data } = await http.get('/system/roles')
+  return (data.items || []) as Dict[]
+}
+
+/**
+ * 给账号分配角色（整表替换语义，需要 `master.user.edit`）。
+ *
+ * 只发 `role_ids`：后端按"字段存在才改"打补丁，不会覆盖姓名/组织等其它字段。
+ */
+export async function assignUserRoles(userId: number, roleIds: number[]): Promise<Dict> {
+  const { data } = await http.put(`/system/users/${userId}`, { role_ids: roleIds })
+  return data
+}
+
 export type {
   DocItem, DocRecord, DocListQuery, DocListResult, PushRow, TakeCountInput,
 } from '@/types/doc'

@@ -30,6 +30,9 @@ def _fmt_dt(value) -> str | None:
 
 def fmt_user(db: Session, user: User) -> dict:
     roles = list(user.roles or [])
+    # 飞书自动建号的账号一开始没有任何角色：`awaiting_role` 让账号管理页直接把它标成
+    # 「待分配角色」，与 `/auth/me` 的 pending_roles 同口径（都只看**启用**角色）。
+    enabled_roles = [r for r in roles if r.enabled]
     return {
         "id": user.id,
         "username": user.username,
@@ -43,13 +46,16 @@ def fmt_user(db: Session, user: User) -> dict:
         "must_change_pwd": user.must_change_pwd,
         "last_login_at": _fmt_dt(user.last_login_at),
         "remark": user.remark,
-        "roles": [{"id": r.id, "code": r.code, "name": r.name} for r in roles],
+        "roles": [{"id": r.id, "code": r.code, "name": r.name, "enabled": r.enabled}
+                  for r in roles],
         "role_names": [r.name for r in roles],
+        "awaiting_role": (not user.is_superadmin) and not enabled_roles,
     }
 
 
 def list_users(db: Session, *, keyword: str | None = None, org_id: int | None = None,
                role_id: int | None = None, status: str | None = None,
+               awaiting_role: bool = False,
                page: int = 1, page_size: int = 20) -> dict:
     query = db.query(User)
     if keyword:
@@ -61,6 +67,10 @@ def list_users(db: Session, *, keyword: str | None = None, org_id: int | None = 
         query = query.filter(User.status == status)
     if role_id:
         query = query.filter(User.roles.any(Role.id == role_id))
+    if awaiting_role:
+        # 「待分配角色」筛选（飞书自动建号后管理员要先找到这些人）
+        query = query.filter(~User.roles.any(Role.enabled == True))  # noqa: E712
+        query = query.filter(User.is_superadmin == False)  # noqa: E712
 
     total = query.count()
     page = max(1, int(page or 1))

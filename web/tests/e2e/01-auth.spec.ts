@@ -6,12 +6,12 @@ test.describe('登录与登录态', () => {
   test('未登录访问受保护页面 → 跳登录页并带上 redirect', async ({ page }) => {
     await page.goto('/contracts')
     await expect(page).toHaveURL(/\/login\?redirect=/)
-    await expect(page.getByRole('button', { name: /登\s*录/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^登\s*录$/ })).toBeVisible()
   })
 
   test('空表单提交 → 提示请输入登录名与密码', async ({ page }) => {
     await gotoLogin(page)
-    await page.getByRole('button', { name: /登\s*录/ }).click()
+    await page.getByRole('button', { name: /^登\s*录$/ }).click()
     await expect(page.locator('.err')).toHaveText('请输入登录名与密码')
   })
 
@@ -19,7 +19,7 @@ test.describe('登录与登录态', () => {
     await gotoLogin(page)
     await page.getByPlaceholder('请输入登录名').fill(USERS.admin.username)
     await page.getByPlaceholder('请输入密码').fill('wrongpass123')
-    await page.getByRole('button', { name: /登\s*录/ }).click()
+    await page.getByRole('button', { name: /^登\s*录$/ }).click()
 
     await expect(page.locator('.err')).toHaveText('用户名或密码错误')
     await expect(page).toHaveURL(/\/login/)
@@ -30,7 +30,7 @@ test.describe('登录与登录态', () => {
     await gotoLogin(page)
     await page.getByPlaceholder('请输入登录名').fill('no_such_user_e2e')
     await page.getByPlaceholder('请输入密码').fill('whatever123')
-    await page.getByRole('button', { name: /登\s*录/ }).click()
+    await page.getByRole('button', { name: /^登\s*录$/ }).click()
 
     await expect(page.locator('.err')).toHaveText('用户名或密码错误')
   })
@@ -82,10 +82,10 @@ test.describe('登录与登录态', () => {
     await gotoLogin(page)
     await page.getByPlaceholder('请输入登录名').fill(USERS.admin.username)
     await page.getByPlaceholder('请输入密码').fill(E2E_PASSWORD + 'x')
-    await page.getByRole('button', { name: /登\s*录/ }).click()
+    await page.getByRole('button', { name: /^登\s*录$/ }).click()
     await expect(page.locator('.err')).toBeVisible()
 
     // 按钮必须恢复可点击，否则用户无法重试
-    await expect(page.getByRole('button', { name: /登\s*录/ })).toBeEnabled()
+    await expect(page.getByRole('button', { name: /^登\s*录$/ })).toBeEnabled()
   })
 })

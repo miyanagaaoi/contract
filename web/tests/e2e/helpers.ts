@@ -44,7 +44,7 @@ export function trackRuntimeErrors(page: Page): string[] {
 /** 打开登录页并等待表单就绪 */
 export async function gotoLogin(page: Page): Promise<void> {
   await page.goto('/login')
-  await expect(page.getByRole('button', { name: /登\s*录/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^登\s*录$/ })).toBeVisible()
 }
 
 /** 以指定账号登录（UI 路径），成功后停在首页看板 */
@@ -53,7 +53,7 @@ export async function login(page: Page, key: UserKey = 'admin'): Promise<void> {
   await gotoLogin(page)
   await page.getByPlaceholder('请输入登录名').fill(user.username)
   await page.getByPlaceholder('请输入密码').fill(E2E_PASSWORD)
-  await page.getByRole('button', { name: /登\s*录/ }).click()
+  await page.getByRole('button', { name: /^登\s*录$/ }).click()
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 20_000 })
   await expect(page.locator('.header .user')).toContainText(user.realName)
 }

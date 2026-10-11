@@ -16,10 +16,16 @@ const page = ref(1)
 const pageSize = ref(20)
 const loading = ref(false)
 
-const query = reactive<Dict>({ keyword: '', org_id: '', role_id: '', status: '' })
+const query = reactive<Dict>({ keyword: '', org_id: '', role_id: '', status: '', awaiting_role: '' })
 const roles = ref<Dict[]>([])
 const orgs = ref<Dict[]>([])
 const dataScopes = ref<Dict[]>([])
+
+// ---- V2.4：飞书绑定（无 `system.feishu.view` 权限或未启用时整列不渲染，不影响既有账号管理） ----
+const feishuReady = ref(false)
+const feishuBindings = ref<Record<number, Dict>>({})
+const canFeishu = computed(() => auth.hasPerm('system.feishu.view'))
+const canFeishuEdit = computed(() => auth.hasPerm('system.feishu.edit'))
 
 function scopeLabel(role: Dict): string {
   const found = dataScopes.value.find((s) => s.code === role.data_scope)
@@ -29,6 +35,8 @@ function scopeLabel(role: Dict): string {
 const dialogVisible = ref(false)
 const saving = ref(false)
 const editingId = ref<number | null>(null)
+/** 正在编辑的账号是否「待分配角色」（弹窗里给一句上下文，管理员才知道为什么点进来的） */
+const editingAwaitingRole = ref(false)
 const form = reactive<Dict>({
   username: '', real_name: '', password: '', org_id: '', phone: '', email: '', remark: '',
   role_ids: [] as number[],
@@ -47,6 +55,8 @@ async function load() {
         org_id: query.org_id || undefined,
         role_id: query.role_id || undefined,
         status: query.status || undefined,
+        // V2.5：只看「待分配角色」（飞书扫码自动建号的账号一开始都没有角色）
+        awaiting_role: query.awaiting_role ? true : undefined,
         page: page.value,
         page_size: pageSize.value,
       },
@@ -69,13 +79,14 @@ async function loadRefs() {
 }
 
 function resetQuery() {
-  Object.assign(query, { keyword: '', org_id: '', role_id: '', status: '' })
+  Object.assign(query, { keyword: '', org_id: '', role_id: '', status: '', awaiting_role: '' })
   page.value = 1
   load()
 }
 
 function openNew() {
   editingId.value = null
+  editingAwaitingRole.value = false
   Object.assign(form, {
     username: '', real_name: '', password: '', org_id: '', phone: '', email: '', remark: '',
     role_ids: [],
@@ -85,6 +96,7 @@ function openNew() {
 
 function openEdit(row: Dict) {
   editingId.value = row.id
+  editingAwaitingRole.value = !!row.awaiting_role
   Object.assign(form, {
     username: row.username, real_name: row.real_name, password: '',
     org_id: row.org_id || '', phone: row.phone || '', email: row.email || '',
@@ -160,9 +172,40 @@ async function doReset() {
   }
 }
 
+/**
+ * 飞书绑定状态（V2.4）。
+ *
+ * 无权限（403）或飞书未启用时**静默降级**：不显示飞书列 —— 账号管理本身不受任何影响。
+ */
+async function loadFeishu() {
+  try {
+    const { data } = await http.get('/system/feishu/config')
+    feishuReady.value = !!data.enabled
+    feishuBindings.value = data.bindings || {}
+  } catch {
+    feishuReady.value = false
+    feishuBindings.value = {}
+  }
+}
+
+async function unbindFeishuOf(row: Dict) {
+  try {
+    await ElMessageBox.confirm(
+      `确定解绑「${row.real_name || row.username}」的飞书身份吗？解绑后该账号不能再飞书免登，` +
+      '需要重新绑定；换人 / 离职场景请务必解绑，否则消息会继续投递给下一位使用者。',
+      '提示', { type: 'warning', confirmButtonText: '确定解绑', cancelButtonText: '取消' })
+  } catch {
+    return
+  }
+  await http.post('/system/feishu/unbind', { user_id: row.id })
+  ElMessage.success('已解绑')
+  await loadFeishu()
+}
+
 onMounted(async () => {
   await loadRefs()
   await load()
+  await loadFeishu()
 })
 </script>
 
@@ -172,7 +215,8 @@ onMounted(async () => {
       <div class="head">
         <div>
           <span class="title">账号管理</span>
-          <span class="subtitle">登录名创建后不可修改；新账号与重置密码后首次登录强制改密</span>
+          <span class="subtitle">登录名创建后不可修改；新账号与重置密码后首次登录强制改密；
+            飞书扫码自动创建的账号默认无角色，分配角色后才可用</span>
         </div>
         <el-button v-if="canEdit" type="primary" @click="openNew">新增账号</el-button>
       </div>
@@ -199,6 +243,13 @@ onMounted(async () => {
           <el-option label="停用" value="disabled" />
         </el-select>
       </el-form-item>
+      <!-- V2.5：飞书扫码自动建号的账号没有任何角色，管理员要能一键筛出来 -->
+      <el-form-item label="角色分配">
+        <el-select v-model="query.awaiting_role" clearable style="width: 130px"
+                   placeholder="全部">
+          <el-option label="待分配角色" value="1" />
+        </el-select>
+      </el-form-item>
       <el-form-item>
         <el-button type="primary" @click="page = 1; load()">查询</el-button>
         <el-button @click="resetQuery">重置</el-button>
@@ -211,10 +262,14 @@ onMounted(async () => {
       <el-table-column prop="org_name" label="组织" min-width="130">
         <template #default="{ row }">{{ row.org_name || '—' }}</template>
       </el-table-column>
-      <el-table-column label="角色" min-width="160">
+      <el-table-column label="角色" min-width="170">
         <template #default="{ row }">
-          <el-tag v-for="r in row.roles" :key="r.id" size="small" class="mr4">{{ r.name }}</el-tag>
-          <span v-if="!row.roles?.length" class="gray">未分配</span>
+          <!-- 飞书自动建号 / 角色被停用：都能登录，但看不到任何菜单，必须让管理员一眼看到 -->
+          <el-tag v-if="row.awaiting_role" type="warning" size="small">待分配角色</el-tag>
+          <template v-else>
+            <el-tag v-for="r in row.roles" :key="r.id" size="small" class="mr4">{{ r.name }}</el-tag>
+            <span v-if="!row.roles?.length" class="gray">未分配</span>
+          </template>
         </template>
       </el-table-column>
       <el-table-column label="超管" width="70">
@@ -239,14 +294,29 @@ onMounted(async () => {
       <el-table-column prop="last_login_at" label="最后登录" width="150">
         <template #default="{ row }">{{ row.last_login_at || '—' }}</template>
       </el-table-column>
-      <el-table-column v-if="canEdit || canReset" label="操作" width="210" fixed="right">
+      <!-- V2.4：飞书绑定状态（未启用 / 无权限时整列不渲染） -->
+      <el-table-column v-if="feishuReady && canFeishu" label="飞书" width="110">
+        <template #default="{ row }">
+          <el-tag v-if="feishuBindings[row.id]" type="success" size="small">
+            {{ feishuBindings[row.id].display_name || '已绑定' }}
+          </el-tag>
+          <el-tag v-else type="info" size="small">未绑定</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column v-if="canEdit || canReset || (feishuReady && canFeishuEdit)" label="操作"
+                       width="300" fixed="right">
         <template #default="{ row }">
           <el-button v-if="canEdit" link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+          <!-- 待分配角色：直接把编辑弹窗拉起来（同一个保存路径，不新增接口） -->
+          <el-button v-if="canEdit && row.awaiting_role" link type="warning" size="small"
+                     @click="openEdit(row)">分配角色</el-button>
           <el-button v-if="canReset" link type="warning" size="small" @click="openReset(row)">重置密码</el-button>
           <el-button v-if="canEdit" link :type="row.status === 'enabled' ? 'info' : 'success'" size="small"
                      @click="toggleStatus(row)">
             {{ row.status === 'enabled' ? '停用' : '启用' }}
           </el-button>
+          <el-button v-if="feishuReady && canFeishuEdit && feishuBindings[row.id]" link type="danger"
+                     size="small" @click="unbindFeishuOf(row)">解绑飞书</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -259,6 +329,9 @@ onMounted(async () => {
                    @size-change="(s: number) => { pageSize = s; page = 1; load() }" />
 
     <el-dialog v-model="dialogVisible" :title="editingId ? '编辑账号' : '新增账号'" width="min(620px, 92vw)">
+      <el-alert v-if="editingAwaitingRole" type="warning" :closable="false" show-icon class="mb12"
+                title="该账号还没有任何角色"
+                description="飞书扫码登录自动创建的账号不带角色：不分配角色的话，登录后只能看到「等待分配角色」页。" />
       <el-form label-width="100px">
         <el-row :gutter="12">
           <el-col :span="12">
@@ -329,6 +402,7 @@ onMounted(async () => {
 .title { font-weight: 600; font-size: var(--ctms-fs-md); }
 .subtitle { margin-left: 10px; color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
 .pager { margin-top: var(--ctms-gap); justify-content: flex-end; }
+.mb12 { margin-bottom: var(--ctms-gap); }
 .mr4 { margin-right: 4px; }
 .gray { color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
 </style>

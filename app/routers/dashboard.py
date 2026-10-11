@@ -25,33 +25,17 @@ from ..models_auth import User
 from ..models_doc import DOC_MODELS, DOC_STATUS
 from ..models_master import Product
 from ..models_stock import Stock
+from ..permissions import DOC_APPROVE_PERM as _APPROVE_PERM
+from ..permissions import DOC_VIEW_PERM as _VIEW_PERM
 from ..services.permission_service import apply_data_scope, collect_perms, require_perm
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 _WINDOW_DAYS = 30          # 默认质保提醒窗口（可由系统参数覆盖）
 
-# 单据查看 / 审核权限点（按 kind）
-_VIEW_PERM = {
-    "purchase_request": "purchase.request.view",
-    "purchase_order": "purchase.order.view",
-    "sales_request": "sales.request.view",
-    "sales_order": "sales.order.view",
-    "stock_in": "stock.in.view",
-    "stock_out": "stock.out.view",
-    "stock_take": "stock.take.view",
-    "stock_transfer": "stock.transfer.view",      # V2.1/N13
-}
-_APPROVE_PERM = {
-    "purchase_request": "purchase.request.approve",
-    "purchase_order": "purchase.order.approve",
-    "sales_request": "sales.request.approve",
-    "sales_order": "sales.order.approve",
-    "stock_in": "stock.in.approve",
-    "stock_out": "stock.out.approve",
-    "stock_take": "stock.take.approve",
-    "stock_transfer": "stock.transfer.approve",   # V2.1/N13
-}
+# 单据查看 / 审核权限点：**真源已上移到 `app/permissions.py`**（V2.4），
+# 因为飞书的待办推送需要同一份映射。此处仅保留变量名以兼容既有调用点。
+
 
 
 def _summary(c: Contract) -> dict:

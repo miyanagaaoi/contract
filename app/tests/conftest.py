@@ -37,6 +37,14 @@ if str(ROOT) not in sys.path:
 # ---------------------------------------------------------------- 关键：必须最先执行
 _TMP_DB = Path(tempfile.gettempdir()) / "ctms_pytest.db"
 os.environ["CTMS_DB_URL"] = f"sqlite:///{_TMP_DB.as_posix()}"
+# 飞书接入在测试中**强制关闭**（V2.4）：直接赋值优先于 `.env` 的 setdefault，
+# 否则开发机把 `.env` 配好之后，用例会真的去调飞书 API（出网、依赖外部服务），
+# 并使「默认关闭时整体降级」这类断言失效。
+os.environ["CTMS_FEISHU_ENABLED"] = "0"
+# 自动建号开关同样固定为**开**（用例默认值，与生产口径一致）：直接赋值优先于 .env 的
+# setdefault，否则开发机把 CTMS_FEISHU_AUTO_PROVISION=0 写进 .env 后，
+# 「未绑定自动建号」用例会在本机失败、在 CI 通过（最难查的那类不一致）。
+os.environ["CTMS_FEISHU_AUTO_PROVISION"] = "1"
 # 测试用固定密钥，避免依赖开发机 app/data/.jwt_secret
 os.environ.setdefault("CTMS_JWT_SECRET", "pytest-only-secret-not-for-production-0123456789")
 
@@ -65,6 +73,7 @@ def pytest_configure(config) -> None:  # noqa: ARG001
     import app.models_doc  # noqa: F401  单据表
     import app.models_master  # noqa: F401  主数据表
     import app.models_stock  # noqa: F401  库存表
+    import app.models_notify  # noqa: F401  V2.4：飞书通知 outbox 表
 
     ensure_dirs()
     Base.metadata.create_all(bind=engine)
