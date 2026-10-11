@@ -68,6 +68,11 @@ class DocMixin:
     doc_date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft", index=True)
     org_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)          # 数据范围
+    # V2.3（N2）：签约公司 —— 我方签约主体（取自系统设置「我方公司（主体码）」字典）。
+    # 仅采购申请/采购单/销售申请/销售订单/入库单/出库单 6 类单据在接口层强制必填；
+    # 盘点单等其余单据保留空列（DocMixin 为共享字段，避免逐表重复定义）。
+    subject_code: Mapped[str | None] = mapped_column(String(8), nullable=True, index=True)
+    subject_name: Mapped[str | None] = mapped_column(String(64), nullable=True)             # 快照
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     created_by_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
     handler_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)            # 经办人
@@ -392,6 +397,12 @@ class StockTransfer(Base, DocMixin):
         ForeignKey("warehouses.id"), nullable=False, index=True
     )
     to_warehouse_name: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    # V2.3（N4）：调出单位 / 调入单位 —— 由两端仓库的**所属公司**自动带出的快照（只读），
+    # 便于跨公司调拨时直接看出货物归属变化；仓库未设所属公司时为空。
+    from_subject_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    from_subject_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    to_subject_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    to_subject_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     items: Mapped[list["StockTransferItem"]] = relationship(
         back_populates="doc", cascade="all, delete-orphan", order_by="StockTransferItem.seq",

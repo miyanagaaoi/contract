@@ -23,6 +23,9 @@ from app.models_master import Product, ProductType, Uom, Warehouse
 from app.models_stock import Stock, StockLedger
 from app.security import hash_password
 
+# V2.3：签约公司必填 —— 用例统一使用系统设置里的默认我方公司
+DEFAULT_SUBJECT = "ZC"
+
 
 @pytest.fixture(scope="module")
 def client():
@@ -164,6 +167,7 @@ class TestDashboard:
         # 同一部门下的采购员与采购主管：主管（本部门及下级）可见该部门待审核单据
         buyer, manager = box.headers("buyer", dept["id"]), box.headers("purchase_manager", dept["id"])
         draft = box.client.post("/api/purchase/requests", headers=buyer, json={
+            "subject_code": DEFAULT_SUBJECT,   # V2.3：签约公司必填
             "items": [{"product_id": product["id"], "qty": 3, "unit_price": 5}]}).json()
         box.docs["purchase_request"].append(draft["id"])
 
@@ -187,6 +191,7 @@ class TestDashboard:
         product = box.product(safety_stock=10)
         warehouse, keeper = box.warehouse(), box.headers("keeper")
         doc = box.client.post("/api/stock/in-orders", headers=keeper, json={
+            "subject_code": DEFAULT_SUBJECT,   # V2.3：签约公司必填
             "warehouse_id": warehouse["id"], "in_type": "其他入库",
             "items": [{"product_id": product["id"], "qty": 2, "unit_price": 5}]}).json()
         box.docs["stock_in"].append(doc["id"])

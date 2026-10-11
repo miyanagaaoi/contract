@@ -66,6 +66,19 @@ def assert_no_downstream(db: Session, doc) -> None:
             raise ValueError(f"已存在下游{label}，请先处理下游单据（反审核或作废）后再操作")
 
 
+def _inherit_subject(source_doc) -> tuple[str, str | None]:
+    """下推时继承来源单据的**签约公司**（V2.3 / N2）。
+
+    签约公司必填，故来源缺失时直接报错而不是生成空值单据 —— 否则会绕过接口层必填校验，
+    产生"看起来正常但无法对账"的数据（与 `warehouse_name` 快照同一取舍）。
+    """
+    code = getattr(source_doc, "subject_code", None)
+    if not code:
+        raise ValueError(
+            f"来源单据 {source_doc.doc_no} 未填写签约公司，请先在来源单据上补齐后再下推")
+    return code, getattr(source_doc, "subject_name", None)
+
+
 def _rows_of(db: Session, doc, rows: list[dict] | None, *, field: str,
              default_warehouse_id: int | None = None) -> list[dict]:
     """把下推行项解析为 [{src_item, qty, unit_price, warehouse_id}]；`rows=None` 表示按剩余量全推。"""
@@ -112,6 +125,8 @@ def push_purchase_order(db: Session, request_doc: PurchaseRequest, user, *,
     picked = _rows_of(db, request_doc, rows, field="ordered_qty")
     supplier = doc_service.require_supplier(db, supplier_id)
     day = doc_service.parse_doc_date(doc_date) if doc_date else (request_doc.doc_date or date.today())
+    # V2.3（N2）：签约公司必填 —— 下推继承来源单据，来源缺失时明确拦截（不留空值）
+    subject_code, subject_name = _inherit_subject(request_doc)
 
     po = PurchaseOrder(
         doc_no=numbering_service.next_doc_no(db, "purchase_order", day),
@@ -119,6 +134,7 @@ def push_purchase_order(db: Session, request_doc: PurchaseRequest, user, *,
         created_by=getattr(user, "id", None),
         created_by_name=getattr(user, "real_name", None),
         handler_user_id=request_doc.handler_user_id,
+        subject_code=subject_code, subject_name=subject_name,
         remark=remark or f"由采购申请单 {request_doc.doc_no} 下推",
         contract_id=request_doc.contract_id, contract_no=request_doc.contract_no,
         source_doc_type="purchase_request", source_doc_id=request_doc.id,
@@ -186,6 +202,8 @@ def push_stock_in(db: Session, po: PurchaseOrder, user, *, doc_date=None,
     warehouse = doc_service.require_warehouse(db, warehouse_id or po.receipt_warehouse_id)
     picked = _rows_of(db, po, rows, field="received_qty", default_warehouse_id=warehouse.id)
     day = doc_service.parse_doc_date(doc_date) if doc_date else date.today()
+    subject_code, subject_name = _inherit_subject(po)
+    warehouse_name = doc_service.warehouse_display_name(db, warehouse)   # V2.3：ZC-主仓
 
     doc = StockInOrder(
         doc_no=numbering_service.next_doc_no(db, "stock_in", day),
@@ -193,10 +211,11 @@ def push_stock_in(db: Session, po: PurchaseOrder, user, *, doc_date=None,
         created_by=getattr(user, "id", None),
         created_by_name=getattr(user, "real_name", None),
         handler_user_id=po.handler_user_id,
+        subject_code=subject_code, subject_name=subject_name,
         remark=remark or f"由采购单 {po.doc_no} 下推",
         contract_id=po.contract_id, contract_no=po.contract_no,
         source_doc_type="purchase_order", source_doc_id=po.id, source_doc_no=po.doc_no,
-        warehouse_id=warehouse.id, warehouse_name=warehouse.name,
+        warehouse_id=warehouse.id, warehouse_name=warehouse_name,
         in_type=in_type or "采购入库",
         supplier_id=po.supplier_id, supplier_name=po.supplier_name,
     )
@@ -211,7 +230,7 @@ def push_stock_in(db: Session, po: PurchaseOrder, user, *, doc_date=None,
             uom_decimals=src.uom_decimals, qty=row["qty"], unit_price=src.unit_price,
             amount=(row["qty"] * (src.unit_price or ZERO)).quantize(Decimal("0.01")),
             warehouse_id=row["warehouse_id"] or warehouse.id,
-            warehouse_name=warehouse.name, src_item_id=src.id,
+            warehouse_name=warehouse_name, src_item_id=src.id,
         ))
     doc.total_amount = doc_service.total_amount_of(doc)
     doc_service.log(db, doc, "_origin", None, po.doc_no, note=f"由采购单下推（{len(picked)} 行）")
@@ -229,6 +248,7 @@ def push_sales_order(db: Session, request_doc: SalesRequest, user, *,
     picked = _rows_of(db, request_doc, rows, field="ordered_qty")
     customer = doc_service.require_customer(db, customer_id)
     day = doc_service.parse_doc_date(doc_date) if doc_date else (request_doc.doc_date or date.today())
+    subject_code, subject_name = _inherit_subject(request_doc)
 
     so = SalesOrder(
         doc_no=numbering_service.next_doc_no(db, "sales_order", day),
@@ -236,6 +256,7 @@ def push_sales_order(db: Session, request_doc: SalesRequest, user, *,
         created_by=getattr(user, "id", None),
         created_by_name=getattr(user, "real_name", None),
         handler_user_id=request_doc.handler_user_id,
+        subject_code=subject_code, subject_name=subject_name,
         remark=remark or f"由销售申请单 {request_doc.doc_no} 下推",
         contract_id=request_doc.contract_id, contract_no=request_doc.contract_no,
         source_doc_type="sales_request", source_doc_id=request_doc.id,
@@ -273,6 +294,8 @@ def push_stock_out(db: Session, so: SalesOrder, user, *, doc_date=None,
     warehouse = doc_service.require_warehouse(db, warehouse_id or so.ship_warehouse_id)
     picked = _rows_of(db, so, rows, field="shipped_qty", default_warehouse_id=warehouse.id)
     day = doc_service.parse_doc_date(doc_date) if doc_date else date.today()
+    subject_code, subject_name = _inherit_subject(so)
+    warehouse_name = doc_service.warehouse_display_name(db, warehouse)   # V2.3：ZC-主仓
 
     doc = StockOutOrder(
         doc_no=numbering_service.next_doc_no(db, "stock_out", day),
@@ -280,10 +303,11 @@ def push_stock_out(db: Session, so: SalesOrder, user, *, doc_date=None,
         created_by=getattr(user, "id", None),
         created_by_name=getattr(user, "real_name", None),
         handler_user_id=so.handler_user_id,
+        subject_code=subject_code, subject_name=subject_name,
         remark=remark or f"由销售订单 {so.doc_no} 下推",
         contract_id=so.contract_id, contract_no=so.contract_no,
         source_doc_type="sales_order", source_doc_id=so.id, source_doc_no=so.doc_no,
-        warehouse_id=warehouse.id, warehouse_name=warehouse.name,
+        warehouse_id=warehouse.id, warehouse_name=warehouse_name,
         out_type=out_type or "销售出库",
         customer_id=so.customer_id, customer_name=so.customer_name,
     )
@@ -298,7 +322,7 @@ def push_stock_out(db: Session, so: SalesOrder, user, *, doc_date=None,
             uom_decimals=src.uom_decimals, qty=row["qty"], unit_price=src.unit_price,
             amount=(row["qty"] * (src.unit_price or ZERO)).quantize(Decimal("0.01")),
             warehouse_id=row["warehouse_id"] or warehouse.id,
-            warehouse_name=warehouse.name, src_item_id=src.id,
+            warehouse_name=warehouse_name, src_item_id=src.id,
         ))
     doc.total_amount = doc_service.total_amount_of(doc)
     doc_service.log(db, doc, "_origin", None, so.doc_no, note=f"由销售订单下推（{len(picked)} 行）")

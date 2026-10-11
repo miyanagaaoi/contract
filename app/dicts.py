@@ -204,6 +204,32 @@ def subject_code_of(db: Session, code_or_name: str) -> str | None:
     return None
 
 
+def subject_name_of(db: Session, code: str | None) -> str | None:
+    """主体码 → 我方公司名称（找不到返回 None，供快照展示回退）。"""
+    s = (code or "").strip().upper()
+    if not s:
+        return None
+    for sub in get_subjects(db):
+        if sub["code"] == s:
+            return sub["name"]
+    return None
+
+
+def require_subject_code(db: Session, value, *, field: str = "签约公司") -> str:
+    """校验并归一「我方公司」取值（V2.3）：只能取字典内的主体码。
+
+    - 空值 → `ValueError`（签约公司必填）；
+    - 非字典值 → `ValueError`（提示必须从系统设置的「我方公司（主体码）」中选择）。
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValueError(f"请选择{field}")
+    for sub in get_subjects(db):
+        if raw.upper() == sub["code"] or raw == sub["name"]:
+            return sub["code"]
+    raise ValueError(f"{field}只能选择系统设置中的我方公司（当前值：{raw}）")
+
+
 # ---------- V2.0：系统参数（KV 字典，键 sys_params） ----------
 
 KEY_SYS_PARAMS = "sys_params"

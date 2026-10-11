@@ -39,6 +39,28 @@ _ADD_COLUMNS: list[tuple[str, str, str]] = [
     ("stock_in_orders", "handler_name", "VARCHAR(64)"),
     ("stock_out_orders", "handler_name", "VARCHAR(64)"),
     ("stock_takes", "handler_name", "VARCHAR(64)"),
+    # ---- V2.3：仓库所属公司 / 单据签约公司 / 调拨调出·调入单位（subject_code 取值见 dicts.get_subjects）----
+    ("warehouses", "subject_code", "VARCHAR(8)"),
+    ("purchase_requests", "subject_code", "VARCHAR(8)"),
+    ("purchase_requests", "subject_name", "VARCHAR(64)"),
+    ("purchase_orders", "subject_code", "VARCHAR(8)"),
+    ("purchase_orders", "subject_name", "VARCHAR(64)"),
+    ("sales_requests", "subject_code", "VARCHAR(8)"),
+    ("sales_requests", "subject_name", "VARCHAR(64)"),
+    ("sales_orders", "subject_code", "VARCHAR(8)"),
+    ("sales_orders", "subject_name", "VARCHAR(64)"),
+    ("stock_in_orders", "subject_code", "VARCHAR(8)"),
+    ("stock_in_orders", "subject_name", "VARCHAR(64)"),
+    ("stock_out_orders", "subject_code", "VARCHAR(8)"),
+    ("stock_out_orders", "subject_name", "VARCHAR(64)"),
+    ("stock_takes", "subject_code", "VARCHAR(8)"),
+    ("stock_takes", "subject_name", "VARCHAR(64)"),
+    ("stock_transfers", "subject_code", "VARCHAR(8)"),
+    ("stock_transfers", "subject_name", "VARCHAR(64)"),
+    ("stock_transfers", "from_subject_code", "VARCHAR(8)"),
+    ("stock_transfers", "from_subject_name", "VARCHAR(64)"),
+    ("stock_transfers", "to_subject_code", "VARCHAR(8)"),
+    ("stock_transfers", "to_subject_name", "VARCHAR(64)"),
 ]
 
 _ADD_INDEXES: list[tuple[str, str, str]] = [
@@ -48,6 +70,14 @@ _ADD_INDEXES: list[tuple[str, str, str]] = [
     ("ix_contracts_created_by", "contracts", "created_by"),
     ("ix_change_logs_object", "change_logs", "object_type, object_id"),
     ("ix_contract_items_product_id", "contract_items", "product_id"),
+    # V2.3：按公司筛选（仓库归属 / 单据签约公司 / 库存结存按仓库公司）
+    ("ix_warehouses_subject_code", "warehouses", "subject_code"),
+    ("ix_purchase_requests_subject_code", "purchase_requests", "subject_code"),
+    ("ix_purchase_orders_subject_code", "purchase_orders", "subject_code"),
+    ("ix_sales_requests_subject_code", "sales_requests", "subject_code"),
+    ("ix_sales_orders_subject_code", "sales_orders", "subject_code"),
+    ("ix_stock_in_orders_subject_code", "stock_in_orders", "subject_code"),
+    ("ix_stock_out_orders_subject_code", "stock_out_orders", "subject_code"),
 ]
 
 

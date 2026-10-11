@@ -146,7 +146,7 @@ def apply_items(db: Session, doc, rows: list[dict] | None, *,
         item.unit_price = unit_price
         item.amount = amount
         item.warehouse_id = warehouse.id if warehouse else None
-        item.warehouse_name = warehouse.name if warehouse else None
+        item.warehouse_name = warehouse_display_name(db, warehouse)
         item.remark = (str(raw.get("remark") or "").strip() or None)
         doc.items.append(item)
 
@@ -313,6 +313,45 @@ def require_warehouse(db: Session, warehouse_id) -> Warehouse:
     return warehouse
 
 
+def warehouse_display_name(db: Session, warehouse: Warehouse | None) -> str | None:
+    """仓库**快照显示名**（V2.3 / N1）：`主体码-仓库名`（无公司时纯仓库名）。
+
+    单据表头与行项的 `warehouse_name` 快照统一走本函数，使列表、详情、打印、导出
+    与下拉显示一致；仓库所属公司后续变更**不影响**已落库的历史快照。
+    """
+    if warehouse is None:
+        return None
+    from .master_service import warehouse_display
+
+    return warehouse_display(db, warehouse)
+
+
+# ==================== 签约公司（V2.3 / N2）====================
+
+def apply_subject(db: Session, doc, payload: dict, *, field: str = "签约公司") -> None:
+    """写入单据「签约公司」（我方公司 / 主体码）。
+
+    - 新建（或来源单据下推）时**必填**：空值 → `ValueError`；
+    - 修改：仅当请求显式带了 `subject_code` 才处理，空值同样视为非法（必填字段不能清空）；
+    - 取值只能命中系统设置的主体码字典（`dicts.require_subject_code`）。
+    """
+    from ..dicts import require_subject_code, subject_name_of
+
+    if "subject_code" not in payload:
+        return
+    code = require_subject_code(db, payload.get("subject_code"), field=field)
+    doc.subject_code = code
+    doc.subject_name = subject_name_of(db, code)
+
+
+def require_subject(db: Session, value, *, field: str = "签约公司") -> tuple[str, str | None]:
+    """必填校验并返回 `(主体码, 名称快照)`（供下推等非表单路径复用）。"""
+    from ..dicts import require_subject_code, subject_name_of
+
+    code = require_subject_code(db, value, field=field)
+    return code, subject_name_of(db, code)
+
+
 def parse_doc_date(value) -> date:
     if value in (None, ""):
         return date.today()
@@ -385,6 +424,9 @@ def fmt_doc(db: Session, doc, *, with_items: bool = True) -> dict:
     }
     for field in ("warehouse_id", "warehouse_name", "in_type", "out_type", "take_type", "scope_note",
                   "supplier_id", "supplier_name", "customer_id", "customer_name", "currency",
+                  # V2.3/N2：签约公司（我方公司）；N4：调拨单调出/调入单位（自动带出快照）
+                  "subject_code", "subject_name",
+                  "from_subject_code", "from_subject_name", "to_subject_code", "to_subject_name",
                   "request_dept_id", "need_date", "purpose", "suggest_supplier_id",
                   "purchase_dept_id", "expected_arrival_date", "settle_type", "receipt_warehouse_id",
                   "customer_name_text", "sales_dept_id", "expect_delivery_date",
@@ -426,7 +468,8 @@ def apply_doc_filters(query, model, *, keyword: str | None = None, status: str |
         like = f"%{keyword.strip()}%"
         conds = [model.doc_no.like(like), model.source_doc_no.like(like),
                  model.contract_no.like(like), model.remark.like(like)]
-        for field in ("supplier_name", "customer_name", "customer_name_text", "warehouse_name"):
+        for field in ("supplier_name", "customer_name", "customer_name_text", "warehouse_name",
+                      "subject_name", "from_subject_name", "to_subject_name"):
             if hasattr(model, field):
                 conds.append(getattr(model, field).like(like))
         query = query.filter(or_(*conds))

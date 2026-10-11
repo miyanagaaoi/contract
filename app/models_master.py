@@ -143,13 +143,20 @@ class Uom(Base):
 
 
 class Warehouse(Base):
-    """仓库档案。"""
+    """仓库档案。
+
+    `subject_code`（V2.3 / N1）：仓库**所属公司**，取值来自系统设置的「我方公司（主体码）」
+    字典（`dicts.get_subjects`），只允许选字典内已存在的代码；可为空以兼容存量数据。
+    其他表单（单据收货/发货/调拨仓库、行级仓库、库存明细）统一以
+    `主体码-仓库名`（如 `ZC-主仓`）作为**默认显示名**（`master_service.warehouse_display`）。
+    """
 
     __tablename__ = "warehouses"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[str] = mapped_column(String(32), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject_code: Mapped[str | None] = mapped_column(String(8), nullable=True, index=True)  # 所属公司
     address: Mapped[str | None] = mapped_column(String(255), nullable=True)
     keeper_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)   # 仓管员账号 id
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

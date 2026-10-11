@@ -153,9 +153,10 @@ def export_contracts(
 # ==================== V2.0/M3：单据与库存导出（T-V2-35 / AC-V2-40） ====================
 
 # 单据导出列（列名, 宽度）——列集合对应 AC-V2-40：单号/日期/类型/仓库/对方单位/金额/状态/经办人
+# V2.3：新增「签约公司」列（我方签约主体名称）
 DOC_EXPORT_COLUMNS: list[tuple[str, int]] = [
     ("单据编号", 16), ("单据日期", 12), ("单据类型", 12), ("状态", 10),
-    ("对方单位", 22), ("仓库", 14), ("金额", 12), ("行项数", 8),
+    ("签约公司", 18), ("对方单位", 22), ("仓库", 14), ("金额", 12), ("行项数", 8),
     ("经办人", 12), ("关联合同", 18), ("来源单据", 18), ("备注", 20), ("创建时间", 20),
 ]
 
@@ -204,6 +205,8 @@ def doc_export_row(doc) -> list:
         doc.doc_date.isoformat() if doc.doc_date else "",
         getattr(type(doc), "label", ""),
         DOC_STATUS.get(doc.status, doc.status),
+        # V2.3：签约公司取落库时的名称快照（历史单据未填时回退主体码）
+        getattr(doc, "subject_name", None) or getattr(doc, "subject_code", None) or "",
         party,
         getattr(doc, "warehouse_name", None) or "",
         float(amount or 0),
@@ -216,10 +219,10 @@ def doc_export_row(doc) -> list:
     ]
 
 
-# 库存结存导出列
+# 库存结存导出列（V2.3：新增「公司」列，仓库列改用默认显示名 ZC-主仓）
 BALANCE_EXPORT_COLUMNS: list[tuple[str, int]] = [
     ("物料编码", 16), ("物料名称", 24), ("规格型号", 18), ("商品类型", 14),
-    ("单位", 10), ("仓库", 14), ("结存数量", 12), ("安全库存", 12),
+    ("单位", 10), ("公司", 10), ("仓库", 18), ("结存数量", 12), ("安全库存", 12),
     ("货品总额度", 16),
     ("是否低于安全库存", 16), ("更新时间", 20),
 ]

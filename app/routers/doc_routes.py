@@ -36,7 +36,12 @@ def _guard(db: Session, fn, *args, **kwargs):
 def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, perm_prefix: str,
                         label: str, create_hook=None, update_hook=None,
                         approve_handler=None, unapprove_handler=None,
-                        export_perm: str | None = None) -> None:
+                        export_perm: str | None = None, sign_subject: bool = False) -> None:
+    """注册一类单据的标准端点。
+
+    `sign_subject=True`（V2.3 / N2）时启用「签约公司」：新建必填（取值必须命中系统设置
+    的我方公司字典），修改时若显式传值则同样校验；未启用该参数的单据（盘点单等）不受影响。
+    """
     view_perm = require_perm(f"{perm_prefix}.view")
     create_perm = require_perm(f"{perm_prefix}.create")
     edit_perm = require_perm(f"{perm_prefix}.edit")
@@ -44,6 +49,11 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
     approve_perm = require_perm(f"{perm_prefix}.approve")
     void_perm = require_perm(f"{perm_prefix}.void")
     export_dep = require_perm(export_perm) if export_perm else None
+
+    def _set_new_subject(_db: Session, _doc, _payload: dict) -> None:
+        """新建时的签约公司落值（必填，见 `sign_subject`）。"""
+        _doc.subject_code, _doc.subject_name = doc_service.require_subject(
+            _db, _payload.get("subject_code"))
 
     def _new_doc(db: Session, payload: dict, user: User):
         day = _guard(db, doc_service.parse_doc_date, payload.get("doc_date"))
@@ -64,6 +74,9 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
         # 特有字段（含必填的仓库/供应商）必须在 flush 之前落值，否则会以 NULL 触发非空约束
         if create_hook is not None:
             _guard(db, create_hook, db, doc, payload)
+        # V2.3（N2）：签约公司必填（仅启用该能力的单据；取值必须命中我方公司字典）
+        if sign_subject:
+            _guard(db, _set_new_subject, db, doc, payload)
         db.add(doc)
         db.flush()
         _guard(db, doc_service.bind_contract, db, doc, payload.get("contract_id"))
@@ -73,7 +86,8 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
 
     def _build_query(db: Session, user: User, *, keyword=None, status=None, date_from=None,
                      date_to=None, include_voided=False, warehouse_id=None, supplier_id=None,
-                     customer_id=None, contract_id=None, handler_user_id=None, product_id=None):
+                     customer_id=None, contract_id=None, handler_user_id=None, product_id=None,
+                     subject_code=None):
         """列表与导出共用的查询构建（单一数据源；导出必须与列表同数据范围，防越权导出）。"""
         query = apply_data_scope(db.query(model), model, user, db)
         query = doc_service.apply_doc_filters(
@@ -81,7 +95,8 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
             include_voided=include_voided or status == "voided")
         for field, value in (("warehouse_id", warehouse_id), ("supplier_id", supplier_id),
                              ("customer_id", customer_id), ("contract_id", contract_id),
-                             ("handler_user_id", handler_user_id)):
+                             ("handler_user_id", handler_user_id),
+                             ("subject_code", subject_code)):   # V2.3：按签约公司筛选
             if value is not None and hasattr(model, field):
                 query = query.filter(getattr(model, field) == value)
         if product_id is not None:
@@ -97,6 +112,7 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
               warehouse_id: int | None = Query(None), supplier_id: int | None = Query(None),
               customer_id: int | None = Query(None), contract_id: int | None = Query(None),
               handler_user_id: int | None = Query(None), product_id: int | None = Query(None),
+              subject_code: str | None = Query(None, description="签约公司（我方主体码）"),
               user: User = Depends(view_perm), db: Session = Depends(get_db)):
         if status and status not in DOC_STATUS:
             raise HTTPException(status_code=422, detail=f"无效状态：{status}")
@@ -104,7 +120,8 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
                              date_to=date_to, include_voided=include_voided,
                              warehouse_id=warehouse_id, supplier_id=supplier_id,
                              customer_id=customer_id, contract_id=contract_id,
-                             handler_user_id=handler_user_id, product_id=product_id)
+                             handler_user_id=handler_user_id, product_id=product_id,
+                             subject_code=subject_code)
         total = int(query.count() or 0)
         rows = (query.order_by(model.id.desc())
                 .offset((page - 1) * page_size).limit(page_size).all())
@@ -131,6 +148,7 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
                     warehouse_id: int | None = Query(None), supplier_id: int | None = Query(None),
                     customer_id: int | None = Query(None), contract_id: int | None = Query(None),
                     handler_user_id: int | None = Query(None), product_id: int | None = Query(None),
+                    subject_code: str | None = Query(None, description="签约公司（我方主体码）"),
                     user: User = Depends(export_dep), db: Session = Depends(get_db)):
             """导出当前筛选结果（AC-V2-40：导出条数与列与列表筛选一致）。"""
             from .export import DOC_EXPORT_COLUMNS, DOC_EXPORT_LIMIT, build_xlsx_response, doc_export_row
@@ -139,7 +157,8 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
                                  date_to=date_to, include_voided=include_voided,
                                  warehouse_id=warehouse_id, supplier_id=supplier_id,
                                  customer_id=customer_id, contract_id=contract_id,
-                                 handler_user_id=handler_user_id, product_id=product_id)
+                                 handler_user_id=handler_user_id, product_id=product_id,
+                                 subject_code=subject_code)
             docs = query.order_by(model.id.desc()).limit(DOC_EXPORT_LIMIT).all()
             rows = [doc_export_row(d) for d in docs]
             return build_xlsx_response(label, DOC_EXPORT_COLUMNS, rows, label)
@@ -177,6 +196,9 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
                 db, doc_service.handler_snapshot, db, payload.get("handler_user_id"))
         if "contract_id" in payload:
             _guard(db, doc_service.bind_contract, db, doc, payload.get("contract_id"))
+        # V2.3（N2）：签约公司必填，显式传值时必须命中我方公司字典（不接受清空）
+        if sign_subject and "subject_code" in payload:
+            _guard(db, doc_service.apply_subject, db, doc, payload)
         if update_hook is not None:
             _guard(db, update_hook, db, doc, payload)
         _guard(db, doc_service.apply_items, db, doc, payload.get("items"),

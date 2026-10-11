@@ -124,6 +124,15 @@ def _head_value_html(doc, key: str) -> str | None:
         if not hasattr(doc, "warehouse_name"):
             return None
         return _e(getattr(doc, "warehouse_name", None))
+    if key == "subject":
+        # V2.3（N2）：签约公司（我方公司名称快照）；未启用/未填写的单据不印
+        value = getattr(doc, "subject_name", None) or getattr(doc, "subject_code", None)
+        return _e(value) if value else None
+    if key in ("from_subject", "to_subject"):
+        # V2.3（N4）：调拨单调出/调入单位（由两端仓库所属公司自动带出）
+        attr = f"{key.split('_')[0]}_subject_name"
+        value = getattr(doc, attr, None) or getattr(doc, attr.replace("_name", "_code"), None)
+        return _e(value) if value else None
     if key == "supplier":
         if not hasattr(doc, "supplier_name"):
             return None

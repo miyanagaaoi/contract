@@ -23,11 +23,19 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 BASE = os.environ.get("CTMS_SMOKE_BASE", "http://127.0.0.1:8010/api")
-ADMIN_USER, ADMIN_PWD = "admin", "admin12345"
+# 内置 admin 可能已被人工改密（演示库实际如此），故支持用环境变量指定冒烟账号
+ADMIN_USER = os.environ.get("CTMS_SMOKE_USER", "admin")
+ADMIN_PWD = os.environ.get("CTMS_SMOKE_PWD", "admin12345")
 
 PASSED: list[str] = []
 FAILED: list[str] = []
 TS = int(time.time()) % 100000
+
+#: V2.3 起这些路径为"新建单据"，需要签约公司（必填）
+_DOC_CREATE_PATHS = {
+    "/purchase/requests", "/purchase/orders", "/sales/requests", "/sales/orders",
+    "/stock/in-orders", "/stock/out-orders",
+}
 
 
 def ok(name: str) -> None:
@@ -37,6 +45,9 @@ def ok(name: str) -> None:
 
 def req(method: str, path: str, body=None, params=None, expect=(200,), token=None,
         raw_body: bytes | None = None, content_type: str | None = None):
+    # V2.3：签约公司必填 —— 冒烟里所有"新建单据"的请求统一补默认我方公司（ZC）
+    if method == "POST" and isinstance(body, dict) and path in _DOC_CREATE_PATHS:
+        body = {"subject_code": "ZC", **body}
     url = BASE + path
     if params:
         url += "?" + urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})

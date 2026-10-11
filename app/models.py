@@ -28,6 +28,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    false,
     func,
     text,
 )
@@ -92,7 +93,10 @@ contract_tag = Table(
     Base.metadata,
     Column("contract_id", ForeignKey("contracts.id", ondelete="CASCADE"), primary_key=True),
     Column("tag_id", ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
-    Column("auto", Boolean, nullable=False, default=False, server_default=text("0")),
+    # ⚠️ 用 `false()` 而不是 `text("0")`：后者是 SQLite 方言写法，在 PostgreSQL 上
+    # 建表会报 `column "auto" is of type boolean but default expression is of type integer`
+    # （V2.3 迁移到 PG 时实测）。`false()` 会按方言渲染（SQLite→0，PG→false）。
+    Column("auto", Boolean, nullable=False, default=False, server_default=false()),
 )
 
 

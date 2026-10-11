@@ -38,6 +38,8 @@ from app.models_stock import Stock, StockLedger
 from app.security import hash_password
 
 BUYER, MANAGER, KEEPER = "buyer", "purchase_manager", "keeper"
+# V2.3：签约公司必填 —— 用例统一使用系统设置里的默认我方公司（`init_db.seed_dicts` 写入）
+DEFAULT_SUBJECT = "ZC"
 
 
 @pytest.fixture(scope="module")
@@ -102,7 +104,8 @@ class Box:
 
     def warehouse(self) -> dict:
         r = self.client.post("/api/master/warehouses", headers=self.admin, json={
-            "code": f"W{uuid.uuid4().hex[:5].upper()}", "name": f"仓库{uuid.uuid4().hex[:4]}"})
+            "code": f"W{uuid.uuid4().hex[:5].upper()}", "name": f"仓库{uuid.uuid4().hex[:4]}",
+            "subject_code": DEFAULT_SUBJECT})   # V2.3：仓库所属公司（决定 ZC-仓库名 显示）
         assert r.status_code == 200, r.text
         self.warehouses.append(r.json()["id"])
         return r.json()
@@ -144,6 +147,8 @@ class Box:
 
     # ---- 单据 ----
     def create_doc(self, path: str, headers: dict, payload: dict) -> dict:
+        # V2.3：签约公司必填 —— 测试统一注入系统设置里的默认我方公司（ZC）
+        payload = {"subject_code": DEFAULT_SUBJECT, **payload}
         r = self.client.post(path, headers=headers, json=payload)
         assert r.status_code == 200, r.text
         key = path.rstrip("/").split("/")[-1]
@@ -295,6 +300,7 @@ class TestPurchaseRequestFlow:
         product = box.product(ptype_id=ptype["id"], uom_id=uom_int["id"])
         buyer = box.headers(BUYER)
         resp = box.client.post("/api/purchase/requests", headers=buyer, json={
+            "subject_code": DEFAULT_SUBJECT,
             "items": [{"product_id": product["id"], "qty": 1.5, "unit_price": 1}]})
         assert resp.status_code == 422
         assert "不支持小数" in resp.json()["detail"]
@@ -761,8 +767,14 @@ class TestDocExport:
         assert resp.status_code == 200, resp.text
         title, rows = self._sheet(resp.content)
         assert title == "库存结存"
+        header = rows[0]
         assert rows[0][0] == "物料编码" and rows[1][0] == product["code"]
-        assert rows[1][6] == 9.0
+        # V2.3：新增「公司」列，仓库列改为默认显示名（ZC-主仓）——按列名取值，避免列序耦合
+        assert "公司" in header and "仓库" in header
+        assert rows[1][header.index("结存数量")] == 9.0
+        assert rows[1][header.index("公司")] == DEFAULT_SUBJECT
+        assert rows[1][header.index("仓库")] == f"{DEFAULT_SUBJECT}-{warehouse['name']}", \
+            rows[1][header.index("仓库")]
 
         resp = box.client.get("/api/stock/ledger/export.xlsx", headers=keeper,
                               params={"product_id": product["id"], "warehouse_id": warehouse["id"]})

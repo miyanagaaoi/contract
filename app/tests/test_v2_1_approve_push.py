@@ -30,6 +30,9 @@ from app.security import hash_password
 from app.services import doc_service, push_service
 
 REQ_LIST = "/api/purchase/requests"
+# V2.3：签约公司必填 —— 用例统一使用系统设置里的默认我方公司（ZC / 智澈公司）
+SUBJECT = "ZC"
+SUBJECT_NAME = "智澈公司"
 
 
 @pytest.fixture()
@@ -110,6 +113,7 @@ def _mk_request(db, creator: User, product: Product, *, qty="10", ordered="0",
     pr = PurchaseRequest(
         doc_no=f"PR{sfx}", doc_date=date.today(), status=status,
         created_by=creator.id, created_by_name=creator.real_name,
+        subject_code=SUBJECT, subject_name=SUBJECT_NAME,   # V2.3：下推需继承签约公司
         contract_id=contract_id, contract_no=f"HT{sfx}" if contract_id else None,
     )
     db.add(pr)
@@ -277,7 +281,7 @@ class TestHandlerAccount:
     def test_新建单据默认经办人为当前账号并落姓名快照(self, client, h, db):
         product = _mk_product(db)
         resp = client.post(REQ_LIST, headers=h, json={
-            "doc_date": "2026-03-01", "purpose": "T-V2.1-01",
+            "doc_date": "2026-03-01", "purpose": "T-V2.1-01", "subject_code": SUBJECT,
             "items": [{"product_id": product.id, "qty": 1, "unit_price": 2}],
         })
         assert resp.status_code == 200, resp.text
@@ -291,7 +295,7 @@ class TestHandlerAccount:
         other = _mk_user(db, role_codes=("buyer",))
         product = _mk_product(db)
         resp = client.post(REQ_LIST, headers=h, json={
-            "doc_date": "2026-03-01", "handler_user_id": other.id,
+            "doc_date": "2026-03-01", "handler_user_id": other.id, "subject_code": SUBJECT,
             "items": [{"product_id": product.id, "qty": 1, "unit_price": 2}],
         })
         assert resp.status_code == 200, resp.text
@@ -301,7 +305,7 @@ class TestHandlerAccount:
     def test_经办人不存在被拒(self, client, h, db):
         product = _mk_product(db)
         resp = client.post(REQ_LIST, headers=h, json={
-            "doc_date": "2026-03-01", "handler_user_id": 99_999_999,
+            "doc_date": "2026-03-01", "handler_user_id": 99_999_999, "subject_code": SUBJECT,
             "items": [{"product_id": product.id, "qty": 1, "unit_price": 2}],
         })
         assert resp.status_code == 422, resp.text

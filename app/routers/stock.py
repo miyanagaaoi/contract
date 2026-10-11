@@ -14,6 +14,7 @@ from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..dicts import subject_name_of
 from ..models_auth import User
 from ..models_doc import (
     IN_TYPES,
@@ -24,7 +25,7 @@ from ..models_doc import (
     StockTake,
     StockTransfer,
 )
-from ..models_master import Product, ProductType
+from ..models_master import Product, ProductType, Warehouse
 from ..models_stock import Stock, StockLedger
 from ..services import audit_service, doc_service, posting_service
 from ..services.permission_service import require_perm
@@ -42,7 +43,7 @@ def _apply_in_fields(db: Session, doc: StockInOrder, payload: dict) -> None:
     if "warehouse_id" in payload or doc.warehouse_id is None:
         warehouse = doc_service.require_warehouse(db, payload.get("warehouse_id") or doc.warehouse_id)
         doc.warehouse_id = warehouse.id
-        doc.warehouse_name = warehouse.name
+        doc.warehouse_name = doc_service.warehouse_display_name(db, warehouse)  # V2.3：ZC-主仓
     if "in_type" in payload:
         in_type = str(payload.get("in_type") or "采购入库").strip()
         if in_type not in IN_TYPES:
@@ -62,7 +63,7 @@ register_doc_routes(router, prefix=IN_PREFIX, kind="stock_in", model=StockInOrde
                     create_hook=_apply_in_fields, update_hook=_apply_in_fields,
                     approve_handler=posting_service.approve_stock_doc,
                     unapprove_handler=posting_service.unapprove_stock_doc,
-                    export_perm="stock.in.export")
+                    export_perm="stock.in.export", sign_subject=True)
 
 
 # ==================== 出库单 ====================
@@ -74,7 +75,7 @@ def _apply_out_fields(db: Session, doc: StockOutOrder, payload: dict) -> None:
     if "warehouse_id" in payload or doc.warehouse_id is None:
         warehouse = doc_service.require_warehouse(db, payload.get("warehouse_id") or doc.warehouse_id)
         doc.warehouse_id = warehouse.id
-        doc.warehouse_name = warehouse.name
+        doc.warehouse_name = doc_service.warehouse_display_name(db, warehouse)  # V2.3：ZC-主仓
     if "out_type" in payload:
         out_type = str(payload.get("out_type") or "销售出库").strip()
         if out_type not in OUT_TYPES:
@@ -94,7 +95,7 @@ register_doc_routes(router, prefix=OUT_PREFIX, kind="stock_out", model=StockOutO
                     create_hook=_apply_out_fields, update_hook=_apply_out_fields,
                     approve_handler=posting_service.approve_stock_doc,
                     unapprove_handler=posting_service.unapprove_stock_doc,
-                    export_perm="stock.out.export")
+                    export_perm="stock.out.export", sign_subject=True)
 
 
 # ==================== 盘点单 ====================
@@ -106,7 +107,7 @@ def _apply_take_fields(db: Session, doc: StockTake, payload: dict) -> None:
     if "warehouse_id" in payload or doc.warehouse_id is None:
         warehouse = doc_service.require_warehouse(db, payload.get("warehouse_id") or doc.warehouse_id)
         doc.warehouse_id = warehouse.id
-        doc.warehouse_name = warehouse.name
+        doc.warehouse_name = doc_service.warehouse_display_name(db, warehouse)
     if "take_type" in payload:
         take_type = str(payload.get("take_type") or "full").strip()
         if take_type not in TAKE_TYPES:
@@ -138,7 +139,12 @@ def _apply_transfer_fields(db: Session, doc: StockTransfer, payload: dict) -> No
     关于"同组织"（Q4 冻结结论）：仓库档案 `Warehouse` **没有 org_id 字段**，因此该约束
     在当前数据模型下**无法校验**；本版以"不提供跨组织操作入口"的方式落实范围外声明
     （见 `22-v2.1-requirements.md` §1.3）。若后续要真正约束，需先为仓库引入组织归属。
+
+    V2.3（N4）：`from/to_subject_code|name` 由两端仓库的**所属公司**自动带出（只读快照），
+    前端不再让用户手选；仓库未维护所属公司时留空并显示「—」。
     """
+    from ..dicts import subject_name_of
+
     from_id = payload.get("from_warehouse_id") or doc.from_warehouse_id
     to_id = payload.get("to_warehouse_id") or doc.to_warehouse_id
     if not from_id:
@@ -151,6 +157,10 @@ def _apply_transfer_fields(db: Session, doc: StockTransfer, payload: dict) -> No
         raise ValueError("调出仓库与调入仓库不能相同")     # AC-V2.1-14
     doc.from_warehouse_id, doc.from_warehouse_name = from_wh.id, from_wh.name
     doc.to_warehouse_id, doc.to_warehouse_name = to_wh.id, to_wh.name
+    doc.from_subject_code = from_wh.subject_code
+    doc.from_subject_name = subject_name_of(db, from_wh.subject_code)
+    doc.to_subject_code = to_wh.subject_code
+    doc.to_subject_name = subject_name_of(db, to_wh.subject_code)
 
 
 register_doc_routes(router, prefix=TRANSFER_PREFIX, kind="stock_transfer",
@@ -232,11 +242,14 @@ def _inbound_amount_subquery(db: Session):
 
 def _balances_query(db: Session, *, keyword: str | None = None, warehouse_id: int | None = None,
                     product_type_id: int | None = None, below_safety: bool = False,
-                    qty_min: float | None = None, qty_max: float | None = None):
+                    qty_min: float | None = None, qty_max: float | None = None,
+                    subject_code: str | None = None):
     """库存结存查询（列表与导出共用，保证"导出口径与页面一致"，R7）。
 
     V2.1（N11）：同时 LEFT JOIN 出「货品总额度」，返回 `(Stock, inbound_amount)` 行；
     V2.1（N12）：新增 `qty_min` / `qty_max` 数量区间筛选。
+    V2.3（N3）：新增 `subject_code` —— 按**仓库所属公司**筛选商品（库存维度是 物料×仓库，
+    公司归属来自仓库档案，故用 EXISTS 过滤仓库公司，避免与额度子查询的 join 冲突）。
     """
     sub = _inbound_amount_subquery(db)
     query = (db.query(Stock, sub.c.inbound_amount)
@@ -244,6 +257,8 @@ def _balances_query(db: Session, *, keyword: str | None = None, warehouse_id: in
              .outerjoin(sub, and_(sub.c.product_id == Stock.product_id,
                                   sub.c.warehouse_id == Stock.warehouse_id))
              .filter(Stock.qty != 0))
+    if subject_code:
+        query = query.filter(Stock.warehouse.has(Warehouse.subject_code == subject_code))
     if warehouse_id:
         query = query.filter(Stock.warehouse_id == warehouse_id)
     if product_type_id:
@@ -268,6 +283,7 @@ def _balances_query(db: Session, *, keyword: str | None = None, warehouse_id: in
 def stock_balances(keyword: str | None = Query(None, description="物料编码/名称/规格模糊"),
                    warehouse_id: int | None = Query(None),
                    product_type_id: int | None = Query(None),
+                   subject_code: str | None = Query(None, description="按仓库所属公司（我方主体码）筛选"),
                    below_safety: bool = Query(False, description="仅看低于安全库存（T-V2-34）"),
                    qty_min: float | None = Query(None, description="结存数量下限（V2.1/N12）"),
                    qty_max: float | None = Query(None, description="结存数量上限（V2.1/N12）"),
@@ -276,7 +292,7 @@ def stock_balances(keyword: str | None = Query(None, description="物料编码/�
                    db: Session = Depends(get_db)):
     query = _balances_query(db, keyword=keyword, warehouse_id=warehouse_id,
                             product_type_id=product_type_id, below_safety=below_safety,
-                            qty_min=qty_min, qty_max=qty_max)
+                            qty_min=qty_min, qty_max=qty_max, subject_code=subject_code)
     total = int(query.count() or 0)
     rows = (query.order_by(Product.code.asc())
             .offset((page - 1) * page_size).limit(page_size).all())
@@ -292,6 +308,11 @@ def stock_balances(keyword: str | None = Query(None, description="物料编码/�
             "uom_decimals": s.product.uom.decimals if s.product and s.product.uom else None,
             "warehouse_id": s.warehouse_id,
             "warehouse_name": s.warehouse.name if s.warehouse else None,
+            # V2.3（N1/N3）：仓库默认显示名（ZC-主仓）与所属公司，供筛选后核对
+            "warehouse_display_name": (doc_service.warehouse_display_name(db, s.warehouse)
+                                       if s.warehouse else None),
+            "subject_code": s.warehouse.subject_code if s.warehouse else None,
+            "subject_name": subject_name_of(db, s.warehouse.subject_code) if s.warehouse else None,
             "qty": float(s.qty or 0),
             # V2.1（N11）：货品总额度 —— 该 (物料 × 仓库) 的入库批次金额合计
             "inbound_amount": float(amount or 0),
@@ -357,6 +378,7 @@ def recalc_stocks(request: Request, fix: bool = Query(False, description="true=�
 @router.get("/api/stock/balances/export.xlsx", tags=["stock"], summary="库存结存导出")
 def export_balances(keyword: str | None = Query(None), warehouse_id: int | None = Query(None),
                     product_type_id: int | None = Query(None),
+                    subject_code: str | None = Query(None, description="按仓库所属公司筛选（V2.3）"),
                     below_safety: bool = Query(False),
                     qty_min: float | None = Query(None), qty_max: float | None = Query(None),
                     _user: User = Depends(require_perm("stock.balance.view")),
@@ -364,13 +386,14 @@ def export_balances(keyword: str | None = Query(None), warehouse_id: int | None 
     """导出当前筛选的结存清单（与列表同一查询构建，条数与内容一致）。
 
     V2.1：新增「货品总额度」列与数量区间筛选，保持"导出与筛选一致"（AC-V2-40）。
+    V2.3：新增「公司」列与按公司筛选，仓库列改用默认显示名（ZC-主仓）。
     """
     from .export import BALANCE_EXPORT_COLUMNS, DOC_EXPORT_LIMIT, build_xlsx_response
 
     rows = []
     stocks = (_balances_query(db, keyword=keyword, warehouse_id=warehouse_id,
                               product_type_id=product_type_id, below_safety=below_safety,
-                              qty_min=qty_min, qty_max=qty_max)
+                              qty_min=qty_min, qty_max=qty_max, subject_code=subject_code)
               .order_by(Product.code.asc()).limit(DOC_EXPORT_LIMIT).all())
     for s, amount in stocks:
         product = s.product
@@ -382,7 +405,8 @@ def export_balances(keyword: str | None = Query(None), warehouse_id: int | None 
             product.spec if product else "",
             product.product_type.name if product and product.product_type else "",
             product.uom.name if product and product.uom else "",
-            s.warehouse.name if s.warehouse else "",
+            (s.warehouse.subject_code or "") if s.warehouse else "",
+            doc_service.warehouse_display_name(db, s.warehouse) if s.warehouse else "",
             float(s.qty or 0),
             float(product.safety_stock) if product and product.safety_stock is not None else "",
             float(amount or 0),
@@ -418,7 +442,8 @@ def export_ledger(product_id: int = Query(...), warehouse_id: int = Query(...),
             float(r.qty_after or 0),
             r.product.code if r.product else "",
             r.product.name if r.product else "",
-            r.warehouse.name if r.warehouse else "",
+            # V2.3：仓库统一显示 `主体码-仓库名`（与库存明细/单据一致）
+            doc_service.warehouse_display_name(db, r.warehouse) if r.warehouse else "",
             r.created_by or "",
             r.remark or "",
         ])

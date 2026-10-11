@@ -22,8 +22,9 @@ from datetime import date
 from openpyxl import load_workbook
 
 BASE = os.environ.get("CTMS_SMOKE_BASE", "http://127.0.0.1:8010/api")
-ADMIN_USER = "admin"
-ADMIN_PWD = "admin12345"
+# 内置 admin 可能已被人工改密（演示库实际如此），故支持用环境变量指定冒烟账号
+ADMIN_USER = os.environ.get("CTMS_SMOKE_USER", "admin")
+ADMIN_PWD = os.environ.get("CTMS_SMOKE_PWD", "admin12345")
 TOKEN: str | None = None
 PASSED: list[str] = []
 

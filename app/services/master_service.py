@@ -623,14 +623,45 @@ def delete_uom(db: Session, obj: Uom) -> None:
 
 # ==================== 仓库 ====================
 
+def warehouse_display(db: Session, obj: Warehouse) -> str:
+    """仓库**默认显示名**（V2.3 / N1）：`主体码-仓库名`，如 `ZC-主仓`。
+
+    仓库未设所属公司（存量数据）时回退为纯仓库名，保证历史数据仍可读。
+    ⚠️ 该规则同时用于：单据表头/行项的 `warehouse_name` **快照**、各仓库下拉、
+    库存明细与导出的仓库列 —— 口径必须唯一，否则同一仓库在不同页面会显示不同名字。
+    """
+    if obj is None:
+        return ""
+    code = (obj.subject_code or "").strip()
+    return f"{code}-{obj.name}" if code else obj.name
+
+
+def _subject_of(db: Session, value) -> str | None:
+    """仓库所属公司（选填）：空 → None；非空必须命中系统设置的主体码字典。"""
+    raw = _s(value)
+    if not raw:
+        return None
+    from ..dicts import get_subjects
+
+    for sub in get_subjects(db):
+        if raw.upper() == sub["code"] or raw == sub["name"]:
+            return sub["code"]
+    raise ValueError(f"所属公司只能选择系统设置中的我方公司（当前值：{raw}）")
+
+
 def fmt_warehouse(db: Session, obj: Warehouse) -> dict:
     keeper = None
     if obj.keeper_user_id:
         from ..models_auth import User
         user = db.get(User, obj.keeper_user_id)
         keeper = user.real_name if user else None
+    from ..dicts import subject_name_of
+
     return {
         "id": obj.id, "code": obj.code, "name": obj.name, "address": obj.address,
+        "subject_code": obj.subject_code,
+        "subject_name": subject_name_of(db, obj.subject_code),
+        "display_name": warehouse_display(db, obj),
         "keeper_user_id": obj.keeper_user_id, "keeper_name": keeper,
         "enabled": obj.enabled, "remark": obj.remark,
     }
@@ -666,6 +697,7 @@ def create_warehouse(db: Session, payload: dict) -> Warehouse:
     if db.query(Warehouse).filter(or_(Warehouse.code == code, Warehouse.name == name)).first():
         raise ValueError("仓库编码或名称已存在")
     obj = Warehouse(code=code, name=name, address=_opt(payload.get("address")),
+                    subject_code=_subject_of(db, payload.get("subject_code")),
                     keeper_user_id=_int_opt(payload.get("keeper_user_id")),
                     enabled=bool(payload.get("enabled", True)),
                     remark=_opt(payload.get("remark")))
@@ -685,6 +717,8 @@ def update_warehouse(db: Session, obj: Warehouse, payload: dict) -> Warehouse:
         obj.name = name
     if "address" in payload:
         obj.address = _opt(payload.get("address"))
+    if "subject_code" in payload:
+        obj.subject_code = _subject_of(db, payload.get("subject_code"))
     if "keeper_user_id" in payload:
         obj.keeper_user_id = _int_opt(payload.get("keeper_user_id"))
     if "enabled" in payload:
@@ -868,13 +902,19 @@ def product_options(db: Session, keyword: str | None = None, product_type_id: in
 
 
 def warehouse_options(db: Session, keyword: str | None = None, limit: int = 50) -> list[dict]:
+    """仓库下拉：V2.3 起默认显示名带上所属公司前缀（`ZC-主仓`），供单据/行项直接展示。"""
+    from ..dicts import subject_name_of
+
     query = db.query(Warehouse).filter(Warehouse.enabled == True)  # noqa: E712
     kw = _s(keyword)
     if kw:
         like = f"%{kw}%"
         query = query.filter(or_(Warehouse.name.like(like), Warehouse.code.like(like)))
     rows = query.order_by(Warehouse.id.asc()).limit(max(1, min(200, limit))).all()
-    return [{"id": w.id, "code": w.code, "name": w.name} for w in rows]
+    return [{"id": w.id, "code": w.code, "name": w.name,
+             "subject_code": w.subject_code,
+             "subject_name": subject_name_of(db, w.subject_code),
+             "display_name": warehouse_display(db, w)} for w in rows]
 
 
 def uom_options(db: Session, limit: int = 200) -> list[dict]:

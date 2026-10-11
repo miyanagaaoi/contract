@@ -25,6 +25,8 @@ from app.models_stock import Stock, StockLedger
 from app.security import hash_password
 
 SELLER, SALES_MANAGER, KEEPER = "seller", "sales_manager", "keeper"
+# V2.3：签约公司必填 —— 用例统一使用系统设置里的默认我方公司
+DEFAULT_SUBJECT = "ZC"
 
 
 @pytest.fixture(scope="module")
@@ -110,6 +112,8 @@ class Box:
         return headers
 
     def create_doc(self, path: str, headers: dict, payload: dict) -> dict:
+        # V2.3：签约公司必填 —— 统一注入默认我方公司（ZC）
+        payload = {"subject_code": DEFAULT_SUBJECT, **payload}
         r = self.client.post(path, headers=headers, json=payload)
         assert r.status_code == 200, r.text
         key = {"requests": "sales_request", "orders": "sales_order",

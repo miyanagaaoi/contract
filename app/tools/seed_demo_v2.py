@@ -142,12 +142,28 @@ def _get_or_create_uom(db: Session, code: str, name: str, decimals: int) -> Uom:
     return uom
 
 
-def _get_or_create_warehouse(db: Session, code: str, name: str) -> Warehouse:
+def _get_or_create_warehouse(db: Session, code: str, name: str,
+                             subject_code: str | None = None) -> Warehouse:
+    """仓库演示数据。
+
+    V2.3：仓库带**所属公司**（缺省取系统设置里第一个我方公司），使单据与库存中的
+    仓库默认显示为 `ZC-主仓`；已存在但未维护所属公司的仓库按"只填空值"补上（幂等）。
+    """
+    from ..dicts import get_subjects
+
+    if subject_code is None:
+        subs = get_subjects(db)
+        subject_code = subs[0]["code"] if subs else None
     existing = db.query(Warehouse).filter(Warehouse.code == code).first()
     if existing is not None:
-        SUMMARY["skipped"].append(f"仓库 {code}")
+        if subject_code and not existing.subject_code:
+            existing.subject_code = subject_code
+            db.flush()
+            SUMMARY["warehouses"].append(f"{code}/{name} 补所属公司 {subject_code}")
+        else:
+            SUMMARY["skipped"].append(f"仓库 {code}")
         return existing
-    wh = Warehouse(code=code, name=name)
+    wh = Warehouse(code=code, name=name, subject_code=subject_code)
     db.add(wh)
     db.flush()
     SUMMARY["warehouses"].append(f"{code}/{name}")
