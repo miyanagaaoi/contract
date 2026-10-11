@@ -3,7 +3,8 @@
 > 触发：业务方提出"把本系统接入飞书"。
 > 已确认范围：**① 飞书免登**（用飞书账号登录本系统）+ **② 消息推送 / 到期提醒**（待办、质保到期、库存预警推到飞书）。
 > 已确认网络条件：**服务器可出公网，但本系统没有公网可达的域名/IP**。
-> 文档状态：**待评审**（本文是施工方案，不是已冻结规格；落地前需按 `00-sdd-process.md` 补 `27` 对应的规格条目与 AC）。
+> 文档状态：**已实施（M1 免登 + M2 推送 + M3 每日提醒），分支 `exp/feishu-integration`**。
+> 代码落点与 §4 基本一致，实现时的差异与验证证据见 §10；尚未并入 `main`，待评审后合并。
 
 ---
 
@@ -272,3 +273,58 @@ CTMS_FEISHU_BASE_URL=http://192.168.31.27:8080   # 卡片跳转链接的根地�
 - 消息：[发送消息 im/v1/messages](https://open.feishu.cn/document/server-docs/im-v1/message/create) · [消息卡片交互](https://open.feishu.cn/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/configuring-card-interactions)
 - 事件订阅（M4 备查）：[事件概述](https://open.feishu.cn/document/ukTMukTMukTM/uUTNz4SN1MjL1UzM) · [长连接接收事件](https://open.feishu.cn/document/ukTMukTMukTM/uYDNxYjL2QTM24iN0EjN/event-subscription-configure-/request-url-configuration-case)
 - 审批（范围外，备查）：[创建审批实例](https://open.feishu.cn/document/server-docs/approval-v4/instance/create)
+
+---
+
+## 10. 实施记录（M1 免登 + M2 推送 + M3 每日提醒）
+
+分支：`exp/feishu-integration`（基线为 V2.3 成果提交之后的 `main`）。
+
+### 10.1 实际文件落点
+
+| 类型 | 文件 |
+|---|---|
+| 配置 | `app/config.py`（`FEISHU_*` + `feishu_ready()`，默认**关闭**） |
+| 模型 | `app/models_auth.py::UserIdentity`、`app/models_notify.py::Notification` |
+| 权限 | `app/permissions.py`：新增 `system.feishu.view/edit`；`DOC_VIEW_PERM` / `DOC_APPROVE_PERM` 上移为单一真源（看板与飞书推送共用） |
+| 服务 | `app/services/feishu/{__init__,client,identity_service,card,notify_service}.py` |
+| 路由 | `app/routers/feishu.py`（`/api/auth/feishu/*` 免登与绑定、`/api/system/feishu/*` 运维） |
+| 触发点 | `app/routers/doc_routes.py`：submit / approve / reject / complete / void / unapprove 各自**同事务入队** |
+| 线程与任务 | `app/main.py` lifespan 启停发送线程；`app/tools/feishu_digest.py` 每日摘要 CLI |
+| 前端 | 新增 `web/src/views/FeishuCallbackView.vue`；改 `LoginView.vue`、`stores/auth.ts`、`router/index.ts`、`api.ts`、`views/master/UserView.vue`、`views/system/SystemView.vue` |
+| 测试 | `app/tests/test_v2_4_feishu.py`（41 项，飞书 API 全部 mock，不外网） |
+
+### 10.2 与本文方案的差异（均为简化或加固，不改变业务口径）
+
+1. **没有引入任何新依赖**：出网用标准库 `urllib.request`，未加 `httpx` / `lark-oapi`；
+   原方案里的 `errors.py` 合并进 `client.py`（错误类 + 已确认错误码的中文映射）。
+2. `UserIdentity` 落在 `models_auth.py`（认证域）而不是新建 models 文件；
+   `Notification` 独立为 `models_notify.py`。
+3. **发现并修复一个真实缺陷**：发送前的原子抢占若用
+   `query.update(synchronize_session=False)`，session 中那份**陈旧对象**会在后续 flush 时
+   把 `status` / `attempts` 的旧值写回，**覆盖抢占结果**（表现为 attempts 不增长、
+   或消息已发出却被改回 pending）。修复为抢占后立即 `db.expire_all()`，
+   并由 `test_send_failure_backs_off_then_fails` 固定住该行为。
+4. 重试语义：`next_retry_at` 为空表示"可立即发送"；退避 1 / 5 / 30 分钟，
+   达到 `CTMS_FEISHU_MAX_ATTEMPTS`（默认 5）次后转 `failed`，管理页可一键重试。
+
+### 10.3 验证证据
+
+```
+app/.venv/Scripts/python.exe -m pytest app/tests -q   → 370 passed（既有 329 + 新增 41）
+cd web && npm run build                               → ✓ built（无导入/语法错误）
+```
+
+新增用例覆盖 AC-FS-01~09：默认关闭时整体降级、`state` 篡改/超时/重放、绑定冲突与换绑、
+未绑定拒绝且审计留痕、免登签发**本系统** JWT、outbox 幂等、入队冲突不污染业务事务、
+发送成功/失败退避/原子抢占、每日摘要同日去重与"无内容不打扰"、卡片链接映射完整性。
+
+### 10.4 合并前仍需完成
+
+1. **实测飞书后台是否接受 `http://<内网IP>/feishu/callback` 作为重定向 URL**（§8 风险 1）——
+   这决定免登能否成立，必须在真实企业自建应用上验证，不能靠代码推断；
+2. 真实租户端到端联调：发卡片、点按钮跳回内网系统、免登闭环；
+3. 规格回写：`docs/11` §14.5（消息推送）/§14.8（对接外部系统）与 `docs/01` §6
+   的"范围外"清单需加评审变更批注；
+4. Playwright E2E 未覆盖飞书入口（依赖真实飞书授权页，属外部依赖），
+   当前以接口/服务层测试 + 手工联调替代。
