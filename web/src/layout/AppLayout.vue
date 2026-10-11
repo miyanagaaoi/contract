@@ -7,6 +7,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
+import logoUrl from '@/assets/logo.png'
 import MenuTree from '@/components/MenuTree.vue'
 import TopBar from '@/components/TopBar.vue'
 import { useAuthStore, type MenuNode } from '@/stores/auth'
@@ -46,7 +47,10 @@ const activeMenu = computed(() => {
 <template>
   <el-container class="layout">
     <el-aside width="220px" class="aside">
-      <div class="brand">CTMS ERP</div>
+      <div class="brand">
+        <img class="brand-logo" :src="logoUrl" alt="CTMS" />
+        <span>CTMS ERP</span>
+      </div>
       <el-scrollbar class="menu-scroll">
         <!--
           T4-8：background-color / text-color / active-text-color 三个 props 在
@@ -80,10 +84,14 @@ const activeMenu = computed(() => {
 .brand {
   color: #fff;
   font-weight: 600;
-  padding: 18px 16px;
+  padding: 14px 16px;
   font-size: var(--ctms-fs-md);
   line-height: 1.4;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
+.brand-logo { width: 28px; height: 28px; border-radius: 6px; object-fit: contain; }
 .menu-scroll { flex: 1; }
 .aside :deep(.el-menu) {
   border-right: none;

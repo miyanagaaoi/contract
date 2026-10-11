@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
 import { fetchFeishuAuthorizeUrl, fetchFeishuConfig } from '@/api'
+import logoUrl from '@/assets/logo.png'
 import { useAuthStore } from '@/stores/auth'
 
 /**
@@ -86,7 +87,7 @@ async function onSubmit() {
   <div class="login-page">
     <div class="login-box">
       <div class="brand">
-        <span class="logo"></span>
+        <img class="logo" :src="logoUrl" alt="CTMS" />
         <h1>CTMS ERP</h1>
       </div>
       <p class="sub">合同管理 · 进销存一体化（内网）</p>
@@ -137,7 +138,7 @@ async function onSubmit() {
 }
 .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
 .brand h1 { margin: 0; font-size: var(--ctms-fs-lg); letter-spacing: 0.5px; }
-.logo { width: 26px; height: 26px; border-radius: 6px; background: var(--ctms-primary); display: inline-block; }
+.logo { width: 34px; height: 34px; border-radius: 8px; object-fit: contain; display: inline-block; }
 .sub { color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); margin: 0 0 20px; }
 .err { color: var(--ctms-danger-text); font-size: var(--ctms-fs-sm); margin: 0 0 10px; }
 .full { width: 100%; margin-top: 4px; }
