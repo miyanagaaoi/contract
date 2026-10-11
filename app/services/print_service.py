@@ -468,7 +468,22 @@ def _render_payment_application(doc, cfg: dict) -> str:
         + row(9, k("备注", 3) + v(getattr(doc, "remark", None), 4))
         + sign_rows
     )
-    return (f'<table class="pay"><colgroup>{colgroup}</colgroup><tbody>{body}</tbody></table>')
+    grid = f'<table class="pay"><colgroup>{colgroup}</colgroup><tbody>{body}</tbody></table>'
+
+    # 模板上没有、但管理员在「打印模板」页显式打开的项目 → 印在网格之后（默认全关，故默认输出＝纯模板）
+    extra_entries = []
+    for field in cfg.get("head_fields", []):
+        if not field.get("enabled") or field.get("key") in print_template_service.PAYMENT_TEMPLATE_KEYS:
+            continue
+        value = _head_value_html(doc, field["key"])
+        if value is None:
+            continue
+        extra_entries.append(f'<td class="k">{escape(str(field["label"]))}</td><td>{value}</td>')
+    if not extra_entries:
+        return grid
+    extra = ("<table class=\"pay extra\"><tbody><tr>"
+             + "".join(extra_entries) + "</tr></tbody></table>")
+    return grid + extra
 
 
 def build_doc_print_html(db: Session, doc, config: dict | None = None) -> str:

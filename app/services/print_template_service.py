@@ -130,6 +130,14 @@ DEFAULT_SIGN_LABELS = ["制单", "审核", "仓管", "领料/收货"]
 PAYMENT_SIGN_LABELS = ["经理", "部门负责人", "制单人", "财务", "财务负责人", "领款人"]
 TAKE_SIGN_LABELS = ["制单", "盘点人", "审核", "仓管"]
 
+#: 《付款申请单》纸质模板上**实际存在**的表头项（其余项默认关闭打印，可按需在模板页开启）
+PAYMENT_TEMPLATE_KEYS: set[str] = {
+    "payee", "payee_bank", "payee_account",          # 收款信息
+    "payer", "payer_bank",                            # 付款信息（我方）
+    "category_l1", "category_l2", "belong_period", "bank_purpose", "pay_reason",
+    "amount_cn", "plan_type", "doc_date", "supplier", "remark",
+}
+
 #: 表头每行字段数可选值
 HEAD_COLUMN_CHOICES = [1, 2, 3]
 
@@ -144,8 +152,12 @@ def _kind_label(kind: str) -> str:
 def default_config(kind: str) -> dict:
     """生成某类单据的**出厂**打印模板（与 V2.1 的硬编码版面逐项一致）。"""
     is_take = kind == "stock_take"
+    # 付款单：**模板上没有的项目默认关闭打印**（可在「打印模板」页按需打开，
+    # 打开后打印在《付款申请单》固定网格之后的「附加信息」区，不影响模板本体）
     head_fields = [
-        {"key": key, "label": label, "enabled": True, "full": False}
+        {"key": key, "label": label,
+         "enabled": (key in PAYMENT_TEMPLATE_KEYS) if kind == "payment" else True,
+         "full": False}
         for key, label, _ in HEAD_FIELD_CATALOG
     ]
     item_columns = []
@@ -156,14 +168,17 @@ def default_config(kind: str) -> dict:
             enabled = not is_take
         else:
             enabled = True
+        if kind == "payment":
+            enabled = False          # 付款单没有物料行项，行项列默认全关
         item_columns.append({"key": key, "label": label, "enabled": enabled})
     return {
         "version": CONFIG_VERSION,
         # 《付款申请单》纸质模板的标题与系统单据名不同（系统内叫"付款单"）
         "title": "付款申请单" if kind == "payment" else _kind_label(kind),
-        "subtitle": DEFAULT_SUBTITLE,
-        "show_printed_at": True,
-        "footer": DEFAULT_FOOTER,
+        # 模板外内容默认不印（付款申请单纸质模板没有副标题/页脚/打印时间）
+        "subtitle": "" if kind == "payment" else DEFAULT_SUBTITLE,
+        "footer": "" if kind == "payment" else DEFAULT_FOOTER,
+        "show_printed_at": False if kind == "payment" else True,
         "head_columns": 2,
         "blocks": [key for key, _, _ in BLOCKS],
         "head_fields": head_fields,

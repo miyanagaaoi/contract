@@ -1140,3 +1140,66 @@ class TestPaymentPaperLayout:
         assert "中国建设银行太原市漪汾街支行" in html
         # 付款单没有物料行项：不应出现通用行项表
         assert 'class="items"' not in html
+
+
+# ===================== 打印内容严格按模板：模板外项目默认关闭 =====================
+
+class TestPaymentTemplateStrictness:
+    def test_defaults_only_template_items(self):
+        from app.services import print_template_service as pts
+
+        cfg = pts.default_config("payment")
+        enabled = {f["key"] for f in cfg["head_fields"] if f["enabled"]}
+        # 目录里只有模板上有的项被开启；`remark` 由固定网格直接印，不在表头目录中
+        assert enabled <= pts.PAYMENT_TEMPLATE_KEYS
+        assert pts.PAYMENT_TEMPLATE_KEYS - enabled == {"remark"}
+        assert enabled == {
+            "payee", "payee_bank", "payee_account", "payer", "payer_bank", "category_l1",
+            "category_l2", "belong_period", "bank_purpose", "pay_reason", "amount_cn",
+            "plan_type", "doc_date", "supplier"}
+        # 模板外内容：不印副标题/页脚/打印时间；行项列全关
+        assert cfg["subtitle"] == "" and cfg["footer"] == "" and cfg["show_printed_at"] is False
+        assert not [c for c in cfg["item_columns"] if c["enabled"]]
+
+    def test_default_output_is_pure_template(self, client, box, admin):
+        po_id = box.purchase_order(amount="37500")
+        created = client.post("/api/finance/payments",
+                              json={"supplier_id": box.supplier_id, "subject_code": SUBJECT,
+                                    "total_amount": "37500",
+                                    "contract_id": None, "remark": "模板备注内容",
+                                    "allocations": [{"target_type": "purchase_order",
+                                                     "target_id": po_id, "amount": "37500"}]},
+                              headers=admin).json()
+        box.docs["payments"].append(created["id"])
+        html = client.get(f"/api/finance/payments/{created['id']}/print", headers=admin).text
+        # 模板上有的：都在
+        for label in ("收款单位名称", "开户银行", "账号", "付款单位名称", "一级分类", "金额（大写）人民币",
+                      "备注", "领款人"):
+            assert label in html
+        # 模板上没有的：默认一个都不印（含单号/状态/签约公司/经办人/关联合同/来源单据与系统页脚）
+        for absent in ("单据编号", "单据日期<", "状态", "签约公司", "经办人", "关联合同",
+                       "来源单据", "本单据由系统生成", "打印时间", "class=\"items\""):
+            assert absent not in html, absent
+
+    def test_enabling_extra_field_prints_it(self, client, box, admin):
+        """把「单据编号」在模板页打开后，打印内容才出现单号（模板外项目默认关闭、可显式开启）。"""
+        from app.services import print_template_service as pts
+
+        cfg = pts.default_config("payment")
+        for field in cfg["head_fields"]:
+            if field["key"] == "doc_no":
+                field["enabled"] = True
+        po_id = box.purchase_order(amount="1000")
+        created = client.post("/api/finance/payments",
+                              json={"supplier_id": box.supplier_id, "subject_code": SUBJECT,
+                                    "total_amount": "1000",
+                                    "allocations": [{"target_type": "purchase_order",
+                                                     "target_id": po_id, "amount": "1000"}]},
+                              headers=admin).json()
+        box.docs["payments"].append(created["id"])
+        saved = client.put("/api/system/print-templates/payment", json={"config": cfg},
+                           headers=admin)
+        assert saved.status_code == 200, saved.text
+        html = client.get(f"/api/finance/payments/{created['id']}/print", headers=admin).text
+        assert "单据编号" in html and created["doc_no"] in html
+        client.post("/api/system/print-templates/payment/reset", headers=admin)
