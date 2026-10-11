@@ -682,6 +682,38 @@ export async function adminUnbindFeishu(userId: number): Promise<Dict> {
   return data
 }
 
+// ---------- V2.5：财务模块（付款单 / 收款单 / 发票） ----------
+
+/** 财务元数据：结算方式 / 票种 / 方向 / 状态（下拉与筛选取值真源） */
+export async function fetchFinanceMeta(): Promise<Dict> {
+  const { data } = await http.get('/finance/meta')
+  return data
+}
+
+/** 发票确认入账（记账，回写收票/开票金额） */
+export async function confirmInvoice(id: number): Promise<Dict> {
+  const { data } = await http.post(`/finance/invoices/${id}/confirm`)
+  return data
+}
+
+/** 发票认证状态流转（待认证 / 已认证；不影响进度） */
+export async function verifyInvoice(id: number, authStatus: 'pending' | 'verified'): Promise<Dict> {
+  const { data } = await http.post(`/finance/invoices/${id}/verify`, { auth_status: authStatus })
+  return data
+}
+
+/** 发票作废（已确认的先红冲） */
+export async function voidInvoice(id: number, reason: string): Promise<Dict> {
+  const { data } = await http.post(`/finance/invoices/${id}/void`, { reason })
+  return data
+}
+
+/** 按核销明细重算进度回写（运维动作，需 finance.payment.approve） */
+export async function recalcFinanceProgress(): Promise<Dict> {
+  const { data } = await http.post('/finance/recalc')
+  return data
+}
+
 // ---------- V2.5：飞书自动建号的「待分配角色」账号 ----------
 
 /** 角色下拉（分配角色用；需要 `master.role.view`） */

@@ -150,3 +150,6 @@ body {
   font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
   background: #f5f7fa;
 }
+
+/* V2.5：财务下游单据标签（采购单/销售订单详情抽屉里的"已生成付款单/发票"） */
+.fin-doc { margin-right: 12px; }

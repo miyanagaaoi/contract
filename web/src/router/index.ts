@@ -113,6 +113,68 @@ const router = createRouter({
           meta: { title: '账号管理', perm: 'master.user.view' },
         },
 
+        // ---- 财务管理（V2.5） ----
+        {
+          path: 'finance/payments', name: 'finance-payments',
+          component: () => import('@/views/finance/PaymentList.vue'),
+          meta: { title: '付款单', perm: 'finance.payment.view' },
+        },
+        {
+          path: 'finance/payments/new', name: 'finance-payment-form',
+          component: () => import('@/views/finance/PaymentForm.vue'),
+          meta: { title: '新增付款单', perm: 'finance.payment.create' },
+        },
+        {
+          path: 'finance/payments/:id/edit', name: 'finance-payment-edit',
+          component: () => import('@/views/finance/PaymentForm.vue'),
+          meta: { title: '编辑付款单', perm: 'finance.payment.edit' },
+        },
+        {
+          path: 'finance/payments/:id', name: 'finance-payment-detail',
+          component: () => import('@/views/finance/PaymentForm.vue'),
+          meta: { title: '付款单详情', perm: 'finance.payment.view' },
+        },
+        {
+          path: 'finance/receipts', name: 'finance-receipts',
+          component: () => import('@/views/finance/ReceiptList.vue'),
+          meta: { title: '收款单', perm: 'finance.receipt.view' },
+        },
+        {
+          path: 'finance/receipts/new', name: 'finance-receipt-form',
+          component: () => import('@/views/finance/ReceiptForm.vue'),
+          meta: { title: '新增收款单', perm: 'finance.receipt.create' },
+        },
+        {
+          path: 'finance/receipts/:id/edit', name: 'finance-receipt-edit',
+          component: () => import('@/views/finance/ReceiptForm.vue'),
+          meta: { title: '编辑收款单', perm: 'finance.receipt.edit' },
+        },
+        {
+          path: 'finance/receipts/:id', name: 'finance-receipt-detail',
+          component: () => import('@/views/finance/ReceiptForm.vue'),
+          meta: { title: '收款单详情', perm: 'finance.receipt.view' },
+        },
+        {
+          path: 'finance/invoices', name: 'finance-invoices',
+          component: () => import('@/views/finance/InvoiceList.vue'),
+          meta: { title: '发票管理', perm: 'finance.invoice.view' },
+        },
+        {
+          path: 'finance/invoices/new', name: 'finance-invoice-form',
+          component: () => import('@/views/finance/InvoiceForm.vue'),
+          meta: { title: '登记发票', perm: 'finance.invoice.create' },
+        },
+        {
+          path: 'finance/invoices/:id/edit', name: 'finance-invoice-edit',
+          component: () => import('@/views/finance/InvoiceForm.vue'),
+          meta: { title: '编辑发票', perm: 'finance.invoice.edit' },
+        },
+        {
+          path: 'finance/invoices/:id', name: 'finance-invoice-detail',
+          component: () => import('@/views/finance/InvoiceForm.vue'),
+          meta: { title: '发票详情', perm: 'finance.invoice.view' },
+        },
+
         // ---- 系统管理 ----
         {
           path: 'system', name: 'system',

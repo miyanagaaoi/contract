@@ -68,6 +68,11 @@ const props = withDefaults(defineProps<{
   /** 关联合同下拉数据源：采购方向 / 销售方向 */
   contractSource?: 'purchase' | 'sales'
   /**
+   * V2.5：明细区标题。财务单据（付款单/收款单/发票）没有物料行项，靠 `#items` 插槽渲染
+   * 「核销明细」，标题必须跟着换 —— 否则页面上写着"行项明细"，里面却是核销目标单据。
+   */
+  itemsTitle?: string
+  /**
    * V2.3：是否显示「签约公司」（我方公司 / 主体码）表头字段。
    * 采购申请/采购单/销售申请/销售订单/入库单/出库单 传 true；后端同样强制必填。
    */
@@ -87,6 +92,7 @@ const props = withDefaults(defineProps<{
   printApi: '',
   contractSource: 'purchase',
   showSubject: false,
+  itemsTitle: '行项明细',
 })
 
 const emit = defineEmits<{
@@ -538,7 +544,7 @@ defineExpose({ patchExtra, items, header, load, detail, editable })
     <el-card shadow="never">
       <template #header>
         <div class="head">
-          <span class="title">行项明细</span>
+          <span class="title">{{ itemsTitle }}</span>
           <div class="toolbar">
             <slot name="items-toolbar" :detail="detail" :editable="editable" :reload="load" :items="items"
                   :header="header" />
