@@ -21,6 +21,7 @@ import type { ApproveMode } from '@/components/doc/ApproveDialog.vue'
 import DocItemsTable from '@/components/doc/DocItemsTable.vue'
 import DocStatusTag from '@/components/doc/DocStatusTag.vue'
 import ProgressTag from '@/components/doc/ProgressTag.vue'
+import SourceDocDrawer from '@/components/doc/SourceDocDrawer.vue'
 import SupplierDetailDialog from '@/components/SupplierDetailDialog.vue'
 import {
   docAction,
@@ -153,6 +154,25 @@ const PROGRESS_UNITS: Record<string, { num: string; den: string }> = {
   paid_amount: { num: '已付', den: '应付' },
   received_amount: { num: '已收', den: '应收' },
   invoiced_amount: { num: '已开', den: '应开' },
+}
+
+/**
+ * V2.5+：来源单据抽屉。
+ *
+ * 全系统都有"来源单据"（入库单来自采购单、付款单来自采购单、发票来自购销订单…），
+ * 因此把"点来源单号看上游详情"做在通用列表壳里，所有单据列表自动获得该能力；
+ * 数据范围与查看权限仍由后端把关（本组件只负责打开与降级提示）。
+ */
+const sourceVisible = ref(false)
+const sourceType = ref<string | null>(null)
+const sourceId = ref<number | null>(null)
+
+function openSource(row: DocRecord): void {
+  const docId = row.source_doc_id as number | null | undefined
+  if (!docId) return
+  sourceType.value = (row.source_doc_type as string) || null
+  sourceId.value = Number(docId)
+  sourceVisible.value = true
 }
 
 const progressColumns = computed(() => (props.progressCols || []).map((key) => ({
@@ -729,7 +749,14 @@ defineExpose({ load: () => load(false), rows })
           <template #default="{ row }">{{ row.contract_no || '—' }}</template>
         </el-table-column>
         <el-table-column label="来源单号" width="150" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.source_doc_no || '—' }}</template>
+          <template #default="{ row }">
+            <!-- V2.5+：来源单号可点开上游单据详情（抽屉），不必再跳列表去翻 -->
+            <el-button v-if="row.source_doc_no && row.source_doc_id" link type="primary"
+                       size="small" @click.stop="openSource(row)">
+              {{ row.source_doc_no }}
+            </el-button>
+            <span v-else>{{ row.source_doc_no || '—' }}</span>
+          </template>
         </el-table-column>
         <!-- V2.4：备注列（业务反馈：备注原先只在详情抽屉里能看到，列表看不到）。
              用 min-width 让长备注吸收剩余宽度，超长自动省略并悬浮显示全文。 -->
@@ -855,6 +882,9 @@ defineExpose({ load: () => load(false), rows })
     <!-- V2.2：供货商详情（只读），由列表列与详情抽屉共用 -->
     <SupplierDetailDialog ref="supplierDialog" />
   </div>
+
+  <!-- V2.5+：来源单据详情抽屉（列表里点「来源单号」打开） -->
+  <SourceDocDrawer v-model="sourceVisible" :doc-type="sourceType" :doc-id="sourceId" />
 </template>
 
 <style scoped>
