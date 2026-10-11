@@ -39,7 +39,16 @@ def parse_env_text(text: str) -> dict[str, str]:
             continue
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-            value = value[1:-1]
+            value = value[1:-1]          # 加引号：原样保留（值里允许有 # 和空格）
+        else:
+            # 未加引号：`#` 前若是空白，则视为**行内注释**并剥离。
+            # 这条必须有 —— `.env.example` 模板里到处是 `KEY=值   # 说明`，
+            # 不剥离的话 `int("300   # 发送节流…")` 会让后端**启动即崩**。
+            # 要求"# 前是空白"是为了不误伤 `p@ss#word`、`http://host/p#frag`。
+            for idx, ch in enumerate(value):
+                if ch == "#" and (idx == 0 or value[idx - 1].isspace()):
+                    value = value[:idx].rstrip()
+                    break
         result[key] = value
     return result
 

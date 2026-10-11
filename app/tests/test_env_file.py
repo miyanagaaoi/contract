@@ -42,6 +42,26 @@ class TestParse:
     def test_ignores_none(self):
         assert parse_env_text(None) == {}
 
+    def test_inline_comment_is_stripped(self):
+        """行内注释必须剥离：`.env.example` 模板里到处是 `KEY=值   # 说明`。"""
+        assert parse_env_text("A=300   # 发送节流\n") == {"A": "300"}
+
+    def test_inline_comment_on_int_param_stays_parsable(self):
+        """回归防线：模板里那种带行内注释的整数参数，剥离后必须能被 int() 解析。
+
+        不修这条的话，用户照模板取消注释 → `int("300   # …")` → ValueError →
+        **后端启动即崩**（比"配置不生效"严重得多）。
+        """
+        parsed = parse_env_text("CTMS_FEISHU_SEND_INTERVAL_MS=300    # 节流\n")
+        assert int(parsed["CTMS_FEISHU_SEND_INTERVAL_MS"]) == 300
+
+    def test_hash_without_leading_space_is_kept(self):
+        """`#` 前没有空白时是**值的一部分**，不能被当注释切掉。"""
+        assert parse_env_text("A=p@ss#word\n") == {"A": "p@ss#word"}
+
+    def test_quoted_value_keeps_hash(self):
+        assert parse_env_text('A="a # b"\n') == {"A": "a # b"}
+
 
 class TestLoad:
     def test_missing_file_returns_none(self, tmp_path):
