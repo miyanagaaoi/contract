@@ -12,7 +12,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { fetchFinanceAging, fetchFinanceSummary, type Dict } from '@/api'
+import { downloadBlobFile, fetchFinanceAging, fetchFinanceSummary, type Dict } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { fmtDate, fmtMoney } from '@/utils/format'
 
@@ -38,6 +38,12 @@ async function load() {
 
 function openDoc(row: Dict) {
   router.push({ name: 'finance-payment-detail', params: { id: String(row.id) } })
+}
+
+async function exportAging() {
+  await downloadBlobFile('/finance/aging.xlsx',
+                         aging.value?.as_of ? { as_of: aging.value.as_of } : {},
+                         '账龄.xlsx')
 }
 
 onMounted(load)
@@ -110,8 +116,11 @@ onMounted(load)
         </span>
       </div>
 
-      <div class="block-title">
-        账龄（按单据日期，基准日 {{ aging?.as_of || '今天' }}）
+      <div class="aging-head">
+        <span class="block-title">
+          账龄（按单据日期，基准日 {{ aging?.as_of || '今天' }}）
+        </span>
+        <el-button size="small" @click="exportAging">导出账龄</el-button>
       </div>
       <el-table :data="aging?.buckets || []" size="small" border class="aging">
         <el-table-column prop="label" label="账龄区间" width="120" />
@@ -186,6 +195,7 @@ onMounted(load)
 .alerts { display: flex; align-items: center; gap: 10px; margin: 4px 0 var(--ctms-gap); flex-wrap: wrap; }
 .block-title { font-weight: 600; margin: 10px 0 6px; }
 .aging { margin-bottom: var(--ctms-gap); }
+.aging-head { display: flex; align-items: center; justify-content: space-between; }
 .blocks { margin-top: 4px; }
 .tip { color: var(--ctms-text-muted); font-size: var(--ctms-fs-xs); }
 </style>

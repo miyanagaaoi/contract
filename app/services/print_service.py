@@ -383,6 +383,24 @@ def sample_doc(kind: str):
         doc.from_warehouse_id, doc.from_warehouse_name = 1, "主仓库"
         doc.to_warehouse_id, doc.to_warehouse_name = 2, "车间仓"
 
+    # V2.5：财务域（表头型单据：往来单位 + 金额 + 发票票面）
+    if kind in ("payment", "invoice"):
+        doc.supplier_id, doc.supplier_name = 1, "样例供货商"
+        doc.party_id, doc.party_name = 1, "样例供货商"
+    if kind == "receipt":
+        doc.customer_id, doc.customer_name = 1, "样例客户"
+        doc.party_id, doc.party_name = 1, "样例客户"
+    if kind == "payment":
+        doc.settle_type, doc.pay_account = "银行转账", "工行基本户 6222"
+    if kind == "receipt":
+        doc.settle_type, doc.recv_account = "银行转账", "工行基本户 6222"
+    if kind == "invoice":
+        doc.invoice_direction, doc.invoice_no = "in", "04400190011123456789"
+        doc.invoice_code, doc.invoice_type = "044001900111", "增值税专用发票"
+        doc.invoice_date = _today()
+        doc.amount, doc.tax_amount = 10925.37, 1420.30
+        doc.auth_status = "pending"
+
     rows = [
         ("CL001", "钢材", "Q235 10mm", "吨", 12.5),
         ("CL002", "不锈钢板", "304 2mm", "张", 30),

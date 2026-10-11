@@ -285,6 +285,27 @@ def finance_aging(as_of: str | None = Query(None, description="基准日 YYYY-MM
     return finance_service.aging(db, as_of=day)
 
 
+@router.get("/aging.xlsx", summary="账龄导出（当前基准日）")
+def finance_aging_export(as_of: str | None = Query(None),
+                         _user: User = Depends(require_perm("finance.payment.view")),
+                         db: Session = Depends(get_db)):
+    """与页面同口径、同基准日（AC-V2.5-16 的"导出与界面一致"在资金视图上的延伸）。"""
+    day = _guard(db, doc_service.parse_doc_date, as_of) if as_of else None
+    data = finance_service.aging(db, as_of=day)
+    columns = [("账龄区间", 14), ("采购待付金额", 16), ("采购待付单据数", 16),
+               ("销售待收金额", 16), ("销售待收单据数", 16), ("合计金额", 16)]
+    purchase = {b["code"]: b for b in data["purchase"]["buckets"]}
+    sales = {b["code"]: b for b in data["sales"]["buckets"]}
+    rows = [[b["label"], purchase[b["code"]]["amount"], purchase[b["code"]]["count"],
+             sales[b["code"]]["amount"], sales[b["code"]]["count"],
+             round(purchase[b["code"]]["amount"] + sales[b["code"]]["amount"], 2)]
+            for b in data["buckets"]]
+    rows.append(["合计", data["purchase"]["total"], data["purchase"]["count"],
+                 data["sales"]["total"], data["sales"]["count"],
+                 round(data["purchase"]["total"] + data["sales"]["total"], 2)])
+    return build_xlsx_response(f"账龄{data['as_of']}", columns, rows, "账龄")
+
+
 @router.get("/meta", summary="财务模块元数据（结算方式/票种/方向/状态）")
 def finance_meta(_user: User = Depends(require_perm("finance.payment.view")),
                  _db: Session = Depends(get_db)):

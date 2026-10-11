@@ -39,6 +39,11 @@ KINDS: list[tuple[str, str]] = [
     ("stock_out", "出库单"),
     ("stock_take", "盘点单"),
     ("stock_transfer", "调拨单"),
+    # V2.5：财务域（付款凭单 / 收款凭单 / 发票）—— 表头字段与签字栏可配；
+    # 行项明细区块对表头型单据无行可印（核销明细的专属版式留待后续，见 docs/32 §4）
+    ("payment", "付款单"),
+    ("receipt", "收款单"),
+    ("invoice", "发票"),
 ]
 KIND_LABELS: dict[str, str] = dict(KINDS)
 

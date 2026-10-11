@@ -242,7 +242,7 @@ watch(() => formRef.value?.detail, (detail: Dict | null | undefined) => {
 
     <template #items="{ readonly }">
       <AllocationTable v-model="allocations" :targets="targets" :options="orders"
-                       :readonly="readonly" show-tax :total-amount="totalAmount" />
+                       :readonly="readonly" :single-row="false" show-tax :total-amount="totalAmount" />
     </template>
   </DocFormPage>
 </template>

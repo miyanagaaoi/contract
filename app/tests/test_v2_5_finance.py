@@ -949,3 +949,74 @@ class TestAging:
     def test_aging_requires_permission(self, client, box):
         assert client.get("/api/finance/aging",
                           headers=box.login(client, box.user("keeper"))).status_code == 403
+
+
+# ===================== M3：打印模板 / 多行核销 / 账龄导出 =====================
+
+class TestM3Completeness:
+    def test_finance_kinds_have_print_templates(self, client, box, admin):
+        """三类财务单据进入打印模板目录，且可保存/读取专属版式（M3-03）。"""
+        from app.services import print_template_service as pts
+
+        assert {"payment", "receipt", "invoice"} <= set(pts.KIND_LABELS)
+        listing = client.get("/api/system/print-templates", headers=admin).json()
+        items = listing if isinstance(listing, list) else listing.get("items", [])
+        kinds = {i.get("kind") for i in items}
+        assert {"payment", "receipt", "invoice"} <= kinds
+
+        cfg = client.get("/api/system/print-templates/payment", headers=admin).json()
+        cfg["config"]["title"] = "付款凭单（E2E）"
+        saved = client.put("/api/system/print-templates/payment",
+                           json={"config": cfg["config"]}, headers=admin)
+        assert saved.status_code == 200, saved.text
+        reread = client.get("/api/system/print-templates/payment", headers=admin).json()
+        assert reread["config"]["title"] == "付款凭单（E2E）"
+        # 还原出厂模板，避免影响其它用例/环境
+        client.post("/api/system/print-templates/payment/reset", headers=admin)
+
+    def test_finance_doc_can_print(self, client, box, admin):
+        """表头型单据的打印不再依赖 doc.items（曾经会 AttributeError）。"""
+        po_id = box.purchase_order(amount="10000")
+        created = client.post("/api/finance/payments",
+                              json={"supplier_id": box.supplier_id, "subject_code": SUBJECT,
+                                    "total_amount": "500",
+                                    "allocations": [{"target_type": "purchase_order",
+                                                     "target_id": po_id, "amount": "500"}]},
+                              headers=admin).json()
+        box.docs["payments"].append(created["id"])
+        html = client.get(f"/api/finance/payments/{created['id']}/print", headers=admin)
+        assert html.status_code == 200
+        assert created["doc_no"] in html.text
+
+    def test_multi_row_allocation_accepted(self, client, box, admin):
+        """一付款单核多张采购单（M3-05：界面已放开，后端按多行校验）。"""
+        po_a = box.purchase_order(amount="10000")
+        po_b = box.purchase_order(amount="10000")
+        created = client.post("/api/finance/payments",
+                              json={"supplier_id": box.supplier_id, "subject_code": SUBJECT,
+                                    "total_amount": "6000",
+                                    "allocations": [
+                                        {"target_type": "purchase_order", "target_id": po_a,
+                                         "amount": "4000"},
+                                        {"target_type": "purchase_order", "target_id": po_b,
+                                         "amount": "2000"}]},
+                              headers=admin)
+        assert created.status_code == 200, created.text
+        body = created.json()
+        box.docs["payments"].append(body["id"])
+        assert len(body["allocations"]) == 2
+        assert body["allocated_amount"] == 6000.0
+        # 审核后两张采购单各自回写（4000 / 2000）
+        fin_h = box.login(client, box.user("finance"))
+        client.post(f"/api/finance/payments/{body['id']}/submit", headers=admin)
+        client.post(f"/api/finance/payments/{body['id']}/approve", headers=fin_h)
+        assert client.get(f"/api/purchase/orders/{po_a}",
+                          headers=admin).json()["paid_amount"] == 4000.0
+        assert client.get(f"/api/purchase/orders/{po_b}",
+                          headers=admin).json()["paid_amount"] == 2000.0
+
+    def test_aging_export(self, client, box):
+        resp = client.get("/api/finance/aging.xlsx",
+                          headers=box.login(client, box.user("finance")))
+        assert resp.status_code == 200
+        assert "spreadsheetml" in resp.headers["content-type"]
