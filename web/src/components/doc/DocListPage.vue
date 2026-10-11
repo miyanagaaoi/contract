@@ -18,6 +18,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import ApproveDialog from '@/components/doc/ApproveDialog.vue'
 import type { ApproveMode } from '@/components/doc/ApproveDialog.vue'
+import ContractDetailDrawer from '@/components/doc/ContractDetailDrawer.vue'
 import DocItemsTable from '@/components/doc/DocItemsTable.vue'
 import DocStatusTag from '@/components/doc/DocStatusTag.vue'
 import ProgressTag from '@/components/doc/ProgressTag.vue'
@@ -163,6 +164,18 @@ const PROGRESS_UNITS: Record<string, { num: string; den: string }> = {
  * 因此把"点来源单号看上游详情"做在通用列表壳里，所有单据列表自动获得该能力；
  * 数据范围与查看权限仍由后端把关（本组件只负责打开与降级提示）。
  */
+/**
+ * 关联合同抽屉（复用 `ContractDetailDrawer`，V2.1/N5 已存在）。
+ *
+ * 与"来源单号"同理：合同号在**所有**单据列表里都出现，做成可点后
+ * "这单挂在哪个合同下、合同金额与已付是多少"不必再跳到合同台账去查。
+ */
+const contractDrawer = ref<InstanceType<typeof ContractDetailDrawer> | null>(null)
+
+function openContract(row: DocRecord): void {
+  void contractDrawer.value?.open(row.contract_id as number | null | undefined)
+}
+
 const sourceVisible = ref(false)
 const sourceType = ref<string | null>(null)
 const sourceId = ref<number | null>(null)
@@ -746,7 +759,14 @@ defineExpose({ load: () => load(false), rows })
           <template #default="{ row }">{{ row.created_by_name || '—' }}</template>
         </el-table-column>
         <el-table-column label="关联合同" width="150" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.contract_no || '—' }}</template>
+          <template #default="{ row }">
+            <!-- 关联合同可点开只读详情（抽屉），不必跳去合同台账 -->
+            <el-button v-if="row.contract_no && row.contract_id" link type="primary"
+                       size="small" @click.stop="openContract(row)">
+              {{ row.contract_no }}
+            </el-button>
+            <span v-else>{{ row.contract_no || '—' }}</span>
+          </template>
         </el-table-column>
         <el-table-column label="来源单号" width="150" show-overflow-tooltip>
           <template #default="{ row }">
@@ -882,6 +902,9 @@ defineExpose({ load: () => load(false), rows })
     <!-- V2.2：供货商详情（只读），由列表列与详情抽屉共用 -->
     <SupplierDetailDialog ref="supplierDialog" />
   </div>
+
+  <!-- 关联合同只读详情（列表里点「关联合同」打开；组件为 V2.1/N5 既有实现） -->
+  <ContractDetailDrawer ref="contractDrawer" />
 
   <!-- V2.5+：来源单据详情抽屉（列表里点「来源单号」打开） -->
   <SourceDocDrawer v-model="sourceVisible" :doc-type="sourceType" :doc-id="sourceId" />
