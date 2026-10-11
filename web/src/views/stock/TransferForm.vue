@@ -5,8 +5,11 @@
  * 调出仓 / 调入仓均必填且**不得相同**（前后端双重校验：后端见
  * `app/routers/stock.py::_apply_transfer_fields`，防止绕过前端）。
  * 调拨不涉及金额，故行项隐藏单价列。
+ *
+ * V2.3（N4）：调出单位 / 调入单位由两端仓库的**所属公司**自动带出（只读，后端落快照），
+ * 让跨公司调拨一眼能看出货物归属变化；仓库下拉统一显示 `主体码-仓库名`。
  */
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 import DocFormPage from '@/components/doc/DocFormPage.vue'
 import { fetchMasterOptions, type Dict } from '@/api'
@@ -27,6 +30,18 @@ async function ensureOptions() {
   }
 }
 void ensureOptions()
+
+/** 调出单位：调出仓所属公司（未维护所属公司时显示 —） */
+const fromUnit = computed(() => {
+  const hit = warehouses.value.find((w) => w.id === Number(extra.value.from_warehouse_id))
+  return (hit?.subject_name as string) || '—'
+})
+
+/** 调入单位：调入仓所属公司 */
+const toUnit = computed(() => {
+  const hit = warehouses.value.find((w) => w.id === Number(extra.value.to_warehouse_id))
+  return (hit?.subject_name as string) || '—'
+})
 </script>
 
 <template>
@@ -40,7 +55,8 @@ void ensureOptions()
         <el-form-item label="调出仓库" required>
           <el-select v-model="extra.from_warehouse_id" filterable placeholder="请选择调出仓库"
                      style="width: 100%" @visible-change="ensureOptions">
-            <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
+            <el-option v-for="w in warehouses" :key="w.id"
+                       :label="(w.display_name as string) || w.name" :value="w.id" />
           </el-select>
         </el-form-item>
       </el-col>
@@ -48,13 +64,25 @@ void ensureOptions()
         <el-form-item label="调入仓库" required>
           <el-select v-model="extra.to_warehouse_id" filterable placeholder="请选择调入仓库"
                      style="width: 100%" @visible-change="ensureOptions">
-            <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
+            <el-option v-for="w in warehouses" :key="w.id"
+                       :label="(w.display_name as string) || w.name" :value="w.id" />
           </el-select>
+        </el-form-item>
+      </el-col>
+      <!-- V2.3（N4）：调出/调入单位随所选仓库自动带出（只读） -->
+      <el-col :span="12">
+        <el-form-item label="调出单位">
+          <el-input :model-value="fromUnit" readonly placeholder="随调出仓库自动带出" />
+        </el-form-item>
+      </el-col>
+      <el-col :span="12">
+        <el-form-item label="调入单位">
+          <el-input :model-value="toUnit" readonly placeholder="随调入仓库自动带出" />
         </el-form-item>
       </el-col>
       <el-col :span="24">
         <el-alert type="info" :closable="false" show-icon
-                  title="审核后将在同一事务内完成：调出仓减少、调入仓增加；调出仓结存不足会被拦截。" />
+                  title="审核后将在同一事务内完成：调出仓减少、调入仓增加；调出仓结存不足会被拦截。调出/调入单位由仓库所属公司自动带出。" />
       </el-col>
     </template>
   </DocFormPage>

@@ -69,7 +69,7 @@ const customerName = computed(() => {
 <template>
   <DocFormPage v-model="extra" title="销售申请单" kind-label="销售申请单"
                api="/api/sales/requests" perm-prefix="sales.request"
-               list-route="sales-requests" show-warehouse contract-source="sales"
+               list-route="sales-requests" show-warehouse show-subject contract-source="sales"
                :extra-cols="['ordered']">
     <template #header>
       <el-col :span="12">

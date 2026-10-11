@@ -289,7 +289,8 @@ defineExpose({ loadProducts, totalAmount })
         <template #default="{ row }">
           <el-select v-if="!readonly" v-model="row.warehouse_id" filterable clearable
                      placeholder="默认按表头仓库" style="width: 100%" @change="emit('change')">
-            <el-option v-for="w in warehouseOptions" :key="w.id" :label="w.name" :value="w.id" />
+            <el-option v-for="w in warehouseOptions" :key="w.id"
+                       :label="(w.display_name as string) || w.name" :value="w.id" />
           </el-select>
           <span v-else>{{ row.warehouse_name || '—' }}</span>
         </template>

@@ -144,7 +144,7 @@ async function extractFromContract(header: Dict, items: Record<string, any>[]) {
 <template>
   <DocFormPage v-model="extra" title="采购申请单" kind-label="采购申请单"
                api="/api/purchase/requests" perm-prefix="purchase.request"
-               list-route="purchase-requests" show-warehouse :extra-cols="['ordered']">
+               list-route="purchase-requests" show-warehouse show-subject :extra-cols="['ordered']">
     <template #header="{ header }">
       <el-col :span="12">
         <el-form-item label="需求日期">

@@ -7,7 +7,7 @@
 export interface MasterField {
   prop: string
   label: string
-  type?: 'input' | 'number' | 'textarea' | 'select' | 'switch' | 'options' | 'tree-select'
+  type?: 'input' | 'number' | 'textarea' | 'select' | 'switch' | 'options' | 'tree-select' | 'subjects'
   required?: boolean
   span?: number
   /** type='options' 时，从 `GET /api/master/options/{optionKind}` 拉取候选 */

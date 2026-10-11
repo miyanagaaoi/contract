@@ -64,6 +64,16 @@ export interface DocRecord {
   // ---- 视单据类型附带 ----
   warehouse_id?: number | null
   warehouse_name?: string | null
+  /** V2.3：仓库默认显示名（`主体码-仓库名`） */
+  warehouse_display_name?: string | null
+  /** V2.3：签约公司（我方主体码 / 名称快照） */
+  subject_code?: string | null
+  subject_name?: string | null
+  /** V2.3：调拨单调出/调入单位（由两端仓库所属公司自动带出的快照） */
+  from_subject_code?: string | null
+  from_subject_name?: string | null
+  to_subject_code?: string | null
+  to_subject_name?: string | null
   in_type?: string | null
   out_type?: string | null
   take_type?: string | null
@@ -111,6 +121,8 @@ export interface DocListQuery {
   supplier_id?: number | null
   customer_id?: number | null
   handler_user_id?: number | null
+  /** V2.3：签约公司（我方主体码），如 ZC */
+  subject_code?: string
   page?: number
   page_size?: number
 }
@@ -178,6 +190,11 @@ export interface StockBalance {
   uom_decimals: number | null
   warehouse_id: number
   warehouse_name: string | null
+  /** V2.3：仓库默认显示名（`主体码-仓库名`，如 ZC-主仓） */
+  warehouse_display_name?: string | null
+  /** V2.3：仓库所属公司（我方主体码 / 名称） */
+  subject_code?: string | null
+  subject_name?: string | null
   qty: number
   safety_stock: number | null
   below_safety: boolean

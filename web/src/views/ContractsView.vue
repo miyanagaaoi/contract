@@ -5,12 +5,13 @@ import { useRoute, useRouter } from 'vue-router'
 
 import RelatedDocs from '@/components/doc/RelatedDocs.vue'
 import {
-  attachmentUrl,
   canPreview,
   createContract,
   createTag,
   deleteAttachment,
   deleteTag,
+  downloadAttachment,
+  downloadBlobFile,
   fetchAttachments,
   fetchContract,
   fetchContracts,
@@ -19,7 +20,7 @@ import {
   fetchTags,
   getMeta,
   importContracts,
-  importTemplateUrl,
+  previewAttachment,
   previewNumber,
   renameTag,
   restoreContract,
@@ -262,16 +263,21 @@ function resetExportCols() {
   if (exportRemember.value) rememberExportCols()
 }
 
-function doExport() {
+async function doExport() {
   if (!exportCols.value.length) {
     ElMessage.warning('请至少选择一列')
     return
   }
   if (exportRemember.value) rememberExportCols()
-  const p = exportExcel()
-  p.set('cols', exportCols.value.join(','))
-  const qs = p.toString()
-  window.open(`/api/export/contracts.xlsx${qs ? `?${qs}` : ''}`, '_blank')
+  // 令牌在请求头 → 必须走 blob 下载；`window.open('/api/export/…')` 不带 Authorization 会 401
+  const params = Object.fromEntries(exportExcel().entries())
+  params.cols = exportCols.value.join(',')
+  try {
+    await downloadBlobFile('/export/contracts.xlsx', params, '合同台账.xlsx')
+  } catch (e) {
+    ElMessage.error(apiError(e))
+    return
+  }
   exportDlgVisible.value = false
 }
 
@@ -740,8 +746,13 @@ async function onImportFile(file: File) {
   }
 }
 
-function downloadTemplate() {
-  window.open(importTemplateUrl(), '_blank')
+async function downloadTemplate() {
+  try {
+    // 同样需带令牌（contract.import）：blob 下载而非 window.open 裸 URL
+    await downloadBlobFile('/import/template.xlsx', {}, '合同导入模板.xlsx')
+  } catch (e) {
+    ElMessage.error(apiError(e))
+  }
 }
 
 // ---------- 详情（AC-01：详情可打开） ----------
@@ -795,9 +806,15 @@ function fmtSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-function openAttachment(row: Dict) {
-  if (canPreview(row.file_name)) window.open(attachmentUrl(row.id, true), '_blank')
-  else window.open(attachmentUrl(row.id), '_blank')
+async function openAttachment(row: Dict) {
+  try {
+    // 预览/下载都要带令牌（附件接口按所属对象鉴权）：走 blob，不能用裸 URL 导航，
+    // 否则浏览器导航请求不带 Authorization，后端回 401「未登录，请先登录」。
+    if (canPreview(row.file_name)) await previewAttachment(row.id)
+    else await downloadAttachment(row.id, row.file_name)
+  } catch (e) {
+    ElMessage.error(apiError(e))
+  }
 }
 
 // 日期/金额格式化统一走 @/utils/format（T1-3）：原先此处各写一份，

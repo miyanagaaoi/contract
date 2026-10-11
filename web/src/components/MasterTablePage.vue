@@ -13,6 +13,7 @@ import {
   deleteMasterItem,
   fetchMasterList,
   fetchMasterOptions,
+  fetchSubjects,
   setMasterStatus,
   updateMasterItem,
   type Dict,
@@ -106,6 +107,14 @@ async function loadOptions() {
       optionCache[kind] = await fetchMasterOptions(kind)
     } catch {
       optionCache[kind] = []
+    }
+  }
+  // V2.3：我方公司（主体码）字典 —— 供仓库「所属公司」下拉（value 存主体码）
+  if (props.fields.some((f) => f.type === 'subjects')) {
+    try {
+      optionCache.subjects = await fetchSubjects()
+    } catch {
+      optionCache.subjects = []
     }
   }
 }
@@ -327,6 +336,13 @@ onMounted(async () => {
               <el-select v-else-if="f.type === 'select'" v-model="form[f.prop]" style="width: 100%">
                 <el-option v-for="o in f.options || []" :key="String(o.value)" :label="o.label"
                            :value="o.value" />
+              </el-select>
+              <!-- V2.3：我方公司（主体码）下拉；取值只能是系统设置里维护的主体 -->
+              <el-select v-else-if="f.type === 'subjects'" v-model="form[f.prop]" filterable
+                         :clearable="!f.required" style="width: 100%"
+                         :placeholder="f.placeholder || '请选择我方公司'">
+                <el-option v-for="s in optionCache.subjects || []" :key="s.code"
+                           :label="`${s.name}（${s.code}）`" :value="s.code" />
               </el-select>
               <div v-else-if="f.type === 'options'" class="quick-line">
                 <el-select v-model="form[f.prop]" filterable clearable style="flex: 1"

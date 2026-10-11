@@ -30,6 +30,7 @@ import {
   fetchMasterOptions,
   fetchPurchaseContractOptions,
   fetchSalesContractOptions,
+  fetchSubjects,
   openDocPrint,
   type Dict,
 } from '@/api'
@@ -79,6 +80,8 @@ const props = withDefaults(defineProps<{
   printable?: boolean
   /** 关联合同下拉的数据源：采购方向 / 销售方向 */
   contractSource?: 'purchase' | 'sales'
+  /** V2.3：显示「签约公司」列 / 筛选项（我方公司 / 主体码） */
+  showSubject?: boolean
 }>(), {
   subtitle: '',
   listRoute: '',
@@ -97,6 +100,7 @@ const props = withDefaults(defineProps<{
   printApi: '',
   printable: true,
   contractSource: 'purchase',
+  showSubject: false,
 })
 
 const emit = defineEmits<{
@@ -126,12 +130,14 @@ const query = reactive<Dict>({
   warehouse_id: null,
   supplier_id: null,
   customer_id: null,
+  subject_code: null,
 })
 
 const warehouseOptions = ref<Dict[]>([])
 const supplierOptions = ref<Dict[]>([])
 const customerOptions = ref<Dict[]>([])
 const contractOptions = ref<Dict[]>([])
+const subjectOptions = ref<Dict[]>([])   // V2.3：我方公司（主体码）字典
 
 const canCreate = computed(() => auth.hasPerm(props.createPerm || `${props.permPrefix}.create`))
 const canExport = computed(() => !!props.exportPath && auth.hasPerm(`${props.permPrefix}.export`))
@@ -153,6 +159,7 @@ function queryParams(includePage = false): DocListQuery {
     warehouse_id: query.warehouse_id || undefined,
     supplier_id: query.supplier_id || undefined,
     customer_id: query.customer_id || undefined,
+    subject_code: query.subject_code || undefined,
   }
   if (includePage) {
     params.page = page.value
@@ -193,6 +200,7 @@ function resetQuery() {
   query.warehouse_id = null
   query.supplier_id = null
   query.customer_id = null
+  query.subject_code = null
   page.value = 1
   load()
 }
@@ -231,6 +239,7 @@ function applyQueryFromUrl(): void {
   query.warehouse_id = num('warehouse_id')
   query.supplier_id = num('supplier_id')
   query.customer_id = num('customer_id')
+  query.subject_code = str('subject_code') || null
   const from = str('date_from')
   const to = str('date_to')
   query.date_range = from && to ? [from, to] : []
@@ -499,6 +508,8 @@ async function loadOptions() {
     if (props.showWarehouse) warehouseOptions.value = await fetchMasterOptions('warehouse')
     if (props.showSupplier) supplierOptions.value = await fetchMasterOptions('supplier')
     if (props.showCustomer) customerOptions.value = await fetchMasterOptions('customer')
+    // V2.3：签约公司筛选项（我方公司 / 主体码）
+    if (props.showSubject) subjectOptions.value = await fetchSubjects()
   } catch {
     // 下拉失败不阻塞列表
   }
@@ -556,9 +567,18 @@ defineExpose({ load: () => load(false), rows })
                           @change="page = 1; load()" />
         </el-form-item>
         <el-form-item v-if="showWarehouse" label="仓库">
-          <el-select v-model="query.warehouse_id" clearable filterable style="width: 160px"
+          <el-select v-model="query.warehouse_id" clearable filterable style="width: 180px"
                      @change="page = 1; load()">
-            <el-option v-for="w in warehouseOptions" :key="w.id" :label="w.name" :value="w.id" />
+            <!-- V2.3：仓库默认显示 `主体码-仓库名`（ZC-主仓） -->
+            <el-option v-for="w in warehouseOptions" :key="w.id"
+                       :label="(w.display_name as string) || w.name" :value="w.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="showSubject" label="签约公司">
+          <el-select v-model="query.subject_code" clearable filterable style="width: 170px"
+                     placeholder="我方公司" @change="page = 1; load()">
+            <el-option v-for="s in subjectOptions" :key="s.code"
+                       :label="`${s.name}（${s.code}）`" :value="s.code" />
           </el-select>
         </el-form-item>
         <el-form-item v-if="showSupplier" label="供应商">
@@ -618,6 +638,10 @@ defineExpose({ load: () => load(false), rows })
           <template #default="{ row }">
             <DocStatusTag :status="row.status" :label="row.status_label" />
           </template>
+        </el-table-column>
+        <!-- V2.3：签约公司（我方主体，显示名称快照；历史单据未填时回退主体码） -->
+        <el-table-column v-if="showSubject" label="签约公司" width="120" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.subject_name || row.subject_code || '—' }}</template>
         </el-table-column>
         <el-table-column :label="partyLabel()" min-width="150" show-overflow-tooltip>
           <template #default="{ row }">
@@ -701,6 +725,10 @@ defineExpose({ load: () => load(false), rows })
             <DocStatusTag :status="detail.status" :label="detail.status_label" />
           </el-descriptions-item>
           <el-descriptions-item label="单据日期">{{ fmtDate(detail.doc_date) }}</el-descriptions-item>
+          <!-- V2.3：签约公司（我方公司名称；历史单据未填时回退主体码） -->
+          <el-descriptions-item v-if="showSubject" label="签约公司">
+            {{ detail.subject_name || detail.subject_code || '—' }}
+          </el-descriptions-item>
           <el-descriptions-item label="经办人">{{ detail.created_by_name || '—' }}</el-descriptions-item>
           <el-descriptions-item label="关联合同">{{ detail.contract_no || '—' }}</el-descriptions-item>
           <el-descriptions-item label="来源单号">{{ detail.source_doc_no || '—' }}</el-descriptions-item>

@@ -56,6 +56,7 @@ onMounted(async () => {
                subtitle="录入需求 → 提交 → 审核 → 下推采购单；作废单据默认隐藏"
                perm-prefix="purchase.request" kind-label="采购申请单"
                form-route="purchase-request-form" edit-route="purchase-request-edit" show-supplier
+               show-subject
                pushable push-perm="purchase.order.create"
                push-remain-field="remain_qty_sum"
                export-path="/api/purchase/requests/export.xlsx"

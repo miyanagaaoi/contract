@@ -54,7 +54,7 @@ onMounted(async () => {
                subtitle="录入客户需求 → 提交 → 审核 → 下推销售订单；作废单据默认隐藏"
                perm-prefix="sales.request" kind-label="销售申请单"
                form-route="sales-request-form" edit-route="sales-request-edit"
-               show-customer contract-source="sales"
+               show-customer contract-source="sales" show-subject
                export-path="/api/sales/requests/export.xlsx"
                pushable push-perm="sales.order.create" :extra-cols="['ordered']"
                @push="onPush">

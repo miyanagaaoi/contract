@@ -33,7 +33,8 @@ const warehouses = ref<Dict[]>([])
 function warehouseName(id: unknown): string {
   if (!id) return '—'
   const hit = warehouses.value.find((w) => w.id === Number(id))
-  return hit ? hit.name : `已删除/无权限的仓库（#${id}）`
+  // V2.3：仓库默认显示 `主体码-仓库名`（ZC-主仓）
+  return hit ? ((hit.display_name as string) || (hit.name as string)) : `已删除/无权限的仓库（#${id}）`
 }
 
 onMounted(async () => {
@@ -50,6 +51,7 @@ onMounted(async () => {
                subtitle="向供应商下单 → 审核 → 下推入库单；入库过账后回写已入库数量"
                perm-prefix="purchase.order" kind-label="采购单"
                form-route="purchase-order-form" edit-route="purchase-order-edit" show-supplier show-warehouse
+               show-subject
                pushable push-perm="purchase.order.push" :extra-cols="['received']"
                export-path="/api/purchase/orders/export.xlsx"
                @push="onPush">

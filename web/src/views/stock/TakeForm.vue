@@ -267,7 +267,8 @@ async function onApproveConfirm(payload: { mode: ApproveMode; reason: string }) 
           <el-form-item label="盘点仓库" required>
             <el-select v-model="extra.warehouse_id" filterable placeholder="请选择仓库"
                        style="width: 100%" @visible-change="ensureWarehouses">
-              <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
+              <el-option v-for="w in warehouses" :key="w.id"
+                         :label="(w.display_name as string) || w.name" :value="w.id" />
             </el-select>
           </el-form-item>
         </el-col>

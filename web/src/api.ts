@@ -42,7 +42,16 @@ http.interceptors.request.use((config) => {
 
 http.interceptors.response.use(
   (resp) => resp,
-  (error) => {
+  async (error) => {
+    // 二进制请求（预览/下载/导出走 responseType: 'blob'）失败时，后端回的是 JSON 错误体，
+    // 但 axios 已按 blob 收下，`data.detail` 取不到中文提示。这里先解出来，让下面的
+    // 401/403 提示与普通请求保持一致（解析失败则保持原样，不影响状态码分支）。
+    const blob = error?.response?.data
+    if (typeof Blob !== 'undefined' && blob instanceof Blob) {
+      try {
+        error.response.data = JSON.parse(await blob.text())
+      } catch { /* 非 JSON 错误体：忽略 */ }
+    }
     const status = error?.response?.status
     const detail = error?.response?.data?.detail
     // 无 response：请求根本没到服务端（断网 / DNS / 超时 / CORS / 后端未启动）。
@@ -162,8 +171,22 @@ export async function deleteAttachment(contractId: number, attachmentId: number,
   return data
 }
 
-export function attachmentUrl(attachmentId: number, inline = false): string {
-  return `/api/attachments/${attachmentId}/download${inline ? '?inline=1' : ''}`
+/**
+ * 附件预览（PDF/图片）：**不能**把接口地址交给浏览器直接导航。
+ *
+ * `GET /api/attachments/{id}/download` 由 HTTPBearer 鉴权，令牌只存在于 axios 请求头
+ * （`@/utils/token` → localStorage）。`window.open('/api/attachments/1/download?inline=1')`
+ * 是一次浏览器导航，**不会带 Authorization**，后端只会回 401「未登录，请先登录」——
+ * 这正是"上传附件后点预览报未登录"的原因。改为先取回 blob，再让新窗口渲染 blob URL。
+ */
+export async function previewAttachment(attachmentId: number): Promise<void> {
+  await openBlobWindow(`/attachments/${attachmentId}/download`, { inline: 1 },
+                       '浏览器拦截了新窗口，已尝试直接打开预览')
+}
+
+/** 附件下载（不可预览的类型）：blob + `a[download]` 触发保存，文件名取后端 Content-Disposition */
+export async function downloadAttachment(attachmentId: number, fallbackName = '附件'): Promise<void> {
+  await downloadBlobFile(`/attachments/${attachmentId}/download`, {}, fallbackName)
 }
 
 const PREVIEWABLE = ['.pdf', '.png', '.jpg', '.jpeg', '.gif']
@@ -196,6 +219,15 @@ export async function saveSubjects(subjects: Dict[]): Promise<Dict> {
   return data
 }
 
+/**
+ * 我方公司（主体码）字典（V2.3）：仓库「所属公司」、单据「签约公司」的唯一取值来源。
+ * 读接口只要求登录（与合同表单同口径），维护权限在 `PUT /settings/subjects`。
+ */
+export async function fetchSubjects(): Promise<Dict[]> {
+  const { data } = await http.get('/settings/subjects')
+  return (data.subjects ?? []) as Dict[]
+}
+
 // ---------- 自动编号预览（MVP3） ----------
 export async function previewNumber(typeValue: string, subject: string, signDate?: string): Promise<Dict> {
   const { data } = await http.get('/contracts/next-no', {
@@ -205,9 +237,8 @@ export async function previewNumber(typeValue: string, subject: string, signDate
 }
 
 // ---------- 批量导入（MVP2 需求②：仅新建） ----------
-export function importTemplateUrl(): string {
-  return '/api/import/template.xlsx'
-}
+// 模板下载同样需带令牌（`contract.import` 权限），因此没有「裸 URL 构造器」：
+// 调用方直接用 `downloadBlobFile('/import/template.xlsx', {}, '合同导入模板.xlsx')`。
 
 export async function importContracts(file: File): Promise<Dict> {
   const form = new FormData()
@@ -476,21 +507,27 @@ export async function exportDoc(
 }
 
 /**
- * 打印单据：取回可打印 HTML（令牌在请求头，不能拼进 URL），在新窗口打开后由用户点「打印」。
+ * 在**新窗口**打开受保护接口返回的内容（单据打印页 / 附件预览）。
  *
- * 注意：窗口必须**同步**打开，否则会被浏览器判定为弹窗而拦截。
+ * 令牌在请求头里，不能把 URL 交给浏览器直接导航（`window.open('/api/...')` 不带
+ * Authorization，后端只会回 401「未登录，请先登录」）；这里先用 axios 取回 blob，
+ * 再让新窗口去渲染 blob URL。
+ *
+ * 注意：窗口必须**同步**打开，否则会被浏览器判定为弹窗而拦截（调用方在点击处理器中直接 await）。
  */
-export async function openDocPrint(path: string): Promise<void> {
+async function openBlobWindow(
+  path: string, params: Dict = {}, blockedHint = '浏览器拦截了新窗口，已尝试直接打开',
+): Promise<void> {
   const win = window.open('', '_blank')
   try {
-    const resp = await http.get(docPath(path), { responseType: 'blob' })
+    const resp = await http.get(docPath(path), { params, responseType: 'blob' })
     const url = URL.createObjectURL(resp.data as Blob)
     if (win) {
       win.location.href = url
     } else {
-      // 弹窗被拦截：退化为当前标签页打开 Blob（用户仍可用浏览器返回）
+      // 弹窗被拦截：退化为另开标签页打开 Blob（用户仍可用浏览器返回）
       window.open(url, '_blank')
-      ElMessage.warning('浏览器拦截了新窗口，已尝试直接打开打印页')
+      ElMessage.warning(blockedHint)
     }
     // Blob 需要保留给新窗口渲染，延迟释放
     setTimeout(() => URL.revokeObjectURL(url), 60000)
@@ -498,6 +535,11 @@ export async function openDocPrint(path: string): Promise<void> {
     win?.close()
     throw error
   }
+}
+
+/** 打印单据：取回可打印 HTML（令牌在请求头，不能拼进 URL），在新窗口打开后由用户点「打印」。 */
+export async function openDocPrint(path: string): Promise<void> {
+  await openBlobWindow(path, {}, '浏览器拦截了新窗口，已尝试直接打开打印页')
 }
 
 /** 合同关联单据（后端未就绪时 404，调用方需容错） */

@@ -46,7 +46,7 @@ void ensureOptions()
 <template>
   <DocFormPage v-model="extra" title="销售订单" kind-label="销售订单"
                api="/api/sales/orders" perm-prefix="sales.order"
-               list-route="sales-orders" show-warehouse contract-source="sales"
+               list-route="sales-orders" show-warehouse show-subject contract-source="sales"
                :extra-cols="['shipped']"
                :extra-required="[{ key: 'customer_id', label: '客户' }]">
     <template #header>
@@ -78,7 +78,9 @@ void ensureOptions()
         <el-form-item label="发运仓库">
           <el-select v-model="extra.ship_warehouse_id" filterable clearable
                      placeholder="默认发货仓库（可留空）" style="width: 100%" @visible-change="ensureOptions">
-            <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
+            <!-- V2.3：仓库默认显示 `主体码-仓库名`（ZC-主仓） -->
+            <el-option v-for="w in warehouses" :key="w.id"
+                       :label="(w.display_name as string) || w.name" :value="w.id" />
           </el-select>
         </el-form-item>
       </el-col>

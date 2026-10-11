@@ -14,6 +14,7 @@ import {
   fetchBalances,
   fetchLedger,
   fetchMasterOptions,
+  fetchSubjects,
   recalcStock,
   type Dict,
 } from '@/api'
@@ -42,10 +43,13 @@ const query = reactive({
   // V2.1 / N12：结存数量区间筛选
   qty_min: null as number | null,
   qty_max: null as number | null,
+  // V2.3 / N3：按公司筛选（仓库所属公司，我方主体码）
+  subject_code: null as string | null,
 })
 
 const warehouses = ref<Dict[]>([])
 const productTypes = ref<Dict[]>([])
+const subjects = ref<Dict[]>([])
 
 const recalcLoading = ref(false)
 const recalcResult = ref<Dict | null>(null)
@@ -60,6 +64,7 @@ async function load() {
       below_safety: query.below_safety || undefined,
       qty_min: query.qty_min ?? undefined,
       qty_max: query.qty_max ?? undefined,
+      subject_code: query.subject_code || undefined,
       page: page.value,
       page_size: pageSize.value,
     })
@@ -79,6 +84,7 @@ function resetQuery() {
   query.below_safety = false
   query.qty_min = null
   query.qty_max = null
+  query.subject_code = null
   page.value = 1
   load()
 }
@@ -92,6 +98,7 @@ function balanceParams(): Dict {
     below_safety: query.below_safety || undefined,
     qty_min: query.qty_min ?? undefined,
     qty_max: query.qty_max ?? undefined,
+    subject_code: query.subject_code || undefined,
   }
 }
 
@@ -206,12 +213,14 @@ async function doRecalc(fix = false) {
 
 onMounted(async () => {
   try {
-    const [w, t] = await Promise.all([
+    const [w, t, s] = await Promise.all([
       fetchMasterOptions('warehouse'),
       fetchMasterOptions('product-type'),
+      fetchSubjects(),
     ])
     warehouses.value = w
     productTypes.value = t
+    subjects.value = s
   } catch {
     // 下拉失败不阻塞列表
   }
@@ -243,9 +252,19 @@ onMounted(async () => {
                     style="width: 200px" @keyup.enter="page = 1; load()" />
         </el-form-item>
         <el-form-item label="仓库">
-          <el-select v-model="query.warehouse_id" clearable filterable style="width: 160px"
+          <el-select v-model="query.warehouse_id" clearable filterable style="width: 180px"
                      @change="page = 1; load()">
-            <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
+            <!-- V2.3：仓库默认显示 `主体码-仓库名`（ZC-主仓） -->
+            <el-option v-for="w in warehouses" :key="w.id"
+                       :label="(w.display_name as string) || w.name" :value="w.id" />
+          </el-select>
+        </el-form-item>
+        <!-- V2.3 / N3：按公司筛选商品（公司 = 仓库所属公司，来自系统设置的我方主体） -->
+        <el-form-item label="公司">
+          <el-select v-model="query.subject_code" clearable filterable style="width: 160px"
+                     placeholder="我方公司" @change="page = 1; load()">
+            <el-option v-for="s in subjects" :key="s.code"
+                       :label="`${s.name}（${s.code}）`" :value="s.code" />
           </el-select>
         </el-form-item>
         <el-form-item label="商品类型">
@@ -302,7 +321,13 @@ onMounted(async () => {
         <el-table-column label="单位" width="70">
           <template #default="{ row }">{{ row.uom_name || '—' }}</template>
         </el-table-column>
-        <el-table-column prop="warehouse_name" label="仓库" width="130" show-overflow-tooltip />
+        <!-- V2.3：公司（仓库所属公司）+ 仓库默认显示名 `主体码-仓库名` -->
+        <el-table-column label="公司" width="110" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.subject_name || row.subject_code || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="仓库" width="150" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.warehouse_display_name || row.warehouse_name || '—' }}</template>
+        </el-table-column>
         <el-table-column label="结存数量" width="110" align="right">
           <template #default="{ row }">
             <span :class="{ danger: row.below_safety }">{{ fmtQty(row.qty, row.uom_decimals) }}</span>

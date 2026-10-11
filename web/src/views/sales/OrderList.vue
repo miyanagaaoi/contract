@@ -42,7 +42,8 @@ function deptName(id: unknown): string {
 function warehouseName(id: unknown): string {
   if (!id) return '—'
   const hit = warehouses.value.find((w) => w.id === Number(id))
-  return hit ? hit.name : `已删除/无权限的仓库（#${id}）`
+  // V2.3：仓库默认显示 `主体码-仓库名`（ZC-主仓）
+  return hit ? ((hit.display_name as string) || (hit.name as string)) : `已删除/无权限的仓库（#${id}）`
 }
 
 onMounted(async () => {
@@ -62,7 +63,7 @@ onMounted(async () => {
                subtitle="确认客户与交期 → 审核 → 下推出库单；出库过账后回写已出库数量"
                perm-prefix="sales.order" kind-label="销售订单"
                form-route="sales-order-form" edit-route="sales-order-edit"
-               show-customer show-warehouse
+               show-customer show-warehouse show-subject
                contract-source="sales" export-path="/api/sales/orders/export.xlsx"
                pushable push-perm="sales.order.push" :extra-cols="['shipped']"
                @push="onPush">

@@ -19,6 +19,9 @@ import { fmtDate } from '@/utils/format'
     <template #detail-head="{ detail }">
       <el-descriptions-item label="调出仓库">{{ detail.from_warehouse_name || '—' }}</el-descriptions-item>
       <el-descriptions-item label="调入仓库">{{ detail.to_warehouse_name || '—' }}</el-descriptions-item>
+      <!-- V2.3（N4）：调出/调入单位 = 两端仓库所属公司（自动带出，只读） -->
+      <el-descriptions-item label="调出单位">{{ detail.from_subject_name || detail.from_subject_code || '—' }}</el-descriptions-item>
+      <el-descriptions-item label="调入单位">{{ detail.to_subject_name || detail.to_subject_code || '—' }}</el-descriptions-item>
       <el-descriptions-item label="过账状态">
         <PostStatusTag :posted="detail.posted" />
       </el-descriptions-item>

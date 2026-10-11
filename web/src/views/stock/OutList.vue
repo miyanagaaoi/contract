@@ -12,7 +12,7 @@ import { fmtDate } from '@/utils/format'
                subtitle="审核即过账（写入库存流水，负库存拦截）；出库类型：销售出库 / 领用出库 / 其他出库"
                perm-prefix="stock.out" kind-label="出库单"
                form-route="stock-out-form" edit-route="stock-out-edit" list-route="stock-out-orders"
-               show-warehouse show-customer
+               show-warehouse show-customer show-subject
                export-path="/api/stock/out-orders/export.xlsx"
                :extra-cols="['shipped']">
     <template #detail-head="{ detail }">

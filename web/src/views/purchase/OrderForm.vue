@@ -62,7 +62,7 @@ function openSupplier(id: number | null | undefined) {
 <template>
   <DocFormPage v-model="extra" title="采购单" kind-label="采购单"
                api="/api/purchase/orders" perm-prefix="purchase.order"
-               list-route="purchase-orders" show-warehouse :extra-cols="['received']">
+               list-route="purchase-orders" show-warehouse show-subject :extra-cols="['received']">
     <template #header>
       <el-col :span="12">
         <el-form-item label="供应商" required>
@@ -106,7 +106,9 @@ function openSupplier(id: number | null | undefined) {
         <el-form-item label="收货仓库">
           <el-select v-model="extra.receipt_warehouse_id" filterable clearable
                      placeholder="默认收货仓库（可留空）" style="width: 100%" @visible-change="ensureOptions">
-            <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
+            <!-- V2.3：仓库默认显示 `主体码-仓库名`（ZC-主仓） -->
+            <el-option v-for="w in warehouses" :key="w.id"
+                       :label="(w.display_name as string) || w.name" :value="w.id" />
           </el-select>
         </el-form-item>
       </el-col>

@@ -21,6 +21,7 @@ import {
   fetchMasterOptions,
   fetchPurchaseContractOptions,
   fetchSalesContractOptions,
+  fetchSubjects,
   openDocPrint,
   updateDoc,
   type Dict,
@@ -66,6 +67,11 @@ const props = withDefaults(defineProps<{
   printApi?: string
   /** 关联合同下拉数据源：采购方向 / 销售方向 */
   contractSource?: 'purchase' | 'sales'
+  /**
+   * V2.3：是否显示「签约公司」（我方公司 / 主体码）表头字段。
+   * 采购申请/采购单/销售申请/销售订单/入库单/出库单 传 true；后端同样强制必填。
+   */
+  showSubject?: boolean
 }>(), {
   itemsEditable: true,
   showPrice: true,
@@ -80,6 +86,7 @@ const props = withDefaults(defineProps<{
   printable: true,
   printApi: '',
   contractSource: 'purchase',
+  showSubject: false,
 })
 
 const emit = defineEmits<{
@@ -104,6 +111,25 @@ const detail = ref<DocRecord | null>(null)
 const items = ref<Record<string, any>[]>([])
 const contracts = ref<Dict[]>([])
 const handlerOptions = ref<Dict[]>([])   // V2.1 / N1：经办人账号下拉（仅启用账号）
+const subjects = ref<Dict[]>([])         // V2.3：我方公司（主体码）字典
+let subjectsLoaded = false               // 字典是否已拉取过（供保存前兜底等待）
+
+/**
+ * 确保我方公司字典已加载（V2.3）。
+ *
+ * ⚠️ 必须在**保存前兜底**：默认签约公司是首个主体，而字典是异步拉取的；
+ * 若用户进入表单后立刻点保存，默认值可能尚未落到表头（实测 E2E 稳定复现：
+ * 提示词从"请至少添加一行行项"变成"请选择签约公司"）。
+ */
+async function ensureSubjects(): Promise<void> {
+  if (subjectsLoaded || !props.showSubject) return
+  try {
+    subjects.value = await fetchSubjects()
+  } catch {
+    subjects.value = []
+  }
+  subjectsLoaded = true
+}
 
 // ---------- 未保存离开保护（T1-1） ----------
 /**
@@ -138,11 +164,13 @@ const header = reactive<{
   handler_user_id: number | null
   contract_id: number | null
   remark: string
+  subject_code: string | null
 }>({
   doc_date: todayLocal(),
   handler_user_id: auth.user?.id ?? null,
   contract_id: null,
   remark: '',
+  subject_code: null,
 })
 
 // 表头字段变化即视为脏；flush: 'sync' 才能被 suppressDirty 抑制（见上方说明）
@@ -181,6 +209,7 @@ async function load() {
     header.handler_user_id = doc.handler_user_id ?? null
     header.contract_id = doc.contract_id ?? null
     header.remark = doc.remark ?? ''
+    header.subject_code = (doc.subject_code as string | null) ?? null
     items.value = (doc.items || []).map((it) => ({ ...it }))
     // 把特有字段回填到父页面
     const next: Dict = { ...(props.modelValue ?? {}) }
@@ -253,6 +282,11 @@ function validate(): boolean {
     ElMessage.warning('请选择单据日期')
     return false
   }
+  // V2.3：签约公司必填（后端同样强制，这里只做友好提示）
+  if (props.showSubject && !header.subject_code) {
+    ElMessage.warning('请选择签约公司')
+    return false
+  }
   if (props.requireItems && !validateItems()) return false
   return true
 }
@@ -264,6 +298,8 @@ function buildPayload(): Dict {
     contract_id: header.contract_id || null,
     handler_user_id: header.handler_user_id || null,
   }
+  // V2.3：签约公司（我方主体码）随表头提交
+  if (props.showSubject) payload.subject_code = header.subject_code || null
   // 盘点单的行项由「生成行项 / 录入实盘」维护，保存表头时不能整表覆盖（submitItems=false）
   if (props.submitItems) {
     payload.items = items.value.map((row) => ({
@@ -296,6 +332,15 @@ async function save(thenSubmit = false) {
   if (!editable.value) {
     ElMessage.warning('当前状态不可编辑')
     return
+  }
+  // V2.3：签约公司必填 —— 保存前确保字典就绪，并兜底默认主体（新建/历史单据）
+  if (props.showSubject) {
+    await ensureSubjects()
+    if (!header.subject_code && subjects.value.length) {
+      suppressDirty = true
+      header.subject_code = subjects.value[0].code as string
+      suppressDirty = false
+    }
   }
   if (!validate()) return
   const payload = buildPayload()
@@ -392,6 +437,19 @@ onMounted(async () => {
   } catch {
     handlerOptions.value = []
   }
+  if (props.showSubject) {
+    // V2.3：签约公司候选 —— 系统设置里的我方公司（主体码）
+    await ensureSubjects()
+    // 新建单据默认选中第一个我方公司：属于"系统默认值"而非用户编辑，故抑制脏标记
+    // （否则一进表单就被判为"未保存"，返回列表会被拦截）。
+    // ⚠️ 这里**不能**调 markClean()：字典是异步拉取的，若用户在等待期间已录入内容，
+    // 清脏会把真实的未保存修改一并抹掉（E2E 12-unsaved-guard 对应用例）。
+    if (!isEdit.value && !header.subject_code && subjects.value.length) {
+      suppressDirty = true
+      header.subject_code = subjects.value[0].code as string
+      suppressDirty = false
+    }
+  }
   await load()
 })
 
@@ -428,6 +486,16 @@ defineExpose({ patchExtra, items, header, load, detail, editable })
             <el-form-item label="单据日期" required>
               <el-date-picker v-model="header.doc_date" type="date" value-format="YYYY-MM-DD"
                               style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <!-- V2.3：签约公司（我方公司 / 主体码）——取值仅来自系统设置，必填 -->
+          <el-col v-if="showSubject" :span="12">
+            <el-form-item label="签约公司" required>
+              <el-select v-model="header.subject_code" filterable :clearable="false"
+                         placeholder="请选择我方公司" style="width: 100%">
+                <el-option v-for="s in subjects" :key="s.code"
+                           :label="`${s.name}（${s.code}）`" :value="s.code" />
+              </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
