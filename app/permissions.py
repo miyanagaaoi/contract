@@ -235,6 +235,8 @@ MENUS: list[dict] = [
     # `_filter_menu` 会在任一子节点命中时保留父节点，故只给收款/发票权限的角色也能看到本菜单）
     {"key": "finance", "title": "财务管理", "icon": "Money",
      "perm": "finance.payment.view", "children": [
+         {"key": "finance-overview", "title": "资金概览", "path": "/finance/overview",
+          "perm": "finance.payment.view"},
          {"key": "finance-payment", "title": "付款单", "path": "/finance/payments",
           "perm": "finance.payment.view"},
          {"key": "finance-receipt", "title": "收款单", "path": "/finance/receipts",

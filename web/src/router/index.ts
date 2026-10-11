@@ -115,6 +115,11 @@ const router = createRouter({
 
         // ---- 财务管理（V2.5） ----
         {
+          path: 'finance/overview', name: 'finance-overview',
+          component: () => import('@/views/finance/OverviewView.vue'),
+          meta: { title: '资金概览', perm: 'finance.payment.view' },
+        },
+        {
           path: 'finance/payments', name: 'finance-payments',
           component: () => import('@/views/finance/PaymentList.vue'),
           meta: { title: '付款单', perm: 'finance.payment.view' },

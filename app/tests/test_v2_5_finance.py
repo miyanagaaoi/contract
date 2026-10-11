@@ -858,7 +858,7 @@ class TestPermissions:
         assert "finance" in keys
         finance_menu = next(m for m in me["menus"] if m["key"] == "finance")
         assert {c["key"] for c in finance_menu["children"]} == {
-            "finance-payment", "finance-receipt", "finance-invoice"}
+            "finance-overview", "finance-payment", "finance-receipt", "finance-invoice"}
         assert {"finance.payment.approve", "finance.invoice.confirm"} <= set(me["perms"])
 
     def test_meta_endpoint(self, client, box):
@@ -867,3 +867,58 @@ class TestPermissions:
         body = resp.json()
         assert "银行转账" in body["settle_types"]
         assert {"in", "out"} == {d["code"] for d in body["invoice_directions"]}
+
+
+# ===================== 资金概览（M3 起步） =====================
+
+class TestSummary:
+    def test_summary_shape_and_open_amounts(self, client, box, admin):
+        """待付/待收 = 已审核单据的（含税总额 − 已回写），草稿单不构成资金义务。"""
+        po_id = box.purchase_order(amount="10000")
+        so_id = box.sales_order(amount="8000")
+        fin_h = box.login(client, box.user("finance"))
+
+        # 采购单已付 1000 → 待付 9000
+        pay = _submitted(SessionLocal(), box, "1000", po_id) if False else None
+        with SessionLocal() as db:
+            p = _submitted(db, box, "1000", po_id)
+            db.commit()
+            box.docs["payments"].append(p.id)
+            finance_service.approve_fund_doc(db, p, _User())
+            db.commit()
+        # 销售订单已收 3000 → 待收 5000
+        with SessionLocal() as db:
+            r = ReceiptOrder(doc_no=f"RCP{uuid.uuid4().hex[:8].upper()}", doc_date=date.today(),
+                             status="draft", customer_id=box.customer_id,
+                             customer_name=box.customer_name, total_amount=Decimal("3000"),
+                             subject_code=SUBJECT, subject_name="众诚")
+            db.add(r)
+            db.flush()
+            finance_service.parse_allocations(db, r, [{"target_type": "sales_order",
+                                                       "target_id": so_id, "amount": "3000"}],
+                                              kind="receipt")
+            from app.services import doc_service
+
+            doc_service.submit(db, r, _User())
+            db.commit()
+            box.docs["receipts"].append(r.id)
+            finance_service.approve_fund_doc(db, r, _User())
+            db.commit()
+
+        body = client.get("/api/finance/summary", headers=fin_h).json()
+        assert set(body) == {"purchase", "sales", "invoice", "over"}
+        assert body["purchase"]["open_payment"]["amount"] >= 9000.0
+        assert body["sales"]["open_receipt"]["amount"] >= 5000.0
+        assert body["purchase"]["open_invoice"]["amount"] >= 10000.0
+        top = body["purchase"]["open_payment"]["top"]
+        assert all({"doc_no", "party", "open_amount"} <= set(r) for r in top)
+        assert pay is None
+
+    def test_summary_requires_view_permission(self, client, box):
+        assert client.get("/api/finance/summary",
+                          headers=box.login(client, box.user("keeper"))).status_code == 403
+
+    def test_overview_menu_visible_for_finance(self, client, box):
+        me = client.get("/api/auth/me", headers=box.login(client, box.user("finance"))).json()
+        finance_menu = next(m for m in me["menus"] if m["key"] == "finance")
+        assert "finance-overview" in {c["key"] for c in finance_menu["children"]}

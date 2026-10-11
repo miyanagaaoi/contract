@@ -528,3 +528,76 @@ def recalc_progress(db: Session, kinds: list[str] | None = None) -> dict:
                 _apply(target_type, target, field, ZERO)
 
     return {"kinds": picked, "checked": checked, "fixed": fixed, "diffs": diffs}
+
+
+# ==================== 资金汇总（M3 起步） ====================
+
+_SUMMARY_LIMIT = 8
+
+
+def _open_expr(model, field: str):
+    """未结金额表达式：单据含税总额 − 已回写金额（可为 0，不为负）。"""
+    return (func.coalesce(model.total_amount, 0)
+            - func.coalesce(getattr(model, field), 0))
+
+
+def _open_block(db: Session, model, field: str, *, label_field: str) -> dict:
+    """某一"未结"口径的合计 + 金额最大的若干张（列表页据此直接开工单）。"""
+    expr = _open_expr(model, field)
+    base = (model.status.in_(("approved", "completed")),
+            model.deleted.is_(False), expr > 0)
+    total = db.query(func.coalesce(func.sum(expr), 0)).filter(*base).scalar() or 0
+    count = db.query(func.count(model.id)).filter(*base).scalar() or 0
+    rows = (db.query(model).filter(*base).order_by(expr.desc())
+            .limit(_SUMMARY_LIMIT).all())
+    return {
+        "amount": float(total), "count": int(count),
+        "top": [{
+            "id": r.id, "doc_no": r.doc_no,
+            "party": getattr(r, label_field, None) or getattr(r, "party_name", None) or "",
+            "doc_date": r.doc_date.isoformat() if r.doc_date else None,
+            "total_amount": float(r.total_amount or 0),
+            "done_amount": float(getattr(r, field) or 0),
+            "open_amount": float((r.total_amount or 0) - (getattr(r, field) or 0)),
+        } for r in rows],
+    }
+
+
+def summary(db: Session) -> dict:
+    """资金概览：采购待付/待收票、销售待收/待开票、发票待认证、超额提醒。
+
+    口径与进度列**同源**（都用回写字段），因此不会出现"看板说还欠 3 万、单据列表说未付 3 万"。
+    只统计已审核/已完成且未删除的单据 —— 草稿与已作废单据不构成资金义务。
+    """
+    purchase_pay = _open_block(db, PurchaseOrder, "paid_amount",
+                               label_field="supplier_name")
+    purchase_inv = _open_block(db, PurchaseOrder, "invoiced_amount",
+                               label_field="supplier_name")
+    sales_recv = _open_block(db, SalesOrder, "received_amount",
+                             label_field="customer_name")
+    sales_inv = _open_block(db, SalesOrder, "invoiced_amount",
+                            label_field="customer_name")
+
+    pending_auth = (db.query(func.coalesce(func.sum(Invoice.total_amount), 0),
+                             func.count(Invoice.id))
+                    .filter(Invoice.status == "confirmed",
+                            Invoice.auth_status == "pending",
+                            Invoice.deleted.is_(False)).one())
+    over_counts = {
+        kind: int(db.query(func.count(model.id))
+                  .filter(finance_over_condition(db, model, kind)).scalar() or 0)
+        for kind, model in (("payment", PaymentOrder), ("receipt", ReceiptOrder),
+                            ("invoice", Invoice))
+    }
+    return {
+        "purchase": {"open_payment": purchase_pay, "open_invoice": purchase_inv},
+        "sales": {"open_receipt": sales_recv, "open_invoice": sales_inv},
+        "invoice": {"pending_auth_amount": float(pending_auth[0] or 0),
+                    "pending_auth_count": int(pending_auth[1] or 0)},
+        "over": over_counts,
+    }
+
+
+def finance_over_condition(db: Session, model, kind: str):
+    """财务单据自身"超额核销"的库侧条件（列表筛选用）。"""
+    return over_condition(db, model, kind)

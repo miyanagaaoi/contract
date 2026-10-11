@@ -270,6 +270,13 @@ register_doc_routes(router, prefix=RECEIPT_PREFIX, kind="receipt", model=Receipt
                     sign_subject=True)
 
 
+@router.get("/summary", summary="资金概览（待付/待收/待开票/待收票/待认证）")
+def finance_summary(_user: User = Depends(require_perm("finance.payment.view")),
+                    db: Session = Depends(get_db)):
+    """口径与进度列同源（都取回写字段），避免"看板与列表对不上"。"""
+    return finance_service.summary(db)
+
+
 @router.get("/meta", summary="财务模块元数据（结算方式/票种/方向/状态）")
 def finance_meta(_user: User = Depends(require_perm("finance.payment.view")),
                  _db: Session = Depends(get_db)):

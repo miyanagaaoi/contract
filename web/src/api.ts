@@ -690,6 +690,12 @@ export async function fetchFinanceMeta(): Promise<Dict> {
   return data
 }
 
+/** 资金概览：待付/待收/待收票/待开票 + 待认证与超额提醒（口径与进度列同源） */
+export async function fetchFinanceSummary(): Promise<Dict> {
+  const { data } = await http.get('/finance/summary')
+  return data
+}
+
 /** 发票确认入账（记账，回写收票/开票金额） */
 export async function confirmInvoice(id: number): Promise<Dict> {
   const { data } = await http.post(`/finance/invoices/${id}/confirm`)
