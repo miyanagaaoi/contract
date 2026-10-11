@@ -20,6 +20,7 @@ import ApproveDialog from '@/components/doc/ApproveDialog.vue'
 import type { ApproveMode } from '@/components/doc/ApproveDialog.vue'
 import DocItemsTable from '@/components/doc/DocItemsTable.vue'
 import DocStatusTag from '@/components/doc/DocStatusTag.vue'
+import ProgressTag from '@/components/doc/ProgressTag.vue'
 import SupplierDetailDialog from '@/components/SupplierDetailDialog.vue'
 import {
   docAction,
@@ -82,6 +83,20 @@ const props = withDefaults(defineProps<{
   contractSource?: 'purchase' | 'sales'
   /** V2.3：显示「签约公司」列 / 筛选项（我方公司 / 主体码） */
   showSubject?: boolean
+  /**
+   * V2.5：进度列（键与后端 `progress` 的键一致，如 `paid_amount` / `received_qty`）。
+   * 传了才渲染，且列头名称按单据类型而定（采购单的 `invoiced_amount` 是"收票进度"、
+   * 销售订单的同名字段是"开票进度"），因此由调用方用 `progressLabels` 覆盖。
+   */
+  progressCols?: string[]
+  /** 进度列头名称覆盖（缺省用内置映射） */
+  progressLabels?: Record<string, string>
+  /**
+   * V2.5：额外筛选参数（原样并入列表/导出请求）。发票的「方向 / 认证状态」这类
+   * 只有某一类单据才有的筛选项，用它与 `#extra-filters` 插槽配合，
+   * 避免往通用组件里塞单据特有字段。
+   */
+  extraFilterParams?: Dict
 }>(), {
   subtitle: '',
   listRoute: '',
@@ -101,6 +116,9 @@ const props = withDefaults(defineProps<{
   printable: true,
   contractSource: 'purchase',
   showSubject: false,
+  progressCols: () => [],
+  progressLabels: () => ({}),
+  extraFilterParams: () => ({}),
 })
 
 const emit = defineEmits<{
@@ -108,11 +126,40 @@ const emit = defineEmits<{
   push: [row: DocRecord]
   /** 点击「查看」，父页面可自行打开抽屉（未监听时用内置抽屉） */
   view: [row: DocRecord]
+  /** V2.5：「更多」里由父页面注入的扩展动作（如「发起付款单」），本组件不认识其命令 */
+  more: [payload: { command: string; row: DocRecord }]
 }>()
 
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
+
+/**
+ * V2.5：进度列（列头 + 悬浮提示的单位）。
+ *
+ * 提示里的单位按**口径**取：数量类进度（收货/发货）用"已入/应入"，金额类用"已付/应付"等；
+ * 这只是提示文案，百分比与颜色一律由 `ProgressTag` 按后端 `pct` 渲染。
+ */
+const DEFAULT_PROGRESS_LABELS: Record<string, string> = {
+  received_qty: '收货进度',
+  shipped_qty: '发货进度',
+  paid_amount: '付款进度',
+  received_amount: '收款进度',
+  invoiced_amount: '收票进度',
+}
+const PROGRESS_UNITS: Record<string, { num: string; den: string }> = {
+  received_qty: { num: '已入', den: '应入' },
+  shipped_qty: { num: '已发', den: '应发' },
+  paid_amount: { num: '已付', den: '应付' },
+  received_amount: { num: '已收', den: '应收' },
+  invoiced_amount: { num: '已开', den: '应开' },
+}
+
+const progressColumns = computed(() => (props.progressCols || []).map((key) => ({
+  key,
+  label: props.progressLabels?.[key] || DEFAULT_PROGRESS_LABELS[key] || key,
+  unit: PROGRESS_UNITS[key] || { num: '', den: '' },
+})))
 
 const rows = ref<DocRecord[]>([])
 const total = ref(0)
@@ -160,6 +207,7 @@ function queryParams(includePage = false): DocListQuery {
     supplier_id: query.supplier_id || undefined,
     customer_id: query.customer_id || undefined,
     subject_code: query.subject_code || undefined,
+    ...props.extraFilterParams,
   }
   if (includePage) {
     params.page = page.value
@@ -481,7 +529,10 @@ function onMoreCommand(cmd: string, row: DocRecord): void {
   }
   if (cmd === 'void') {
     openApprove(row, 'void')
+    return
   }
+  // V2.5：财务等扩展动作（「发起付款单/收款单」「登记发票」）交给父页面处理
+  emit('more', { command: cmd, row })
 }
 function canUnapprove(row: DocRecord): boolean {
   return (row.status === 'approved' || row.status === 'completed') && can('approve')
@@ -604,6 +655,8 @@ defineExpose({ load: () => load(false), rows })
         <el-form-item label="含作废">
           <el-switch v-model="query.include_voided" @change="page = 1; load()" />
         </el-form-item>
+        <!-- V2.5：单据特有筛选项（如发票方向/认证状态）由页面注入 -->
+        <slot name="extra-filters" :reload="() => { page = 1; load() }" />
         <el-form-item>
           <el-button type="primary" @click="page = 1; load()">查询</el-button>
           <el-button @click="resetQuery">重置</el-button>
@@ -639,6 +692,8 @@ defineExpose({ load: () => load(false), rows })
             <DocStatusTag :status="row.status" :label="row.status_label" />
           </template>
         </el-table-column>
+        <!-- V2.5：单据特有的附加列（如发票的方向/发票号/认证状态）由页面注入 -->
+        <slot name="extra-columns" />
         <!-- V2.3：签约公司（我方主体，显示名称快照；历史单据未填时回退主体码） -->
         <el-table-column v-if="showSubject" label="签约公司" width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.subject_name || row.subject_code || '—' }}</template>
@@ -658,6 +713,14 @@ defineExpose({ load: () => load(false), rows })
         </el-table-column>
         <el-table-column label="金额" width="120" align="right">
           <template #default="{ row }">{{ fmtMoney(row.total_amount) }}</template>
+        </el-table-column>
+        <!-- V2.5：进度列（紧贴金额之后、状态之前；未传 progressCols 则整块不渲染） -->
+        <el-table-column v-for="col in progressColumns" :key="col.key" :label="col.label"
+                         width="106" align="center">
+          <template #default="{ row }">
+            <ProgressTag :item="(row.progress || {})[col.key]" :label="col.label"
+                         :num-label="col.unit.num" :den-label="col.unit.den" />
+          </template>
         </el-table-column>
         <el-table-column label="经办人" width="90">
           <template #default="{ row }">{{ row.created_by_name || '—' }}</template>
@@ -698,7 +761,8 @@ defineExpose({ load: () => load(false), rows })
               的改动禁区），因此这三个可以安全收纳——收纳后每行按钮从 9 个降到 6 个，
               明显降低密集页面的视觉噪音与误点概率。
             -->
-            <el-dropdown v-if="printable || canUnapprove(row) || canVoid(row)" trigger="click"
+            <el-dropdown v-if="printable || canUnapprove(row) || canVoid(row) || $slots['more-actions']"
+                         trigger="click"
                          @command="(cmd: string) => onMoreCommand(cmd, row)">
               <el-button link type="primary" size="small">
                 更多<el-icon><ArrowDown /></el-icon>
@@ -708,6 +772,9 @@ defineExpose({ load: () => load(false), rows })
                   <el-dropdown-item v-if="printable" command="print">打印</el-dropdown-item>
                   <el-dropdown-item v-if="canUnapprove(row)" command="unapprove" divided>反审核</el-dropdown-item>
                   <el-dropdown-item v-if="canVoid(row)" command="void">作废</el-dropdown-item>
+                  <!-- V2.5：财务等扩展动作由各列表页注入（本组件不认识它们的命令，
+                       统一用 `more` 事件抛给父页面处理） -->
+                  <slot name="more-actions" :row="row" />
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
