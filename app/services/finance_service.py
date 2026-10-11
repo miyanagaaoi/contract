@@ -249,6 +249,36 @@ def _write_back(db: Session, doc, sign: int) -> list[dict]:
     return changes
 
 
+def _write_back_contract(db: Session, doc, sign: int) -> dict | None:
+    """付款单审核/反审核时增量回写合同「累计已付」（BR-V2.5-12 / AC-V2.5-19）。
+
+    口径（关键取舍）：
+
+    - **增量加减**（`+= / -=`）而非"按单据重算"：合同上的历史付款多为人工补录，
+      重算会把它们抹掉；增量法保留人工值，红冲也精确回退同一金额；
+    - 金额取**付款单总额**（不是核销合计）：合同口径关心"这张合同付出去多少钱"，
+      暂未对应到具体单据的预付款同样属于已付；
+    - 只在付款单且**关联了合同**时生效；收款单不回写 —— 合同只有"累计已付"一个字段，
+      销售侧"累计已收"本版不做（`docs/32` §4 已登记）。
+    """
+    if doc.doc_type != "payment" or not getattr(doc, "contract_id", None):
+        return None
+    from ..models import Contract
+
+    contract = db.get(Contract, doc.contract_id)
+    if contract is None:                       # 合同被物理删除（正常流程不会）
+        return None
+    old = contract.paid_amount or ZERO
+    new = max(ZERO, old + sign * (getattr(doc, "total_amount", None) or ZERO))
+    contract.paid_amount = new
+    return {"contract_no": contract.contract_no, "old": float(old), "new": float(new)}
+
+
+def _contract_note(contract: dict | None) -> str:
+    return (f"，合同 {contract['contract_no']} 累计已付 {contract['old']:.2f}→{contract['new']:.2f}"
+            if contract else "")
+
+
 def approve_fund_doc(db: Session, doc, user) -> int:
     """付款单/收款单**审核 = 记账**（同事务；重复调用幂等短路）。"""
     if doc.status == "approved" and doc.posted:
@@ -257,9 +287,10 @@ def approve_fund_doc(db: Session, doc, user) -> int:
     if not _claim(db, doc, on=True):
         return 0
     changes = _write_back(db, doc, 1)
+    contract = _write_back_contract(db, doc, 1)
     doc_service.log(db, doc, "_finance", None, f"{allocations_total(doc)}",
                     note=f"审核记账：核销 {len(doc.allocations or [])} 行，"
-                         f"回写 {len(changes)} 个目标单据")
+                         f"回写 {len(changes)} 个目标单据" + _contract_note(contract))
     return len(changes)
 
 
@@ -269,8 +300,9 @@ def unapprove_fund_doc(db: Session, doc, reason: str, user) -> int:
     if not _claim(db, doc, on=False):
         return 0
     changes = _write_back(db, doc, -1)
+    contract = _write_back_contract(db, doc, -1)
     doc_service.log(db, doc, "_finance", f"{allocations_total(doc)}", None,
-                    note=f"反审核红冲：回退 {len(changes)} 个目标单据")
+                    note=f"反审核红冲：回退 {len(changes)} 个目标单据" + _contract_note(contract))
     return len(changes)
 
 

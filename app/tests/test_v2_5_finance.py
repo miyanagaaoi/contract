@@ -489,6 +489,86 @@ class TestRecalc:
             assert any(d["doc_no"] == po.doc_no for d in result["diffs"])
 
 
+# ===================== 合同累计已付回写（BR-V2.5-12 / AC-V2.5-19） =====================
+
+class TestContractWriteBack:
+    """付款单审核后回写合同「累计已付」；口径是**增量**加减（保留人工补录值）。"""
+
+    def _contract(self, amount: str = "500000", paid: str = "0") -> int:
+        from app.models import Contract
+
+        with SessionLocal() as db:
+            contract = Contract(contract_no=f"HT{uuid.uuid4().hex[:8].upper()}", name="E2E 财务合同",
+                                type="采购/支出", party_a="众诚", party_b="测试供应商",
+                                amount=Decimal(amount), paid_amount=Decimal(paid))
+            db.add(contract)
+            db.commit()
+            return contract.id
+
+    def _drop_contract(self, cid: int) -> None:
+        from app.models import ChangeLog, Contract
+
+        with SessionLocal() as db:
+            db.query(ChangeLog).filter(ChangeLog.contract_id == cid).delete()
+            db.query(Contract).filter(Contract.id == cid).delete()
+            db.commit()
+
+    def test_approve_and_unapprove_update_contract(self, box):
+        from app.models import Contract
+
+        cid = self._contract(paid="0")
+        po_id = box.purchase_order(amount="10000")
+        try:
+            with SessionLocal() as db:
+                pay = _submitted(db, box, "3000", po_id)
+                pay.contract_id = cid
+                db.commit()
+                box.docs["payments"].append(pay.id)
+                finance_service.approve_fund_doc(db, pay, _User())
+                db.commit()
+                assert db.get(Contract, cid).paid_amount == Decimal("3000.00")
+
+                finance_service.unapprove_fund_doc(db, db.get(PaymentOrder, pay.id), "录错", _User())
+                db.commit()
+                assert db.get(Contract, cid).paid_amount == Decimal("0.00")
+        finally:
+            self._drop_contract(cid)
+
+    def test_manual_amount_is_preserved(self, box):
+        """合同上人工补录的历史付款（500）不被覆盖：审核 3000 → 3500。"""
+        from app.models import Contract
+
+        cid = self._contract(paid="500")
+        po_id = box.purchase_order(amount="10000")
+        try:
+            with SessionLocal() as db:
+                pay = _submitted(db, box, "3000", po_id)
+                pay.contract_id = cid
+                db.commit()
+                box.docs["payments"].append(pay.id)
+                finance_service.approve_fund_doc(db, pay, _User())
+                db.commit()
+                assert db.get(Contract, cid).paid_amount == Decimal("3500.00")
+        finally:
+            self._drop_contract(cid)
+
+    def test_payment_without_contract_is_noop(self, box):
+        from app.models import Contract
+
+        cid = self._contract(paid="0")
+        po_id = box.purchase_order(amount="10000")
+        try:
+            with SessionLocal() as db:
+                pay = _submitted(db, box, "1000", po_id)      # 未关联合同
+                db.commit()
+                box.docs["payments"].append(pay.id)
+                finance_service.approve_fund_doc(db, pay, _User())
+                db.commit()
+                assert db.get(Contract, cid).paid_amount == Decimal("0.00")
+        finally:
+            self._drop_contract(cid)
+
+
 # ===================== 接口层：付款单（AC-V2.5-01/02/06/14/16/18） =====================
 
 class TestFundApi:
