@@ -26,6 +26,7 @@ from .routers import (
     dashboard,
     export,
     feishu,
+    finance,
     health,
     imports,
     master,
@@ -76,6 +77,7 @@ app.include_router(auth.router)
 app.include_router(feishu.auth_router)     # V2.4：飞书免登与自助绑定
 app.include_router(system.router)
 app.include_router(feishu.system_router)   # V2.4：飞书配置自检与通知运维
+app.include_router(finance.router)      # V2.5：财务域（付款单/收款单/发票）
 app.include_router(print_templates.router)
 app.include_router(master.router)
 app.include_router(meta.router)

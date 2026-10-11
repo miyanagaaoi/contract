@@ -32,6 +32,28 @@ export interface DocItem {
   remark: string | null
 }
 
+/** 单条进度（V2.5）：分子/分母/百分比/是否超额。
+ *
+ * `pct === null` 表示分母为 0（界面显示 `—`，不是 `0%`）；百分比由**后端**算好
+ * （`finance_service.progress_of`），前端只渲染，避免前后端两套算法漂移。
+ */
+export interface ProgressItem {
+  num: number
+  den: number
+  pct: number | null
+  over: boolean
+}
+
+/** 核销明细行（付款单 / 收款单 / 发票） */
+export interface AllocationRow {
+  target_type: string
+  target_id: number | null
+  target_no?: string | null
+  amount: number
+  tax_amount?: number
+  remark?: string | null
+}
+
 /** 通用单据（列表项不含 items，详情含 items） */
 export interface DocRecord {
   id: number
@@ -107,6 +129,39 @@ export interface DocRecord {
   generated_out_no?: string | null
   /** 同类单据的其它字段（如盘点单的 book_qty 汇总），保持宽松 */
   [key: string]: unknown
+}
+
+/** V2.5：财务单据与进度相关的附加字段（`[key: string]` 兜底之外的显式声明） */
+export interface FinanceDocExtra {
+  /** 采购单/销售订单：六条进度（键为 progressCols 里的字段名） */
+  progress?: Record<string, ProgressItem>
+  /** 财务单据：核销明细与已核销/未核销金额 */
+  allocations?: AllocationRow[]
+  allocated_amount?: number
+  unallocated_amount?: number
+  /** 付款/收款：结算方式与账户 */
+  pay_account?: string | null
+  recv_account?: string | null
+  /** 采购/销售单据的回写金额 */
+  paid_amount?: number
+  received_amount?: number
+  invoiced_amount?: number
+  /** 发票特有 */
+  invoice_direction?: string
+  invoice_direction_label?: string
+  invoice_code?: string | null
+  invoice_no?: string
+  invoice_type?: string | null
+  invoice_date?: string | null
+  tax_rate?: number | null
+  amount?: number
+  tax_amount?: number
+  party_id?: number | null
+  party_name?: string | null
+  auth_status?: string
+  auth_status_label?: string
+  /** 列表行：是否超额核销 */
+  over?: boolean
 }
 
 /** 单据列表查询参数 */

@@ -1,4 +1,4 @@
-"""单据 ORM 模型（V2.0 / M2，对应 `12-erp-system-design.md` §4.4）。
+"""单据 ORM 模型（V2.0 / M2，对应 `12-erp-system-design.md` §4.4；V2.5 追加财务域）。
 
 单据分三类共 **7 张主表**（采购申请/采购单/销售申请/销售订单/入库单/出库单/盘点单），
 每张主表配一张行项表；公共字段由 `DocMixin` / `DocItemMixin` 承载，避免逐表重复定义：
@@ -7,6 +7,12 @@
   库存类单据（入库/出库/盘点）`approved` 即终态，不使用 `completed`；
 - 库存过账：入库/出库单审核时过账（`posted=True`），反审核生成红冲流水（见 `posting_service`）；
 - 下推：申请→采购单/销售订单（`ordered_qty`）、采购单/销售订单→出入库（`received_qty`/`shipped_qty`）。
+
+**V2.5 财务域**（`docs/29` / `docs/30`）追加 3 张单据表与 3 张核销表：
+付款单 / 收款单 / 发票（进项·销项同表）。它们**没有物料行项**，靠核销明细关联采购单/销售订单/
+出入库单；审核（发票为"确认"）时把金额回写到目标单据的 `paid_amount` / `received_amount` /
+`invoiced_amount`，反审核或作废时精确红冲 —— 与库存的"审核即过账 + 反审核红冲"同构，
+`posted` 字段复用为"金额已记账"的幂等标记。
 
 设计约定（`11` §14 / C-05）：库存只记数量不记成本；单级审核；单据可关联合同但不强制。
 """
@@ -24,6 +30,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, declarative_mixin, mapped_column, relationship
@@ -51,6 +58,10 @@ DOC_KINDS = {
     "stock_in": "入库单",
     "stock_out": "出库单",
     "stock_take": "盘点单",
+    # ---- V2.5：财务域（见 `docs/29-v2.5-finance-requirements.md`）----
+    "payment": "付款单",
+    "receipt": "收款单",
+    "invoice": "发票",
 }
 
 # 入库/出库类型（业务分类，用于流水 biz_type）
@@ -175,6 +186,11 @@ class PurchaseOrder(Base, DocMixin):
         Numeric(16, 2), nullable=False, default=Decimal("0")
     )
     receipt_warehouse_id: Mapped[int | None] = mapped_column(Integer, nullable=True)      # 默认收货仓库
+    # V2.5：财务回写（审核付款单/进项发票时 +，反审核/作废红冲时 −，见 `finance_service`）
+    paid_amount: Mapped[Decimal] = mapped_column(
+        Numeric(16, 2), nullable=False, default=Decimal("0"), server_default="0")
+    invoiced_amount: Mapped[Decimal] = mapped_column(
+        Numeric(16, 2), nullable=False, default=Decimal("0"), server_default="0")
 
     items: Mapped[list["PurchaseOrderItem"]] = relationship(
         back_populates="doc", cascade="all, delete-orphan", order_by="PurchaseOrderItem.seq",
@@ -247,6 +263,11 @@ class SalesOrder(Base, DocMixin):
     total_amount: Mapped[Decimal] = mapped_column(
         Numeric(16, 2), nullable=False, default=Decimal("0")
     )
+    # V2.5：财务回写（审核收款单/销项发票时 +，红冲时 −）
+    received_amount: Mapped[Decimal] = mapped_column(
+        Numeric(16, 2), nullable=False, default=Decimal("0"), server_default="0")
+    invoiced_amount: Mapped[Decimal] = mapped_column(
+        Numeric(16, 2), nullable=False, default=Decimal("0"), server_default="0")
 
     items: Mapped[list["SalesOrderItem"]] = relationship(
         back_populates="doc", cascade="all, delete-orphan", order_by="SalesOrderItem.seq",
@@ -422,6 +443,196 @@ class StockTransferItem(Base, DocItemMixin):
     doc: Mapped[StockTransfer] = relationship(back_populates="items")
 
 
+# ==================== V2.5：财务域（付款单 / 收款单 / 发票） ====================
+# 设计：`docs/30-v2.5-finance-system-design.md` §2。要点：
+# - 三张单据表各自独立（不合并成 fund_orders + direction，与"一类单据一张表"一致）；
+# - 核销用**多态** (target_type, target_id) 子表：付款可核销到采购单/入库单，收款到销售订单/出库单，
+#   发票到采购单/销售订单 —— 单一外键表达不了，代价是库层无外键，写入只经 `finance_service`；
+# - 目标单据的回写字段（`paid_amount` 等）与既有 `received_qty` 同构，列表零 join。
+
+# 发票方向
+INVOICE_IN = "in"          # 进项（供应商开给我方）
+INVOICE_OUT = "out"        # 销项（我方开给客户）
+INVOICE_DIRECTIONS = {INVOICE_IN: "进项发票", INVOICE_OUT: "销项发票"}
+
+# 发票状态：**独立映射，不要并进 DOC_STATUS**
+# `doc_routes` 把 DOC_STATUS 当所有工厂单据的状态下拉，加 confirmed 会让采购/销售列表
+# 多出一个永远筛不到的选项；发票也不参与"提交→审核→完成"业务流（确认即记账）。
+INVOICE_STATUS = {"draft": "草稿", "confirmed": "已确认", "voided": "已作废"}
+INVOICE_AUTH_STATUS = {"pending": "待认证", "verified": "已认证"}
+
+# 核销目标类型（多态）
+ALLOCATION_TARGETS = {
+    "purchase_order": "采购单",
+    "sales_order": "销售订单",
+    "stock_in": "入库单",
+    "stock_out": "出库单",
+}
+# 各财务单据允许核销的目标类型（方向校验用）
+PAY_TARGETS = ("purchase_order", "stock_in")
+RECEIPT_TARGETS = ("sales_order", "stock_out")
+INVOICE_TARGETS = ("purchase_order", "sales_order")
+
+
+class PaymentOrder(Base, DocMixin):
+    """付款单（V2.5）：我方付给**供应商**的款项，可核销到采购单/入库单。"""
+
+    __tablename__ = "payment_orders"
+
+    doc_type = "payment"
+    direction = 0        # 不参与 `direction` 驱动的过账（同 StockTransfer 的说明）
+    label = "付款单"
+
+    supplier_id: Mapped[int] = mapped_column(
+        ForeignKey("suppliers.id"), nullable=False, index=True
+    )
+    supplier_name: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    settle_type: Mapped[str | None] = mapped_column(String(24), nullable=True)     # 结算方式
+    pay_account: Mapped[str | None] = mapped_column(String(64), nullable=True)     # 我方付款账户
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="CNY")
+    total_amount: Mapped[Decimal] = mapped_column(
+        Numeric(16, 2), nullable=False, default=Decimal("0")
+    )
+
+    allocations: Mapped[list["PaymentAllocation"]] = relationship(
+        back_populates="payment", cascade="all, delete-orphan",
+        order_by="PaymentAllocation.id", lazy="selectin",
+    )
+
+
+class PaymentAllocation(Base):
+    """付款单的核销明细（多态目标：采购单 / 入库单）。"""
+
+    __tablename__ = "payment_allocations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    payment_id: Mapped[int] = mapped_column(
+        ForeignKey("payment_orders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    target_type: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    target_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    target_no: Mapped[str | None] = mapped_column(String(32), nullable=True)       # 单号快照
+    amount: Mapped[Decimal] = mapped_column(
+        Numeric(16, 2), nullable=False, default=Decimal("0")
+    )
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    payment: Mapped[PaymentOrder] = relationship(back_populates="allocations")
+
+
+class ReceiptOrder(Base, DocMixin):
+    """收款单（V2.5）：收**客户**货款，可核销到销售订单/出库单（付款单镜像）。"""
+
+    __tablename__ = "receipt_orders"
+
+    doc_type = "receipt"
+    direction = 0
+    label = "收款单"
+
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id"), nullable=False, index=True
+    )
+    customer_name: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    settle_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    recv_account: Mapped[str | None] = mapped_column(String(64), nullable=True)    # 我方收款账户
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="CNY")
+    total_amount: Mapped[Decimal] = mapped_column(
+        Numeric(16, 2), nullable=False, default=Decimal("0")
+    )
+
+    allocations: Mapped[list["ReceiptAllocation"]] = relationship(
+        back_populates="receipt", cascade="all, delete-orphan",
+        order_by="ReceiptAllocation.id", lazy="selectin",
+    )
+
+
+class ReceiptAllocation(Base):
+    """收款单的核销明细（多态目标：销售订单 / 出库单）。"""
+
+    __tablename__ = "receipt_allocations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    receipt_id: Mapped[int] = mapped_column(
+        ForeignKey("receipt_orders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    target_type: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    target_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    target_no: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    amount: Mapped[Decimal] = mapped_column(
+        Numeric(16, 2), nullable=False, default=Decimal("0")
+    )
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    receipt: Mapped[ReceiptOrder] = relationship(back_populates="allocations")
+
+
+class Invoice(Base, DocMixin):
+    """发票（V2.5）：进项/销项同表，`invoice_direction` 区分。
+
+    ⚠️ 列名用 `invoice_direction` 而**不是** `direction`：`direction` 在 `models_doc` 里是
+    整数类属性约定（入库 +1 / 出库 −1 / 其余 0），`posting_service.post_stock_doc` 直接读它
+    决定过账正负号；同名列若存 `"in"/"out"` 会让任何按约定读取的通用代码拿到错误方向。
+    """
+
+    __tablename__ = "invoices"
+    __table_args__ = (
+        UniqueConstraint("invoice_direction", "invoice_no", name="uq_invoices_direction_no"),
+    )
+
+    doc_type = "invoice"
+    direction = 0
+    label = "发票"
+
+    invoice_direction: Mapped[str] = mapped_column(
+        String(8), nullable=False, default=INVOICE_IN, index=True
+    )
+    invoice_code: Mapped[str | None] = mapped_column(String(32), nullable=True)    # 发票代码
+    invoice_no: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    invoice_type: Mapped[str | None] = mapped_column(String(16), nullable=True)    # 专票/普票/电子
+    invoice_date: Mapped[date | None] = mapped_column(Date, nullable=True)         # 开票日期
+    tax_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)  # 13.00
+    amount: Mapped[Decimal] = mapped_column(                 # 不含税金额
+        Numeric(16, 2), nullable=False, default=Decimal("0")
+    )
+    tax_amount: Mapped[Decimal] = mapped_column(
+        Numeric(16, 2), nullable=False, default=Decimal("0")
+    )
+    total_amount: Mapped[Decimal] = mapped_column(           # 价税合计（进度口径）
+        Numeric(16, 2), nullable=False, default=Decimal("0")
+    )
+    party_id: Mapped[int | None] = mapped_column(Integer, nullable=True)          # 进项=供应商 / 销项=客户
+    party_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    auth_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+
+    allocations: Mapped[list["InvoiceAllocation"]] = relationship(
+        back_populates="invoice", cascade="all, delete-orphan",
+        order_by="InvoiceAllocation.id", lazy="selectin",
+    )
+
+
+class InvoiceAllocation(Base):
+    """发票的核销明细（进项→采购单 / 销项→销售订单）。`tax_amount` 仅供报表口径。"""
+
+    __tablename__ = "invoice_allocations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    invoice_id: Mapped[int] = mapped_column(
+        ForeignKey("invoices.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    target_type: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    target_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    target_no: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    amount: Mapped[Decimal] = mapped_column(
+        Numeric(16, 2), nullable=False, default=Decimal("0")
+    )
+    tax_amount: Mapped[Decimal] = mapped_column(
+        Numeric(16, 2), nullable=False, default=Decimal("0")
+    )
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    invoice: Mapped[Invoice] = relationship(back_populates="allocations")
+
+
 # 供通用服务/路由使用的注册表
 DOC_MODELS: dict[str, type] = {
     "purchase_request": PurchaseRequest,
@@ -432,6 +643,10 @@ DOC_MODELS: dict[str, type] = {
     "stock_out": StockOutOrder,
     "stock_take": StockTake,
     "stock_transfer": StockTransfer,
+    # V2.5：财务域（无物料行项，故不进 DOC_ITEM_MODELS）
+    "payment": PaymentOrder,
+    "receipt": ReceiptOrder,
+    "invoice": Invoice,
 }
 DOC_ITEM_MODELS: dict[str, type] = {
     "purchase_request": PurchaseRequestItem,

@@ -191,16 +191,20 @@ def build_xlsx_response(sheet_title: str, columns: list[tuple[str, int]],
 
 
 def doc_export_row(doc) -> list:
-    """把单据格式化为导出行（与列表同源字段，含状态中文与往来单位/仓库快照）。"""
+    """把单据格式化为导出行（与列表同源字段，含状态中文与往来单位/仓库快照）。
+
+    V2.5：采购单/销售订单**追加三条进度列**（百分比文本，保留 1 位小数），
+    与列表页显示完全一致（AC-V2.5-16）；其它单据的列集合不变。
+    """
     from ..models_doc import DOC_STATUS
-    from ..services import doc_service
+    from ..services import doc_service, finance_service
 
     party = (getattr(doc, "supplier_name", None) or getattr(doc, "customer_name", None)
              or getattr(doc, "customer_name_text", None) or "")
     amount = getattr(doc, "total_amount", None)
     if amount is None:
         amount = doc_service.total_amount_of(doc)
-    return [
+    row = [
         doc.doc_no,
         doc.doc_date.isoformat() if doc.doc_date else "",
         getattr(type(doc), "label", ""),
@@ -217,6 +221,27 @@ def doc_export_row(doc) -> list:
         (doc.remark or "")[:200],
         doc.created_at.isoformat(sep=" ", timespec="seconds") if doc.created_at else "",
     ]
+    progress = finance_service.progress_of(doc)
+    for key, _label in _PROGRESS_EXPORT.get(getattr(doc, "doc_type", ""), []):
+        item = progress.get(key) or {}
+        pct = item.get("pct")
+        row.append("—" if pct is None else f"{float(pct):.1f}%")
+    return row
+
+
+# V2.5：采购单/销售订单的进度导出列（键与 `finance_service.progress_of` 的键一致）
+_PROGRESS_EXPORT: dict[str, list[tuple[str, str]]] = {
+    "purchase_order": [("received_qty", "收货进度"), ("paid_amount", "付款进度"),
+                       ("invoiced_amount", "收票进度")],
+    "sales_order": [("shipped_qty", "发货进度"), ("received_amount", "收款进度"),
+                    ("invoiced_amount", "开票进度")],
+}
+
+
+def doc_export_columns(kind: str) -> list[tuple[str, int]]:
+    """按单据类型返回导出列（进度列只加在采购单/销售订单上，避免其它单据多出空列）。"""
+    extra = [(label, 12) for _key, label in _PROGRESS_EXPORT.get(kind, [])]
+    return DOC_EXPORT_COLUMNS + extra
 
 
 # 库存结存导出列（V2.3：新增「公司」列，仓库列改用默认显示名 ZC-主仓）

@@ -129,6 +129,29 @@ PERMISSIONS: list[tuple[str, str, str, str]] = [
     # ---- V2.4：飞书接入（免登 + 消息推送，见 `docs/27-feishu-integration-plan.md`） ----
     ("system.feishu.view", "飞书接入查看", "system", "button"),
     ("system.feishu.edit", "飞书配置与绑定维护", "system", "button"),
+
+    # ---- V2.5：财务模块（付款单 / 收款单 / 发票，见 `docs/29-v2.5-finance-requirements.md`） ----
+    # 记账动作（approve / confirm）与发起动作（create）分开：业务员只能发起、财务才能记账。
+    ("finance.payment.view", "付款单查看", "finance", "menu"),
+    ("finance.payment.create", "付款单新增", "finance", "button"),
+    ("finance.payment.edit", "付款单编辑", "finance", "button"),
+    ("finance.payment.submit", "付款单提交", "finance", "button"),
+    ("finance.payment.approve", "付款单审核(记账)", "finance", "button"),
+    ("finance.payment.void", "付款单作废", "finance", "button"),
+    ("finance.payment.export", "付款单导出", "finance", "button"),
+    ("finance.receipt.view", "收款单查看", "finance", "menu"),
+    ("finance.receipt.create", "收款单新增", "finance", "button"),
+    ("finance.receipt.edit", "收款单编辑", "finance", "button"),
+    ("finance.receipt.submit", "收款单提交", "finance", "button"),
+    ("finance.receipt.approve", "收款单审核(记账)", "finance", "button"),
+    ("finance.receipt.void", "收款单作废", "finance", "button"),
+    ("finance.receipt.export", "收款单导出", "finance", "button"),
+    ("finance.invoice.view", "发票查看", "finance", "menu"),
+    ("finance.invoice.create", "发票登记", "finance", "button"),
+    ("finance.invoice.edit", "发票编辑", "finance", "button"),
+    ("finance.invoice.confirm", "发票确认入账/认证", "finance", "button"),
+    ("finance.invoice.void", "发票作废", "finance", "button"),
+    ("finance.invoice.export", "发票导出", "finance", "button"),
 ]
 
 PERM_CODES: set[str] = {p[0] for p in PERMISSIONS}
@@ -146,6 +169,10 @@ DOC_VIEW_PERM: dict[str, str] = {
     "stock_out": "stock.out.view",
     "stock_take": "stock.take.view",
     "stock_transfer": "stock.transfer.view",
+    # V2.5：财务域
+    "payment": "finance.payment.view",
+    "receipt": "finance.receipt.view",
+    "invoice": "finance.invoice.view",
 }
 DOC_APPROVE_PERM: dict[str, str] = {
     "purchase_request": "purchase.request.approve",
@@ -156,6 +183,10 @@ DOC_APPROVE_PERM: dict[str, str] = {
     "stock_out": "stock.out.approve",
     "stock_take": "stock.take.approve",
     "stock_transfer": "stock.transfer.approve",
+    # V2.5：财务域（发票的记账动作是"确认"，发票不经"提交"状态，故待办不会命中）
+    "payment": "finance.payment.approve",
+    "receipt": "finance.receipt.approve",
+    "invoice": "finance.invoice.confirm",
 }
 
 # 模块中文名（权限树与菜单分组展示用）
@@ -165,6 +196,7 @@ MODULE_LABELS: dict[str, str] = {
     "purchase": "采购管理",
     "sales": "销售管理",
     "stock": "库存管理",
+    "finance": "财务管理",       # V2.5
     "master": "资料库",
     "system": "系统管理",
 }
@@ -199,6 +231,16 @@ MENUS: list[dict] = [
           "perm": "stock.take.view"},
          {"key": "stock-transfer", "title": "调拨单", "path": "/stock/transfers",
           "perm": "stock.transfer.view"}]},
+    # V2.5：财务管理（父节点 perm 只影响"完全没有子项命中"时的兜底，
+    # `_filter_menu` 会在任一子节点命中时保留父节点，故只给收款/发票权限的角色也能看到本菜单）
+    {"key": "finance", "title": "财务管理", "icon": "Money",
+     "perm": "finance.payment.view", "children": [
+         {"key": "finance-payment", "title": "付款单", "path": "/finance/payments",
+          "perm": "finance.payment.view"},
+         {"key": "finance-receipt", "title": "收款单", "path": "/finance/receipts",
+          "perm": "finance.receipt.view"},
+         {"key": "finance-invoice", "title": "发票管理", "path": "/finance/invoices",
+          "perm": "finance.invoice.view"}]},
     {"key": "master", "title": "资料库", "icon": "Folder",
      "perm": "master.product.view", "children": [
          {"key": "m-org", "title": "组织架构", "path": "/master/orgs", "perm": "master.org.view"},
@@ -238,14 +280,17 @@ ROLE_PRESETS: list[dict] = [
     {"code": "sysadmin", "name": "系统管理员", "data_scope": "ALL",
      "remark": "全部权限；内置角色不可删除", "perms": ["*"]},
     {"code": "purchase_manager", "name": "采购主管", "data_scope": "DEPT_SUB",
-     "remark": "采购单据审核 + 采购域数据", "perms": [
+     "remark": "采购单据审核 + 采购域数据；可发起付款单/进项发票（审核记账仍归财务）", "perms": [
          "dashboard.view", "contract.view", "contract.create", "contract.edit",
          "contract.export", "contract.log.view",
          "purchase.*", "stock.balance.view", "stock.ledger.view",
          "master.product.view", "master.ptype.view", "master.uom.view", "master.wh.view",
-         "master.customer.view", "master.supplier.view"]},
+         "master.customer.view", "master.supplier.view",
+         "finance.payment.view", "finance.payment.create", "finance.payment.edit",
+         "finance.payment.submit",
+         "finance.invoice.view", "finance.invoice.create", "finance.invoice.edit"]},
     {"code": "buyer", "name": "采购员", "data_scope": "SELF",
-     "remark": "采购单据录入与提交（不可审核）", "perms": [
+     "remark": "采购单据录入与提交（不可审核）；可发起付款单/登记进项发票", "perms": [
          "dashboard.view", "contract.view", "contract.create", "contract.edit",
          "contract.export",
          "purchase.request.view", "purchase.request.create", "purchase.request.edit",
@@ -253,16 +298,22 @@ ROLE_PRESETS: list[dict] = [
          "purchase.order.view", "purchase.order.create", "purchase.order.edit",
          "purchase.order.submit", "purchase.order.export",
          "stock.balance.view", "master.product.view", "master.ptype.view",
-         "master.uom.view", "master.wh.view", "master.supplier.view"]},
+         "master.uom.view", "master.wh.view", "master.supplier.view",
+         "finance.payment.view", "finance.payment.create", "finance.payment.edit",
+         "finance.payment.submit",
+         "finance.invoice.view", "finance.invoice.create", "finance.invoice.edit"]},
     {"code": "sales_manager", "name": "销售主管", "data_scope": "DEPT_SUB",
-     "remark": "销售单据审核 + 销售域数据", "perms": [
+     "remark": "销售单据审核 + 销售域数据；可发起收款单/销项发票（审核记账仍归财务）", "perms": [
          "dashboard.view", "contract.view", "contract.create", "contract.edit",
          "contract.export", "contract.log.view",
          "sales.*", "stock.balance.view", "stock.ledger.view",
          "master.product.view", "master.ptype.view", "master.uom.view", "master.wh.view",
-         "master.customer.view", "master.supplier.view"]},
+         "master.customer.view", "master.supplier.view",
+         "finance.receipt.view", "finance.receipt.create", "finance.receipt.edit",
+         "finance.receipt.submit",
+         "finance.invoice.view", "finance.invoice.create", "finance.invoice.edit"]},
     {"code": "seller", "name": "销售员", "data_scope": "SELF",
-     "remark": "销售单据录入与提交（不可审核）", "perms": [
+     "remark": "销售单据录入与提交（不可审核）；可发起收款单/登记销项发票", "perms": [
          "dashboard.view", "contract.view", "contract.create", "contract.edit",
          "contract.export",
          "sales.request.view", "sales.request.create", "sales.request.edit",
@@ -270,30 +321,35 @@ ROLE_PRESETS: list[dict] = [
          "sales.order.view", "sales.order.create", "sales.order.edit",
          "sales.order.submit", "sales.order.export",
          "stock.balance.view", "master.product.view", "master.ptype.view",
-         "master.uom.view", "master.wh.view", "master.customer.view"]},
+         "master.uom.view", "master.wh.view", "master.customer.view",
+         "finance.receipt.view", "finance.receipt.create", "finance.receipt.edit",
+         "finance.receipt.submit",
+         "finance.invoice.view", "finance.invoice.create", "finance.invoice.edit"]},
     {"code": "keeper", "name": "仓管员", "data_scope": "ALL",
      "remark": "出入库与盘点录入、审核（触发库存过账）", "perms": [
          "dashboard.view", "contract.view", "stock.*",
          "purchase.order.view", "sales.order.view",
          "master.product.view", "master.ptype.view", "master.uom.view", "master.wh.view"]},
     {"code": "finance", "name": "财务", "data_scope": "ALL",
-     "remark": "全量只读 + 导出（V2.0 不含财务模块）", "perms": [
+     "remark": "财务单据全集（付款/收款/发票的录入、审核记账、作废、导出）+ 全量只读", "perms": [
          "dashboard.view", "contract.view", "contract.export", "contract.log.view",
          "purchase.request.view", "purchase.order.view", "purchase.order.export",
          "sales.request.view", "sales.order.view", "sales.order.export",
          "stock.in.view", "stock.out.view", "stock.take.view", "stock.transfer.view", "stock.balance.view",
          "stock.ledger.view",
          "master.product.view", "master.ptype.view", "master.uom.view", "master.wh.view",
-         "master.customer.view", "master.supplier.view"]},
+         "master.customer.view", "master.supplier.view",
+         "finance.payment.*", "finance.receipt.*", "finance.invoice.*"]},
     {"code": "viewer", "name": "只读/管理层", "data_scope": "ALL",
-     "remark": "全量只读", "perms": [
+     "remark": "全量只读（V2.5：财务单据只读，含进度列）", "perms": [
          "dashboard.view", "contract.view", "contract.log.view",
          "purchase.request.view", "purchase.order.view",
          "sales.request.view", "sales.order.view",
          "stock.in.view", "stock.out.view", "stock.take.view", "stock.transfer.view", "stock.balance.view",
          "stock.ledger.view",
          "master.product.view", "master.ptype.view", "master.uom.view", "master.wh.view",
-         "master.customer.view", "master.supplier.view"]},
+         "master.customer.view", "master.supplier.view",
+         "finance.payment.view", "finance.receipt.view", "finance.invoice.view"]},
 ]
 
 
