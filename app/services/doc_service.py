@@ -101,6 +101,13 @@ def apply_items(db: Session, doc, rows: list[dict] | None, *,
     if not isinstance(rows, list):
         raise ValueError("行项格式非法")
     params = get_sys_params(db)
+    # V2.5 修复（现场缺陷）：编辑草稿会**整表重建**行项，而前端 payload 不带 `src_item_id`
+    # → 下推生成的单据一旦被编辑过，来源行 id 就丢了；过账时
+    # `push_service.backfill_received_qty` / `backfill_shipped_qty` 按 `src_item_id` 找来源行，
+    # 找不到就**静默跳过**，表现为"采购单还能继续下推、收货进度不更新"（实测 IN202610000005）。
+    # 这里按行号（seq）继承原来源行 id：编辑数量/单价不影响"这行是从哪来的"。
+    inherited_src = {it.seq: it.src_item_id for it in (getattr(doc, "items", None) or [])
+                     if getattr(it, "src_item_id", None)}
     doc.items.clear()
     seq = 0
     for raw in rows:
@@ -148,6 +155,8 @@ def apply_items(db: Session, doc, rows: list[dict] | None, *,
         item.warehouse_id = warehouse.id if warehouse else None
         item.warehouse_name = warehouse_display_name(db, warehouse)
         item.remark = (str(raw.get("remark") or "").strip() or None)
+        if not getattr(item, "src_item_id", None) and inherited_src.get(seq):
+            item.src_item_id = inherited_src[seq]
         doc.items.append(item)
 
     total = sum((it.amount or Decimal("0")) for it in doc.items)
