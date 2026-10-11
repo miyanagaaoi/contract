@@ -421,8 +421,9 @@ def _render_payment_application(doc, cfg: dict) -> str:
         style = f' style="height:{heights[idx]}pt"'
         return f'<tr class="{cls}"{style}>{cells}</tr>'
 
-    def k(text: str, colspan: int = 1) -> str:
-        return f'<td class="k" colspan="{colspan}">{escape(text)}</td>'
+    def k(text: str, colspan: int = 1, raw: bool = False) -> str:
+        body = text if raw else escape(text)
+        return f'<td class="k" colspan="{colspan}">{body}</td>'
 
     def v(value, colspan: int = 1, cls: str = "") -> str:
         extra = f' class="{cls}"' if cls else ""
@@ -432,28 +433,25 @@ def _render_payment_application(doc, cfg: dict) -> str:
     plan = _pay_checkbox(getattr(doc, "plan_type", None), ["计划内", "计划外"])
     category = _pay_checkbox(getattr(doc, "category_l1", None), _PAY_CATEGORIES)
     total_amount = getattr(doc, "total_amount", None) or 0
-    labels = cfg.get("signature_labels") or print_template_service.PAYMENT_SIGN_LABELS
-    labels = list(labels) + ["", "", ""]
+    labels = list(cfg.get("signature_labels")
+                  or print_template_service.PAYMENT_SIGN_LABELS) + ["", "", ""]
     sign_rows = ""
-    for start in (0, 3):
-        cells = ""
-        spans = [(3, "k"), (3, "k"), (1, "k")]
-        for offset, (span, cls) in enumerate(spans):
-            name = labels[start + offset] if start + offset < len(labels) else ""
-            text = f"{escape(str(name))}："
-            cells += f'<td class="{cls}" colspan="{span}">{text}</td>' if start == 0 and offset == 0                 else f'<td colspan="{span}" style="text-align:center">{text}</td>'
-        sign_rows += row(10 + start // 3, cells, "sign")
+    for r_i, group in enumerate((labels[0:3], labels[3:6])):
+        cells = "".join(
+            f'<td colspan="{span}" style="text-align:center">{escape(str(name))}：{"_" * 14}</td>'
+            for name, span in zip(group, (3, 3, 1)))
+        sign_rows += row(10 + r_i, cells, "sign")
 
     body = (
         row(0, f'<td class="title" colspan="7">{escape(str(cfg.get("title") or "付款申请单"))}</td>', "title")
         + row(1, f'<td colspan="4" style="text-align:right">{date_text}</td>'
                   f'<td colspan="3" style="text-align:left;padding-left:12px">{plan}</td>', "sub")
-        + row(2, k("收款<br/>信息", 1).replace('colspan="1"',
+        + row(2, k("收款<br/>信息", 1, raw=True).replace('colspan="1"',
               'rowspan="2" style="width:6.86%"') + k("收款单位名称", 2)
               + v(getattr(doc, "supplier_name", None), 4))
         + row(3, k("开户银行", 2) + v(getattr(doc, "payee_bank", None))
                   + k("账号") + v(getattr(doc, "payee_account", None), 2))
-        + row(4, k("付款<br/>信息").replace('colspan="1"',
+        + row(4, k("付款<br/>信息", 1, raw=True).replace('colspan="1"',
               'rowspan="5" style="width:6.86%"') + k("付款单位名称", 2)
               + v(getattr(doc, "subject_name", None) or getattr(doc, "subject_code", None))
               + k("开户行") + v(getattr(doc, "payer_bank", None), 2))
@@ -464,7 +462,7 @@ def _render_payment_application(doc, cfg: dict) -> str:
         + row(7, k("结算方式", 2) + v(_pay_settle(getattr(doc, "settle_type", None)), 2)
                   + k("付款事由") + v(getattr(doc, "pay_reason", None)))
         + row(8, k("金额", 2) + v(f"￥{_money(total_amount)}")
-                  + k("金额（大写）人民币") + v(amount_cn(total_amount)))
+                  + k("金额（大写）人民币", 2) + v(amount_cn(total_amount)))
         + row(9, k("备注", 3) + v(getattr(doc, "remark", None), 4))
         + sign_rows
     )
