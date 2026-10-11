@@ -61,6 +61,16 @@ _ADD_COLUMNS: list[tuple[str, str, str]] = [
     ("stock_transfers", "from_subject_name", "VARCHAR(64)"),
     ("stock_transfers", "to_subject_code", "VARCHAR(8)"),
     ("stock_transfers", "to_subject_name", "VARCHAR(64)"),
+    # ---- V2.5：付款申请单版式所需字段（对齐纸质模板，见 docs/33） ----
+    ("payment_orders", "payee_bank", "VARCHAR(128)"),
+    ("payment_orders", "payee_account", "VARCHAR(64)"),
+    ("payment_orders", "payer_bank", "VARCHAR(128)"),
+    ("payment_orders", "category_l1", "VARCHAR(32)"),
+    ("payment_orders", "category_l2", "VARCHAR(64)"),
+    ("payment_orders", "belong_period", "VARCHAR(32)"),
+    ("payment_orders", "bank_purpose", "VARCHAR(64)"),
+    ("payment_orders", "pay_reason", "VARCHAR(255)"),
+    ("payment_orders", "plan_type", "VARCHAR(8)"),
     # ---- V2.5：财务回写字段（审核付款单/收款单/发票时回写，红冲时回退；见 finance_service） ----
     # 新表（payment_orders / receipt_orders / invoices 及三张核销表）由 create_all 直接建，
     # 这里只补既有单据表上的回写列；NOT NULL + 常量默认值在 SQLite 与 PG 上均可直接 ADD COLUMN。

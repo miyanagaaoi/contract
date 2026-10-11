@@ -79,6 +79,19 @@ HEAD_FIELD_CATALOG: list[tuple[str, str, str]] = [
     ("source_doc_no", "来源单据", "下推来源单号"),
     ("generated_in_no", "盘盈入库单", "盘点生成的入库单"),
     ("generated_out_no", "盘亏出库单", "盘点生成的出库单"),
+    # ---- V2.5：《付款申请单》版式字段（对齐纸质模板 docs/33；其它单据无这些字段会自动跳过） ----
+    ("payee", "收款单位名称", "付款单收款方名称（其余单据跳过）"),
+    ("payee_bank", "收款方开户银行", "付款单收款方开户银行"),
+    ("payee_account", "收款方账号", "付款单收款方账号"),
+    ("payer", "付款单位名称", "我方付款主体（取签约公司名称快照）"),
+    ("payer_bank", "我方开户行", "付款单我方开户行"),
+    ("category_l1", "一级分类", "经营/经济/行政/人力/投资/往来"),
+    ("category_l2", "二级分类", "具体费用说明"),
+    ("belong_period", "付款归属期", "如 2026-09 / 以前年度"),
+    ("bank_purpose", "银行付款用途", "如 预付款 / 代付款"),
+    ("pay_reason", "付款事由", "付款单的事由说明"),
+    ("amount_cn", "金额（大写）", "由金额自动换算的财务大写"),
+    ("plan_type", "计划内/外", "计划内 / 计划外"),
 ]
 HEAD_FIELD_LABELS: dict[str, str] = {k: v for k, v, _ in HEAD_FIELD_CATALOG}
 HEAD_FIELD_NOTES: dict[str, str] = {k: note for k, _, note in HEAD_FIELD_CATALOG}
@@ -113,6 +126,8 @@ CONFIG_VERSION = 1
 DEFAULT_SUBTITLE = "CTMS · ERP 进销存"
 DEFAULT_FOOTER = "本单据由系统生成，签字后作为业务凭证留存。"
 DEFAULT_SIGN_LABELS = ["制单", "审核", "仓管", "领料/收货"]
+# 《付款申请单》纸质模板的签字栏（V2.5）
+PAYMENT_SIGN_LABELS = ["经理", "部门负责人", "制单人", "财务", "财务负责人", "领款人"]
 TAKE_SIGN_LABELS = ["制单", "盘点人", "审核", "仓管"]
 
 #: 表头每行字段数可选值
@@ -144,7 +159,8 @@ def default_config(kind: str) -> dict:
         item_columns.append({"key": key, "label": label, "enabled": enabled})
     return {
         "version": CONFIG_VERSION,
-        "title": _kind_label(kind),
+        # 《付款申请单》纸质模板的标题与系统单据名不同（系统内叫"付款单"）
+        "title": "付款申请单" if kind == "payment" else _kind_label(kind),
         "subtitle": DEFAULT_SUBTITLE,
         "show_printed_at": True,
         "footer": DEFAULT_FOOTER,
@@ -152,7 +168,9 @@ def default_config(kind: str) -> dict:
         "blocks": [key for key, _, _ in BLOCKS],
         "head_fields": head_fields,
         "item_columns": item_columns,
-        "signature_labels": list(TAKE_SIGN_LABELS if is_take else DEFAULT_SIGN_LABELS),
+        "signature_labels": list(PAYMENT_SIGN_LABELS if kind == "payment"
+                                 else TAKE_SIGN_LABELS if is_take
+                                 else DEFAULT_SIGN_LABELS),
         "show_approval": True,
         "show_remarks": True,
         "show_void_note": True,

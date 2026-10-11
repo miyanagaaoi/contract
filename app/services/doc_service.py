@@ -457,6 +457,8 @@ def fmt_doc(db: Session, doc, *, with_items: bool = True) -> dict:
                   "to_warehouse_id", "to_warehouse_name",
                   # V2.5：财务域（付款/收款/发票特有字段 + 目标单据的回写金额）
                   "pay_account", "recv_account", "paid_amount", "received_amount",
+                  "payee_bank", "payee_account", "payer_bank", "category_l1", "category_l2",
+                  "belong_period", "bank_purpose", "pay_reason", "plan_type",
                   "invoiced_amount", "invoice_direction", "invoice_code", "invoice_no",
                   "invoice_type", "invoice_date", "tax_rate", "amount", "tax_amount",
                   "party_id", "party_name", "auth_status", "allocated_amount"):

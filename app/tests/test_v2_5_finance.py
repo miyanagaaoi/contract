@@ -1020,3 +1020,63 @@ class TestM3Completeness:
                           headers=box.login(client, box.user("finance")))
         assert resp.status_code == 200
         assert "spreadsheetml" in resp.headers["content-type"]
+
+
+# ===================== 付款申请单打印模板（对齐纸质模板 docs/33） =====================
+
+class TestPaymentPrintTemplate:
+    def test_default_template_matches_paper_form(self):
+        from app.services import print_template_service as pts
+
+        cfg = pts.default_config("payment")
+        assert cfg["title"] == "付款申请单"
+        assert cfg["signature_labels"] == ["经理", "部门负责人", "制单人", "财务", "财务负责人", "领款人"]
+        keys = {f["key"] for f in cfg["head_fields"]}
+        for key in ("payee", "payee_bank", "payee_account", "payer", "payer_bank",
+                    "category_l1", "category_l2", "belong_period", "bank_purpose",
+                    "pay_reason", "amount_cn", "plan_type"):
+            assert key in keys, key
+
+    def test_amount_cn(self):
+        from decimal import Decimal
+
+        from app.services.print_service import amount_cn
+
+        assert amount_cn(Decimal("0")) == "零元整"
+        assert amount_cn(Decimal("37500")) == "叁万柒仟伍佰元整"
+        assert amount_cn(Decimal("500000")) == "伍拾万元整"
+        assert amount_cn(Decimal("1234.56")) == "壹仟贰佰叁拾肆元伍角陆分"
+        assert amount_cn(Decimal("10000.05")) == "壹万元零伍分"
+        assert amount_cn(Decimal("1000000")) == "壹佰万元整"
+
+    def test_payment_fields_saved_and_printed(self, client, box, admin):
+        """新字段可保存、可回显，并出现在打印 HTML 的《付款申请单》版式里。"""
+        po_id = box.purchase_order(amount="37500")
+        created = client.post("/api/finance/payments",
+                              json={"supplier_id": box.supplier_id, "subject_code": SUBJECT,
+                                    "total_amount": "37500",
+                                    "settle_type": "银行转账",
+                                    "payee_bank": "中国建设银行太原市漪汾街支行",
+                                    "payee_account": "1405 0183 6108 0000 0435",
+                                    "payer_bank": "中国银行太原综改区支行",
+                                    "category_l1": "经营", "category_l2": "物联网及硬件成本",
+                                    "belong_period": "2026-09", "bank_purpose": "预付款",
+                                    "pay_reason": "施工预付款", "plan_type": "计划内",
+                                    "allocations": [{"target_type": "purchase_order",
+                                                     "target_id": po_id,
+                                                     "amount": "37500"}]},
+                              headers=admin)
+        assert created.status_code == 200, created.text
+        body = created.json()
+        box.docs["payments"].append(body["id"])
+        assert body["payee_bank"].startswith("中国建设银行")
+        assert body["pay_reason"] == "施工预付款"
+        assert body["plan_type"] == "计划内"
+
+        html = client.get(f"/api/finance/payments/{body['id']}/print", headers=admin)
+        assert html.status_code == 200
+        text = html.text
+        assert "付款申请单" in text
+        assert "收款方开户银行" in text and "1405 0183" in text
+        assert "叁万柒仟伍佰元整" in text          # 金额大写
+        assert "施工预付款" in text and "领款人" in text

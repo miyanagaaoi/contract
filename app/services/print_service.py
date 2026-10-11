@@ -105,6 +105,63 @@ def is_take_doc(doc) -> bool:
 # ==================== 取值 ====================
 
 
+_CN_DIGITS = "零壹贰叁肆伍陆柒捌玖"
+_CN_UNITS = ["", "拾", "佰", "仟"]
+_CN_GROUPS = ["", "万", "亿"]
+
+
+def amount_cn(amount) -> str:
+    """金额大写（《付款申请单》的「金额（大写）人民币」）；支持到亿，保留角分。"""
+    from decimal import Decimal
+
+    value = Decimal(str(amount or 0)).quantize(Decimal("0.01"))
+    if value == 0:
+        return "零元整"
+    sign = "负" if value < 0 else ""
+    value = abs(value)
+    yuan = int(value)
+    cents = int((value - yuan) * 100)
+    if yuan == 0:
+        head = ""
+    else:
+        groups: list[str] = []
+        n = yuan
+        while n > 0:
+            groups.append(n % 10000)
+            n //= 10000
+        parts: list[str] = []
+        for idx in range(len(groups) - 1, -1, -1):
+            g = groups[idx]
+            if g == 0:
+                if parts and not parts[-1].endswith("零"):
+                    parts.append("零")
+                continue
+            seg = ""
+            zero_pending = False
+            for pos in range(3, -1, -1):
+                digit = (g // (10 ** pos)) % 10
+                if digit == 0:
+                    zero_pending = bool(seg)
+                    continue
+                if zero_pending:
+                    seg += "零"
+                    zero_pending = False
+                seg += _CN_DIGITS[digit] + _CN_UNITS[pos]
+            parts.append(seg + _CN_GROUPS[idx])
+        head = "".join(parts).rstrip("零") + "元"
+    if cents == 0:
+        return f"{sign}{head}整"
+    jiao, fen = divmod(cents, 10)
+    tail = ""
+    if jiao:
+        tail += _CN_DIGITS[jiao] + "角"
+    elif head:
+        tail += "零"
+    if fen:
+        tail += _CN_DIGITS[fen] + "分"
+    return f"{sign}{head}{tail}"
+
+
 def _head_value_html(doc, key: str) -> str | None:
     """表头字段的单元格 HTML；**返回 None 表示该单据没有这个字段**（整项跳过）。
 
@@ -133,6 +190,20 @@ def _head_value_html(doc, key: str) -> str | None:
         attr = f"{key.split('_')[0]}_subject_name"
         value = getattr(doc, attr, None) or getattr(doc, attr.replace("_name", "_code"), None)
         return _e(value) if value else None
+    # ---- V2.5：付款申请单版式字段（其它单据没有这些属性 → 返回 None 自动跳过） ----
+    if key == "amount_cn":
+        if not hasattr(doc, "total_amount"):
+            return None
+        return _e(amount_cn(getattr(doc, "total_amount", 0)))
+    if key == "payee":
+        return _e(getattr(doc, "supplier_name", None))
+    if key == "payer":
+        return _e(getattr(doc, "subject_name", None) or getattr(doc, "subject_code", None))
+    if key in ("payee_bank", "payee_account", "payer_bank", "category_l1", "category_l2",
+               "belong_period", "bank_purpose", "pay_reason", "plan_type"):
+        if not hasattr(doc, key):
+            return None
+        return _e(getattr(doc, key, None))
     if key == "supplier":
         if not hasattr(doc, "supplier_name"):
             return None

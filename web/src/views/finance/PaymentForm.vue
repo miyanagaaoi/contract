@@ -6,7 +6,7 @@
  * 预填供应商、金额（= **未付金额**）与一行核销明细，并把该采购单塞进下拉候选
  * （它可能不在"最近 200 张已审核采购单"里）。预填只是默认值，财务可改成部分付款。
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import AllocationTable from '@/components/doc/AllocationTable.vue'
@@ -26,6 +26,15 @@ const partyId = ref<number | null>(null)
 const settleType = ref<string>('')
 const payAccount = ref<string>('')
 const totalAmount = ref<number>(0)
+/**
+ * 《付款申请单》纸质模板字段（V2.5）。
+ * 放在一个对象里而不是 9 个 ref：`sync()` 只需展开一次，表单模板也只需一组 el-input。
+ */
+const payFields = reactive<Record<string, string>>({
+  payee_bank: '', payee_account: '', payer_bank: '', category_l1: '', category_l2: '',
+  belong_period: '', bank_purpose: '', pay_reason: '', plan_type: '计划内',
+})
+const CATEGORY_L1 = ['经营', '经济', '行政', '人力', '投资', '往来']
 
 const TARGETS = [{ code: 'purchase_order', label: '采购单' }]
 
@@ -36,6 +45,7 @@ function sync() {
     settle_type: settleType.value || null,
     pay_account: payAccount.value || null,
     total_amount: Number(totalAmount.value || 0),
+    ...payFields,
     allocations: allocations.value.map((r) => ({
       target_type: r.target_type,
       target_id: r.target_id,
@@ -44,7 +54,8 @@ function sync() {
     })),
   }
 }
-watch([partyId, settleType, payAccount, totalAmount, allocations], sync, { deep: true })
+watch([partyId, settleType, payAccount, totalAmount, allocations, payFields], sync,
+      { deep: true })
 
 /** 已审核采购单候选（M1 一次只核销一张，故取最近 200 张即可） */
 async function loadOrders() {
@@ -94,6 +105,9 @@ watch(() => formRef.value?.detail, (detail: Dict | null | undefined) => {
   settleType.value = (detail.settle_type as string) || ''
   payAccount.value = (detail.pay_account as string) || ''
   totalAmount.value = Number(detail.total_amount || 0)
+  for (const key of Object.keys(payFields)) {
+    payFields[key] = (detail[key] as string) || (key === 'plan_type' ? '计划内' : '')
+  }
   allocations.value = ((detail.allocations as AllocationRow[]) || []).map((r) => ({ ...r }))
   sync()
 })
@@ -129,6 +143,59 @@ watch(() => formRef.value?.detail, (detail: Dict | null | undefined) => {
       <el-col :span="12">
         <el-form-item label="付款账户">
           <el-input v-model="payAccount" placeholder="如 工行基本户 6222…" />
+        </el-form-item>
+      </el-col>
+
+      <!-- V2.5：《付款申请单》纸质模板字段（打印模板可直接引用，见 docs/33） -->
+      <el-col :span="12">
+        <el-form-item label="收款方开户银行">
+          <el-input v-model="payFields.payee_bank" placeholder="如 中国建设银行…支行" />
+        </el-form-item>
+      </el-col>
+      <el-col :span="12">
+        <el-form-item label="收款方账号">
+          <el-input v-model="payFields.payee_account" placeholder="如 1405 0183 …" />
+        </el-form-item>
+      </el-col>
+      <el-col :span="12">
+        <el-form-item label="我方开户行">
+          <el-input v-model="payFields.payer_bank" placeholder="如 中国银行…支行" />
+        </el-form-item>
+      </el-col>
+      <el-col :span="12">
+        <el-form-item label="一级分类">
+          <el-select v-model="payFields.category_l1" clearable placeholder="经营/经济/行政…"
+                     style="width: 100%">
+            <el-option v-for="c in CATEGORY_L1" :key="c" :label="c" :value="c" />
+          </el-select>
+        </el-form-item>
+      </el-col>
+      <el-col :span="12">
+        <el-form-item label="二级分类">
+          <el-input v-model="payFields.category_l2" placeholder="写明具体费用" />
+        </el-form-item>
+      </el-col>
+      <el-col :span="12">
+        <el-form-item label="付款归属期">
+          <el-input v-model="payFields.belong_period" placeholder="如 2026-09 / 以前年度" />
+        </el-form-item>
+      </el-col>
+      <el-col :span="12">
+        <el-form-item label="银行付款用途">
+          <el-input v-model="payFields.bank_purpose" placeholder="如 预付款 / 代付款" />
+        </el-form-item>
+      </el-col>
+      <el-col :span="12">
+        <el-form-item label="计划内/外">
+          <el-select v-model="payFields.plan_type" style="width: 100%">
+            <el-option label="计划内" value="计划内" />
+            <el-option label="计划外" value="计划外" />
+          </el-select>
+        </el-form-item>
+      </el-col>
+      <el-col :span="24">
+        <el-form-item label="付款事由">
+          <el-input v-model="payFields.pay_reason" placeholder="与备注分开填：本笔付款的具体事由" />
         </el-form-item>
       </el-col>
     </template>

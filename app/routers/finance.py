@@ -105,6 +105,13 @@ def _apply_fund_fields(db: Session, doc, payload: dict) -> None:
         doc.settle_type = settle or None
     if "currency" in payload or creating:
         doc.currency = (str(payload.get("currency") or "CNY").strip() or "CNY")[:8]
+    if is_payment:
+        # 《付款申请单》版式字段（纸质模板对齐；收款单不需要）
+        for key, limit in (("payee_bank", 128), ("payee_account", 64), ("payer_bank", 128),
+                           ("category_l1", 32), ("category_l2", 64), ("belong_period", 32),
+                           ("bank_purpose", 64), ("pay_reason", 255), ("plan_type", 8)):
+            if key in payload:
+                setattr(doc, key, _text(payload, key, limit))
     account_key = "pay_account" if is_payment else "recv_account"
     if account_key in payload:
         setattr(doc, account_key, _text(payload, account_key, 64))

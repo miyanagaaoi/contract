@@ -494,6 +494,17 @@ class PaymentOrder(Base, DocMixin):
         Numeric(16, 2), nullable=False, default=Decimal("0")
     )
 
+    # ---- V2.5 补充：对齐纸质《付款申请单》需要的字段（模板见 `docs/33`） ----
+    payee_bank: Mapped[str | None] = mapped_column(String(128), nullable=True)      # 收款方开户银行
+    payee_account: Mapped[str | None] = mapped_column(String(64), nullable=True)    # 收款方账号
+    payer_bank: Mapped[str | None] = mapped_column(String(128), nullable=True)      # 我方（付款方）开户行
+    category_l1: Mapped[str | None] = mapped_column(String(32), nullable=True)      # 一级分类（经营/经济/…）
+    category_l2: Mapped[str | None] = mapped_column(String(64), nullable=True)      # 二级分类（具体费用）
+    belong_period: Mapped[str | None] = mapped_column(String(32), nullable=True)    # 付款归属期（2026-09 / 以前年度）
+    bank_purpose: Mapped[str | None] = mapped_column(String(64), nullable=True)     # 银行付款用途（预付款/代付款…）
+    pay_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)      # 付款事由（与备注分开）
+    plan_type: Mapped[str | None] = mapped_column(String(8), nullable=True)         # 计划内 / 计划外
+
     allocations: Mapped[list["PaymentAllocation"]] = relationship(
         back_populates="payment", cascade="all, delete-orphan",
         order_by="PaymentAllocation.id", lazy="selectin",
