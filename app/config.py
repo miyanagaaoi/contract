@@ -49,6 +49,30 @@ JWT_SECRET_FILE = DATA_DIR / ".jwt_secret"
 _JWT_SECRET = _env("CTMS_JWT_SECRET") or ""
 
 
+# ---------- 飞书接入（可选，见 `docs/27-feishu-integration-plan.md`） ----------
+# 默认**关闭**：未启用时登录页不显示飞书入口、不启动发送线程、飞书接口无任何副作用，
+# 对既有密码登录与全部既有测试零影响（AC-FS-09）。
+# app_secret 只从环境变量读：不落库、不进 git、不进日志（与 CTMS_JWT_SECRET 同策略）。
+FEISHU_ENABLED = (_env("CTMS_FEISHU_ENABLED") or "0") == "1"
+FEISHU_APP_ID = (_env("CTMS_FEISHU_APP_ID") or "").strip()
+FEISHU_APP_SECRET = (_env("CTMS_FEISHU_APP_SECRET") or "").strip()
+FEISHU_REDIRECT_URI = (_env("CTMS_FEISHU_REDIRECT_URI") or "").strip()
+# 卡片里"查看单据"跳转链接的根地址（内网地址即可：链接是给**用户浏览器**打开的，飞书服务器不访问它）
+FEISHU_BASE_URL = (_env("CTMS_FEISHU_BASE_URL") or "").strip().rstrip("/")
+# 域名可覆盖（飞书国际版为 open.larksuite.com / accounts.larksuite.com），便于私有化与测试
+FEISHU_API_BASE = (_env("CTMS_FEISHU_API_BASE") or "https://open.feishu.cn").rstrip("/")
+FEISHU_ACCOUNTS_BASE = (_env("CTMS_FEISHU_ACCOUNTS_BASE") or "https://accounts.feishu.cn").rstrip("/")
+# 网络与重试（发送串行节流，守住飞书"同一用户 5 QPS"的限制）
+FEISHU_TIMEOUT = float(_env("CTMS_FEISHU_TIMEOUT") or 10)
+FEISHU_MAX_ATTEMPTS = int(_env("CTMS_FEISHU_MAX_ATTEMPTS") or 5)
+FEISHU_SEND_INTERVAL_MS = int(_env("CTMS_FEISHU_SEND_INTERVAL_MS") or 300)
+
+
+def feishu_ready() -> bool:
+    """飞书接入是否可用：开关打开且必要配置齐全；缺一即整体降级（不影响登录与业务）。"""
+    return bool(FEISHU_ENABLED and FEISHU_APP_ID and FEISHU_APP_SECRET and FEISHU_REDIRECT_URI)
+
+
 def is_sqlite() -> bool:
     return DB_URL.startswith("sqlite")
 

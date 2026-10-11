@@ -144,3 +144,21 @@ def apply_data_scope(query, model, user: User, db: Session):
     if not conds:
         return query
     return query.filter(or_(*conds))
+
+
+# ---------------- 通知收件人（V2.4 飞书接入） ----------------
+
+def users_with_perm(db: Session, code: str) -> list[User]:
+    """拥有指定权限点的**启用**账号（飞书待办推送的收件人来源，AC-V2.4-05）。
+
+    与接口级 `require_perm` **同源同口径**：超管恒有全部权限点；其余账号取启用角色的
+    权限并集。本函数只用于决定"该把消息推给谁"，**不构成任何授权判定**——真正的权限
+    校验仍在各接口的依赖里（AC-V2-41 不变）。
+
+    性能：账号规模是小团队（3~4 人，最多几十），逐人算权限并集完全可接受；
+    若将来账号数上百，再改为按角色反查。
+    """
+    if code not in PERM_CODES:
+        return []
+    rows = db.query(User).filter(User.status == "enabled").all()
+    return [u for u in rows if u.is_superadmin or code in collect_perms(db, u)]

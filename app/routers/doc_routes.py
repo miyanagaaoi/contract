@@ -21,6 +21,7 @@ from ..database import get_db
 from ..models_auth import User
 from ..models_doc import DOC_STATUS
 from ..services import audit_service, doc_service, numbering_service
+from ..services.feishu import notify_service
 from ..services.permission_service import apply_data_scope, require_perm
 
 
@@ -217,6 +218,10 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
         audit_service.log(db, user, module=perm_prefix.split(".")[0], action="submit",
                           object_type=kind, object_id=doc.id, object_no=doc.doc_no,
                           request=request)
+        # V2.4：飞书待办推送。**只入队**（同一事务），真实发送由后台线程完成 ——
+        # 飞书不可用 / 限流 / 收件人未绑定飞书时，本次提交照常成功（AC-FS-06）。
+        notify_service.enqueue_doc_todo(db, doc=doc, kind=kind, kind_label=label,
+                                        actor_name=user.real_name or user.username)
         db.commit()
         return doc_service.fmt_doc(db, doc)
 
@@ -233,6 +238,10 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
         audit_service.log(db, user, module=perm_prefix.split(".")[0], action="approve",
                           object_type=kind, object_id=doc.id, object_no=doc.doc_no,
                           detail=detail, request=request)
+        # V2.4：把审核结果推给提交人（同事务入队）
+        notify_service.enqueue_doc_result(db, doc=doc, kind=kind, kind_label=label,
+                                         result="approved",
+                                         operator=user.real_name or user.username)
         db.commit()
         return doc_service.fmt_doc(db, doc)
 
@@ -244,6 +253,9 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
         audit_service.log(db, user, module=perm_prefix.split(".")[0], action="reject",
                           object_type=kind, object_id=doc.id, object_no=doc.doc_no,
                           detail=(payload or {}).get("reason"), request=request)
+        notify_service.enqueue_doc_result(db, doc=doc, kind=kind, kind_label=label,
+                                         result="rejected", reason=(payload or {}).get("reason"),
+                                         operator=user.real_name or user.username)
         db.commit()
         return doc_service.fmt_doc(db, doc)
 
@@ -255,6 +267,9 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
         audit_service.log(db, user, module=perm_prefix.split(".")[0], action="complete",
                           object_type=kind, object_id=doc.id, object_no=doc.doc_no,
                           request=request)
+        notify_service.enqueue_doc_result(db, doc=doc, kind=kind, kind_label=label,
+                                         result="completed",
+                                         operator=user.real_name or user.username)
         db.commit()
         return doc_service.fmt_doc(db, doc)
 
@@ -266,6 +281,9 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
         audit_service.log(db, user, module=perm_prefix.split(".")[0], action="void",
                           object_type=kind, object_id=doc.id, object_no=doc.doc_no,
                           detail=(payload or {}).get("reason"), request=request)
+        notify_service.enqueue_doc_result(db, doc=doc, kind=kind, kind_label=label,
+                                         result="voided", reason=(payload or {}).get("reason"),
+                                         operator=user.real_name or user.username)
         db.commit()
         return doc_service.fmt_doc(db, doc)
 
@@ -280,6 +298,9 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
         audit_service.log(db, user, module=perm_prefix.split(".")[0], action="unapprove",
                           object_type=kind, object_id=doc.id, object_no=doc.doc_no,
                           detail=(payload or {}).get("reason"), request=request)
+        notify_service.enqueue_doc_result(db, doc=doc, kind=kind, kind_label=label,
+                                         result="unapproved", reason=(payload or {}).get("reason"),
+                                         operator=user.real_name or user.username)
         db.commit()
         return doc_service.fmt_doc(db, doc)
 

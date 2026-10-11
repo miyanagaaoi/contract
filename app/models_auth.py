@@ -20,6 +20,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -162,3 +163,38 @@ class OperationLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now(), index=True
     )
+
+
+class UserIdentity(Base):
+    """外部身份绑定（V2.4 飞书接入；表名 `user_identities`）。
+
+    **为什么独立成表，而不是给 `users` 加一列 `feishu_open_id`：**
+
+    1. 一个账号将来可能绑多个身份源（钉钉/企业微信），加列只能绑一个；
+    2. `db_migrate` 的 SQLite 限制（`ALTER TABLE ADD COLUMN` 不能带外键）在加列方案下
+       会让外键只能靠应用层保证，新表则可以正常带 FK + 唯一约束；
+    3. 解绑 = 删行，不会在 `users` 上留下"看起来绑过、其实为空"的语义。
+
+    `open_id` 是**应用内**唯一标识（官方推荐做主键）：换应用或换租户会变，
+    故同时留 `union_id`（开发商维度）以便将来换应用时复用绑定。
+    唯一约束 `(provider, open_id)` 防"一个飞书身份绑两个系统账号"。
+    """
+
+    __tablename__ = "user_identities"
+    __table_args__ = (
+        UniqueConstraint("provider", "open_id", name="uq_user_identity_provider_open"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(16), nullable=False, default="feishu",
+                                           index=True)
+    open_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    union_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tenant_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    display_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    bound_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    bound_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

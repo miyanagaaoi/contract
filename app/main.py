@@ -25,6 +25,7 @@ from .routers import (
     contracts,
     dashboard,
     export,
+    feishu,
     health,
     imports,
     master,
@@ -37,10 +38,12 @@ from .routers import (
     system,
     tags,
 )
+from .services.feishu import notify_service as feishu_notify
 from . import models_auth  # noqa: F401  V2.0：让 create_all 感知权限/组织/账号表
 from . import models_master  # noqa: F401  V2.0：让 create_all 感知主数据表
 from . import models_doc  # noqa: F401  V2.0/M2：单据表
 from . import models_stock  # noqa: F401  V2.0/M2：库存结存与流水
+from . import models_notify  # noqa: F401  V2.4：飞书通知 outbox 表
 
 __all__ = ["app"]
 
@@ -58,14 +61,21 @@ async def lifespan(_app: FastAPI):
     with SessionLocal() as db:
         seed_dicts(db)
         seed_auth(db)
-    yield
+    # V2.4：飞书接入启用时才启动通知发送线程（默认关闭 → 不起线程，对既有行为零影响）
+    feishu_notify.start_worker()
+    try:
+        yield
+    finally:
+        feishu_notify.stop_worker()
 
 
 app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=lifespan)
 
 app.include_router(health.router)
 app.include_router(auth.router)
+app.include_router(feishu.auth_router)     # V2.4：飞书免登与自助绑定
 app.include_router(system.router)
+app.include_router(feishu.system_router)   # V2.4：飞书配置自检与通知运维
 app.include_router(print_templates.router)
 app.include_router(master.router)
 app.include_router(meta.router)

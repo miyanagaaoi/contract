@@ -125,11 +125,38 @@ PERMISSIONS: list[tuple[str, str, str, str]] = [
     # ---- V2.2：单据打印模板（版面可视化调整） ----
     ("system.print.view", "打印模板查看", "system", "menu"),
     ("system.print.edit", "打印模板维护", "system", "button"),
+
+    # ---- V2.4：飞书接入（免登 + 消息推送，见 `docs/27-feishu-integration-plan.md`） ----
+    ("system.feishu.view", "飞书接入查看", "system", "button"),
+    ("system.feishu.edit", "飞书配置与绑定维护", "system", "button"),
 ]
 
 PERM_CODES: set[str] = {p[0] for p in PERMISSIONS}
 PERM_NAMES: dict[str, str] = {p[0]: p[1] for p in PERMISSIONS}
 PERM_MODULES: dict[str, str] = {p[0]: p[2] for p in PERMISSIONS}
+
+# 单据类型 → 查看 / 审核权限点（V2.4：看板待办与飞书待办推送**共用同一份映射**，
+# 否则"看板说该我审、飞书没推"这类口径漂移会长期潜伏）。
+DOC_VIEW_PERM: dict[str, str] = {
+    "purchase_request": "purchase.request.view",
+    "purchase_order": "purchase.order.view",
+    "sales_request": "sales.request.view",
+    "sales_order": "sales.order.view",
+    "stock_in": "stock.in.view",
+    "stock_out": "stock.out.view",
+    "stock_take": "stock.take.view",
+    "stock_transfer": "stock.transfer.view",
+}
+DOC_APPROVE_PERM: dict[str, str] = {
+    "purchase_request": "purchase.request.approve",
+    "purchase_order": "purchase.order.approve",
+    "sales_request": "sales.request.approve",
+    "sales_order": "sales.order.approve",
+    "stock_in": "stock.in.approve",
+    "stock_out": "stock.out.approve",
+    "stock_take": "stock.take.approve",
+    "stock_transfer": "stock.transfer.approve",
+}
 
 # 模块中文名（权限树与菜单分组展示用）
 MODULE_LABELS: dict[str, str] = {
