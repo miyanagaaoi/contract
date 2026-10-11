@@ -643,7 +643,10 @@ defineExpose({ load: () => load(false), rows })
         <el-table-column v-if="showSubject" label="签约公司" width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.subject_name || row.subject_code || '—' }}</template>
         </el-table-column>
-        <el-table-column :label="partyLabel()" min-width="150" show-overflow-tooltip>
+        <!-- V2.4：供货商 / 客户列收窄到 130。此前它是表里**唯一**声明 min-width 的列，
+             会独占全部剩余宽度 —— 宽屏下被拉到 500px 以上（业务反馈"供货商行太长"）。
+             现在与「备注」列共同按比例分担剩余宽度。 -->
+        <el-table-column :label="partyLabel()" min-width="130" show-overflow-tooltip>
           <template #default="{ row }">
             <!-- V2.2：供货商可点击 → 弹出只读档案（无 supplier_id 的历史单据仍是纯文本） -->
             <el-button v-if="showSupplier && row.supplier_id" link type="primary" size="small"
@@ -664,6 +667,11 @@ defineExpose({ load: () => load(false), rows })
         </el-table-column>
         <el-table-column label="来源单号" width="150" show-overflow-tooltip>
           <template #default="{ row }">{{ row.source_doc_no || '—' }}</template>
+        </el-table-column>
+        <!-- V2.4：备注列（业务反馈：备注原先只在详情抽屉里能看到，列表看不到）。
+             用 min-width 让长备注吸收剩余宽度，超长自动省略并悬浮显示全文。 -->
+        <el-table-column label="备注" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.remark || '—' }}</template>
         </el-table-column>
         <el-table-column label="操作" width="340" fixed="right">
           <template #default="{ row }">
