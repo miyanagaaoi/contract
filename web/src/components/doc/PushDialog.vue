@@ -10,7 +10,7 @@
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
-import { fetchDoc, fetchMasterOptions, pushDoc, type Dict } from '@/api'
+import { fetchDoc, fetchDocList, fetchMasterOptions, pushDoc, type Dict } from '@/api'
 import type { DocItem, DocRecord, PushRow } from '@/types/doc'
 import { todayLocal } from '@/utils/format'
 
@@ -53,6 +53,14 @@ const docDate = ref(todayLocal())
 const tableRef = ref()
 
 const parties = ref<Dict[]>([])
+/**
+ * 已下推但**尚未生效**（草稿/待审核）的下游单据。
+ *
+ * 剩余可下推量只扣减"已过账"的数量，因此同一批货可以重复下推成两张草稿单 ——
+ * 过账时才在库存上暴露为重复入库（现场已发生过：一张 3 件的采购单对应 3 张 3 件的入库单）。
+ * 保守口径：**不改变可下推量算法**，只在下推前把"还没过账的下游单据"摆到眼前，由人判断。
+ */
+const pendingDownstream = ref<Dict[]>([])
 const warehouses = ref<Dict[]>([])
 
 /** 已下推数量字段：申请→订单看 ordered_qty，订单→入库看 received_qty，订单→出库看 shipped_qty */
@@ -101,6 +109,27 @@ async function loadOptions() {
   }
 }
 
+/** 下游单据的列表接口（用于查"已下推未生效"的单据） */
+function downstreamApi(): string {
+  if (props.destType === 'stock') {
+    return props.stockTypeField === 'out_type' ? '/api/stock/out-orders' : '/api/stock/in-orders'
+  }
+  return props.partyKind === 'customer' ? '/api/sales/orders' : '/api/purchase/orders'
+}
+
+async function loadPendingDownstream(docNo: string) {
+  pendingDownstream.value = []
+  if (!docNo) return
+  try {
+    // 来源单号在列表关键词里可检索（`apply_doc_filters` 含 source_doc_no）
+    const data = await fetchDocList(downstreamApi(), { keyword: docNo, page_size: 100 })
+    pendingDownstream.value = (data.items || []).filter(
+      (d: Dict) => d.status === 'draft' || d.status === 'submitted')
+  } catch {
+    pendingDownstream.value = []      // 无权限/接口异常时不干扰下推
+  }
+}
+
 /** 打开弹窗：先拉最新详情（行项 id 会随编辑变化），再默认勾选剩余量 > 0 的行 */
 async function open(doc: DocRecord) {
   source.value = doc
@@ -122,6 +151,7 @@ async function open(doc: DocRecord) {
     warehouseId.value = (fresh.ship_warehouse_id ?? fresh.receipt_warehouse_id ?? warehouseId.value) ?? null
     buildRows(fresh)
     await loadOptions()
+    await loadPendingDownstream(fresh.doc_no)
     setTimeout(() => {
       for (const row of rows.value) {
         if (row.push_qty > 0) tableRef.value?.toggleRowSelection(row, true)
@@ -236,7 +266,20 @@ defineExpose({ open })
       </el-form-item>
     </el-form>
 
-    <el-table ref="tableRef" :data="rows" border stripe size="small" max-height="360"
+    <!-- 保守口径：已下推但未过账的下游单据 —— 只提示、不改可下推量 -->
+    <el-alert v-if="pendingDownstream.length" type="warning" :closable="false" show-icon
+              class="pending-down" title="该单据已有下推但未生效的下游单据">
+      <template #default>
+        <div v-for="d in pendingDownstream" :key="d.id" class="pending-row">
+          { d.doc_no }（{ d.status_label }，{ d.doc_date }，{ Number(d.total_amount || 0).toFixed(2) }）
+        </div>
+        <div class="pending-tip">
+          如这些单据对应的货物已经收到，请先到对应列表**审核过账**（会回写已入库数量并自动扣减可下推量）；
+          重复下推会造成重复入库。
+        </div>
+      </template>
+    </el-alert>
+        <el-table ref="tableRef" :data="rows" border stripe size="small" max-height="360"
               @selection-change="(v: Record<string, any>[]) => (selected = v)">
       <el-table-column type="selection" width="46" :selectable="(r: Record<string, any>) => balanceOf(r) > 0" />
       <el-table-column label="物料" min-width="180">
@@ -285,4 +328,7 @@ defineExpose({ open })
 <style scoped>
 .mb { margin-bottom: var(--ctms-gap); }
 .gray { color: var(--ctms-text-muted); }
+.pending-down { margin-bottom: var(--ctms-gap-sm, 8px); }
+.pending-row { font-size: var(--ctms-fs-sm); }
+.pending-tip { margin-top: 4px; color: var(--ctms-text-muted); font-size: var(--ctms-fs-xs); }
 </style>
