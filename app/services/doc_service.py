@@ -463,6 +463,8 @@ def fmt_doc(db: Session, doc, *, with_items: bool = True) -> dict:
         from . import finance_service
 
         data["progress"] = finance_service.progress_of(doc)
+        # 已生成的财务下游（付款单/收款单/发票）：详情抽屉据此显示"已生成付款单 PAY-xxx"
+        data["finance_docs"] = finance_service.downstream_of(db, doc)
     if doc.doc_type in ("payment", "receipt", "invoice"):
         from . import finance_service
 

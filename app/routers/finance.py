@@ -112,6 +112,15 @@ def _apply_fund_fields(db: Session, doc, payload: dict) -> None:
     if "allocations" in payload:
         finance_service.parse_allocations(db, doc, payload.get("allocations"),
                                           kind=doc.doc_type)
+    # 单行核销（M1 形态）时把"来源单据"快照写成该核销目标：用户看到的「来源单号」
+    # 因此永远与「核销目标」一致，不会出现"来源写着 A、核销指向 B"的困惑。
+    # 显式传了 source_doc_no（手工录入的历史单据）则尊重调用方。
+    if ("allocations" in payload or creating) and not payload.get("source_doc_no"):
+        rows = list(doc.allocations or [])
+        if len(rows) == 1:
+            doc.source_doc_type = rows[0].target_type
+            doc.source_doc_id = rows[0].target_id
+            doc.source_doc_no = rows[0].target_no
 
     if "total_amount" in payload:
         doc.total_amount = _money(payload.get("total_amount"), "金额")
@@ -357,6 +366,13 @@ def _apply_invoice_fields(db: Session, inv: Invoice, payload: dict, *, creating:
         allowed = ("purchase_order",) if inv.invoice_direction == INVOICE_IN else ("sales_order",)
         finance_service.parse_allocations(db, inv, payload.get("allocations"),
                                           kind="invoice", allowed=allowed)
+
+    if not inv.source_doc_no:
+        rows = list(inv.allocations or [])
+        if len(rows) == 1:
+            inv.source_doc_type = rows[0].target_type
+            inv.source_doc_id = rows[0].target_id
+            inv.source_doc_no = rows[0].target_no
 
     if creating and not inv.total_amount:
         total = finance_service.allocations_total(inv)

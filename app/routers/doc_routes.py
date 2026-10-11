@@ -152,7 +152,8 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
                     subject_code: str | None = Query(None, description="签约公司（我方主体码）"),
                     user: User = Depends(export_dep), db: Session = Depends(get_db)):
             """导出当前筛选结果（AC-V2-40：导出条数与列与列表筛选一致）。"""
-            from .export import DOC_EXPORT_COLUMNS, DOC_EXPORT_LIMIT, build_xlsx_response, doc_export_row
+            from .export import (DOC_EXPORT_LIMIT, build_xlsx_response, doc_export_columns,
+                                 doc_export_row)
 
             query = _build_query(db, user, keyword=keyword, status=status, date_from=date_from,
                                  date_to=date_to, include_voided=include_voided,
@@ -162,7 +163,8 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
                                  subject_code=subject_code)
             docs = query.order_by(model.id.desc()).limit(DOC_EXPORT_LIMIT).all()
             rows = [doc_export_row(d) for d in docs]
-            return build_xlsx_response(label, DOC_EXPORT_COLUMNS, rows, label)
+            # V2.5：采购单/销售订单的导出列会多出三条进度（与列表同口径，AC-V2.5-16）
+            return build_xlsx_response(label, doc_export_columns(kind), rows, label)
 
     @router.post(prefix, summary=f"新增{label}")
     def _create(request: Request, payload: dict = Body(...),
