@@ -66,15 +66,24 @@ onMounted(async () => {
       return
     }
     const data = await auth.feishuLogin(code, state)
+    if (data.auto_provisioned) {
+      // 未绑定的飞书账号 → 后端自动建号（零角色）：先告知，再决定落点
+      ElMessage.success('已根据飞书账号自动创建系统账号，等待管理员分配角色')
+    }
     if (data.must_change_pwd) {
       ElMessage.warning('首次登录请先修改密码')
       router.replace('/change-password')
       return
     }
     await auth.fetchMe(true)
+    if (auth.pendingRoles) {
+      // 新账号还没有任何角色：/pending 是唯一可用的页面（其它路由都会 403）
+      router.replace('/pending')
+      return
+    }
     router.replace(redirect)
   } catch (err: unknown) {
-    // 后端对"未绑定/已停用/state 失效/飞书侧失败"都给了可读中文提示，直接透出
+    // 后端对"未绑定（开关关闭时）/已停用/建号冲突/state 失效/飞书侧失败"都给了可读中文提示，直接透出
     const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
     error.value = detail || '飞书登录失败，请稍后重试'
   } finally {

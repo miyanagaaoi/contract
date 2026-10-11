@@ -23,7 +23,7 @@ from ..models_auth import User
 from ..permissions import menu_tree_for
 from ..security import check_password_strength, create_token, hash_password, verify_password
 from ..services import audit_service
-from ..services.permission_service import collect_perms, get_current_user
+from ..services.permission_service import collect_perms, get_current_user, pending_role
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -96,13 +96,19 @@ def logout(request: Request,
 
 @router.get("/me")
 def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """当前用户：基本信息 + 角色 + 权限点 + 按权限裁剪的菜单树。"""
+    """当前用户：基本信息 + 角色 + 权限点 + 按权限裁剪的菜单树。
+
+    `pending_roles`：没有任何启用角色（飞书自动建号后的初始状态）。
+    前端据此把人送到「等待管理员分配角色」页 —— 否则每个路由都会 403，
+    用户只会看到一片"无权限"，不知道该找谁。
+    """
     perms = collect_perms(db, user)
     return {
         "user": user_brief(user),
         "roles": roles_brief(user),
         "perms": sorted(perms),
         "menus": menu_tree_for(perms, user.is_superadmin),
+        "pending_roles": pending_role(db, user),
         "auth_enabled": AUTH_ENABLED,
     }
 

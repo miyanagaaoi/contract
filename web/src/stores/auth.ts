@@ -44,6 +44,14 @@ export const useAuthStore = defineStore('auth', {
     roles: [] as RoleBrief[],
     perms: [] as string[],
     menus: [] as MenuNode[],
+    /**
+     * 是否处于「等待管理员分配角色」（没有任何启用角色）。
+     *
+     * 飞书扫码登录发现未绑定时会**自动建号但零角色**，此时所有带 `meta.perm` 的路由
+     * 都会 403。若不放行一个「待分配角色」页，用户只会看到一片"无权限"而不知道该找谁。
+     * 真源在后端 `/auth/me` 的 `pending_roles`（与服务端判定同源），前端只负责跳转。
+     */
+    pendingRoles: false,
     loaded: false,
   }),
 
@@ -78,12 +86,20 @@ export const useAuthStore = defineStore('auth', {
      *
      * 与密码登录等价 —— 权限、数据范围、菜单全部由后端按同一套逻辑决定；
      * 飞书只负责证明"你是谁"（`docs/27-feishu-integration-plan.md` §5）。
+     * 未绑定 → 后端自动建号（零角色）：`auto_provisioned` 表示这次是新号，
+     * `pending_roles` 表示还没有角色可用。
      */
     async feishuLogin(code: string, state: string) {
       const { data } = await http.post('/auth/feishu/login', { code, state })
       this.setToken(data.token)
       this.user = data.user as AuthUser
-      return data as { must_change_pwd: boolean; user: AuthUser }
+      this.pendingRoles = !!data.pending_roles
+      return data as {
+        must_change_pwd: boolean
+        user: AuthUser
+        auto_provisioned: boolean
+        pending_roles: boolean
+      }
     },
 
     /** 拉取当前用户与权限（已加载则跳过；force=true 强制刷新） */
@@ -94,6 +110,7 @@ export const useAuthStore = defineStore('auth', {
       this.roles = data.roles || []
       this.perms = data.perms || []
       this.menus = data.menus || []
+      this.pendingRoles = !!data.pending_roles
       this.loaded = true
     },
 
@@ -117,6 +134,7 @@ export const useAuthStore = defineStore('auth', {
       this.roles = []
       this.perms = []
       this.menus = []
+      this.pendingRoles = false
       this.loaded = false
     },
   },

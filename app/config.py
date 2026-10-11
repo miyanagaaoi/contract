@@ -136,6 +136,12 @@ FEISHU_TIMEOUT = float(_env("CTMS_FEISHU_TIMEOUT") or 10)
 FEISHU_MAX_ATTEMPTS = int(_env("CTMS_FEISHU_MAX_ATTEMPTS") or 5)
 FEISHU_SEND_INTERVAL_MS = int(_env("CTMS_FEISHU_SEND_INTERVAL_MS") or 300)
 
+# 未绑定的飞书账号扫码登录时**自动建号**（默认开）。
+# 口径：飞书只提供"这个人是谁"，建出来的账号**不带任何角色** —— 权限点、数据范围、
+# 菜单一律为空，必须由管理员在「账号管理 / 飞书接入」里分配角色后才可用（2026-02 业务要求）。
+# 置为 0 即回到"先绑定后免登"（未绑定一律 401），便于万一出现越权争议时一键收紧。
+FEISHU_AUTO_PROVISION = (_env("CTMS_FEISHU_AUTO_PROVISION") or "1") == "1"
+
 
 def feishu_ready() -> bool:
     """飞书接入是否可用：开关打开且必要配置齐全；缺一即整体降级（不影响登录与业务）。"""

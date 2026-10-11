@@ -226,12 +226,14 @@ def list_users(keyword: str | None = Query(None, description="登录名/姓名�
                org_id: int | None = Query(None),
                role_id: int | None = Query(None),
                status: str | None = Query(None, description="enabled / disabled"),
+               awaiting_role: bool = Query(False, description="只看待分配角色的账号"),
                page: int = Query(1, ge=1),
                page_size: int = Query(20, ge=1, le=200),
                _user: User = Depends(require_perm("master.user.view")),
                db: Session = Depends(get_db)):
     return user_service.list_users(db, keyword=keyword, org_id=org_id, role_id=role_id,
-                                   status=status, page=page, page_size=page_size)
+                                   status=status, awaiting_role=awaiting_role,
+                                   page=page, page_size=page_size)
 
 
 @router.post("/users")

@@ -682,6 +682,24 @@ export async function adminUnbindFeishu(userId: number): Promise<Dict> {
   return data
 }
 
+// ---------- V2.5：飞书自动建号的「待分配角色」账号 ----------
+
+/** 角色下拉（分配角色用；需要 `master.role.view`） */
+export async function fetchRoleOptions(): Promise<Dict[]> {
+  const { data } = await http.get('/system/roles')
+  return (data.items || []) as Dict[]
+}
+
+/**
+ * 给账号分配角色（整表替换语义，需要 `master.user.edit`）。
+ *
+ * 只发 `role_ids`：后端按"字段存在才改"打补丁，不会覆盖姓名/组织等其它字段。
+ */
+export async function assignUserRoles(userId: number, roleIds: number[]): Promise<Dict> {
+  const { data } = await http.put(`/system/users/${userId}`, { role_ids: roleIds })
+  return data
+}
+
 export type {
   DocItem, DocRecord, DocListQuery, DocListResult, PushRow, TakeCountInput,
 } from '@/types/doc'

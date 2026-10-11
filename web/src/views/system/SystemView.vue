@@ -8,6 +8,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import SettingsView from '@/views/SettingsView.vue'
 import {
+  assignUserRoles,
   checkFeishuConnectivity,
   createBackup,
   deleteBackup,
@@ -20,6 +21,7 @@ import {
   fetchFeishuBindInfo,
   fetchNumberRules,
   fetchOperationLogs,
+  fetchRoleOptions,
   fetchSysParams,
   retryFeishuFailed,
   saveNumberRules,
@@ -315,6 +317,50 @@ async function retryFeishu() {
   }
 }
 
+// ---- V2.5：飞书扫码自动建号的「待分配角色」账号（能登录但没有任何菜单） ----
+const assignVisible = ref(false)
+const assignTarget = ref<Dict | null>(null)
+const assignRoleIds = ref<number[]>([])
+const assignSaving = ref(false)
+const roleOptions = ref<Dict[]>([])
+
+/** 分配角色要走 `PUT /system/users/{id}`（master.user.edit）+ 角色列表（master.role.view） */
+const canAssignRole = computed(
+  () => auth.hasPerm('master.user.edit') && auth.hasPerm('master.role.view'))
+
+async function loadRoleOptions() {
+  if (!canAssignRole.value || roleOptions.value.length) return
+  try {
+    roleOptions.value = (await fetchRoleOptions())
+      .filter((r: Dict) => r.enabled !== false)
+  } catch {
+    roleOptions.value = []      // 无权限 / 接口异常：退化为"去账号管理页分配"
+  }
+}
+
+function openAssign(row: Dict) {
+  assignTarget.value = row
+  assignRoleIds.value = []
+  assignVisible.value = true
+  void loadRoleOptions()
+}
+
+async function saveAssign() {
+  if (!assignTarget.value) return
+  if (!assignRoleIds.value.length) return ElMessage.warning('请至少选择一个角色')
+  assignSaving.value = true
+  try {
+    await assignUserRoles(assignTarget.value.id, assignRoleIds.value)
+    ElMessage.success('角色已分配，该账号现在可以正常使用系统')
+    assignVisible.value = false
+    await loadFeishu()
+  } catch {
+    // 拦截器已提示（无权限 / 后端校验失败）
+  } finally {
+    assignSaving.value = false
+  }
+}
+
 async function onTabChange(name: string) {
   if (name === 'logs') await loadLogs()
   else if (name === 'changes') await loadChanges()
@@ -576,6 +622,12 @@ onMounted(async () => {
             <el-descriptions-item label="已绑定 / 账号总数">
               {{ feishu.bound_users }} / {{ feishu.total_users }}
             </el-descriptions-item>
+            <!-- V2.5：未绑定的飞书账号扫码后自动建号（零角色，等待管理员分配） -->
+            <el-descriptions-item label="未绑定自动建号">
+              <el-tag :type="feishu.auto_provision ? 'success' : 'info'" size="small">
+                {{ feishu.auto_provision ? '已开启' : '已关闭（未绑定一律拒绝）' }}
+              </el-tag>
+            </el-descriptions-item>
             <el-descriptions-item label="通知发送线程">
               {{ feishu.outbox?.worker_running ? '运行中' : '未运行' }}
             </el-descriptions-item>
@@ -612,9 +664,63 @@ onMounted(async () => {
               （仅列出前 {{ feishu.unbound_users.length }} 个）
             </span>
           </p>
+
+          <!--
+            V2.5：飞书扫码自动建号但**没有任何角色**的账号。
+            它们能登录却看不到任何菜单，不在这里主动暴露的话，只能等用户打来电话。
+          -->
+          <template v-if="feishu.pending_role_total">
+            <el-alert class="mt12" type="warning" :closable="false" show-icon
+                      title="有账号等待分配角色（飞书扫码自动建号）"
+                      :description="`共 ${feishu.pending_role_total} 个账号已被自动创建但没有任何角色：能登录、看不到任何菜单。请分配角色后再让他们使用。`" />
+            <el-table class="mt12" :data="feishu.pending_role_users" size="small" border>
+              <el-table-column prop="username" label="登录名" width="150" />
+              <el-table-column prop="real_name" label="姓名" width="120" />
+              <el-table-column prop="feishu_name" label="飞书名" width="120">
+                <template #default="{ row }">{{ row.feishu_name || '—' }}</template>
+              </el-table-column>
+              <el-table-column prop="created_at" label="建号时间" width="170">
+                <template #default="{ row }">{{ row.created_at || '—' }}</template>
+              </el-table-column>
+              <el-table-column prop="last_login_at" label="最近登录" width="170">
+                <template #default="{ row }">{{ row.last_login_at || '—' }}</template>
+              </el-table-column>
+              <el-table-column label="操作" width="140">
+                <template #default="{ row }">
+                  <el-button v-if="canAssignRole" link type="primary" size="small"
+                             @click="openAssign(row)">分配角色</el-button>
+                  <span v-else class="tip">请到「账号管理」分配角色</span>
+                </template>
+              </el-table-column>
+            </el-table>
+            <p v-if="feishu.pending_role_total > (feishu.pending_role_users?.length || 0)"
+               class="tip mt12">
+              （仅列出最近 {{ feishu.pending_role_users?.length }} 个，全部待分配账号见「账号管理 → 角色分配：待分配角色」）
+            </p>
+          </template>
         </template>
       </el-tab-pane>
     </el-tabs>
+
+    <!-- 分配角色（只提交 role_ids，其它字段不动） -->
+    <el-dialog v-model="assignVisible" title="分配角色" width="min(460px, 92vw)">
+      <el-form label-width="90px">
+        <el-form-item label="账号">
+          <span>{{ assignTarget?.real_name }}（{{ assignTarget?.username }}）</span>
+        </el-form-item>
+        <el-form-item label="角色" required>
+          <el-select v-model="assignRoleIds" multiple filterable style="width: 100%"
+                     placeholder="选择至少一个角色">
+            <el-option v-for="r in roleOptions" :key="r.id" :label="r.name" :value="r.id" />
+          </el-select>
+        </el-form-item>
+        <div class="tip">分配后该账号立即获得对应权限，无需重新登录（权限每次请求都重新计算）。</div>
+      </el-form>
+      <template #footer>
+        <el-button @click="assignVisible = false">取消</el-button>
+        <el-button type="primary" :loading="assignSaving" @click="saveAssign">保存</el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 

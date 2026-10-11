@@ -65,6 +65,12 @@ async function onSubmit() {
       return
     }
     await auth.fetchMe(true)
+    // 无任何角色（如飞书自动建号、管理员尚未分配）→ 送到「等待分配角色」页，
+    // 否则会被路由守卫按 meta.perm 挡到 403，用户看不出发生了什么。
+    if (auth.pendingRoles) {
+      router.replace('/pending')
+      return
+    }
     const redirect = (route.query.redirect as string) || '/'
     router.replace(redirect)
   } catch (err: unknown) {

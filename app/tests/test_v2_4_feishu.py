@@ -25,6 +25,7 @@ from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 
 from app import config
 from app.database import SessionLocal
@@ -37,6 +38,7 @@ from app.security import decode_token, hash_password
 from app.services.feishu import card as card_mod
 from app.services.feishu import client as feishu_client
 from app.services.feishu import identity_service, notify_service
+from app.services.permission_service import collect_perms, data_scope_of
 from app.tools import feishu_digest
 
 
@@ -271,49 +273,174 @@ class TestBinding:
             _drop_user(uid)
 
 
-# ===================== AC-FS-01/02：免登 =====================
+# ===================== AC-FS-01/02：免登（含自动建号） =====================
+
+# 飞书 `authen/v1/user_info` 的典型返回（字段名取自官方文档）
+LOGIN_INFO = {"open_id": "ou_login_case", "name": "李四", "union_id": "on_union_1",
+              "tenant_key": "tk_1", "email": "lisi@corp.com", "mobile": "13800000000",
+              "employee_no": ""}
+API_INFO = dict(LOGIN_INFO, open_id="ou_api_case", email="apiuser@corp.com")
+
+
+def _drop_by_open_id(*open_ids: str) -> None:
+    """清掉某 open_id 对应的（自动建号）账号、绑定与日志。
+
+    自动建号的账号不是用例自己建的，必须按 **open_id** 反查清理；
+    审计日志里建号那条的 `user_id` 为空（动作发生在登录前），所以还要按 object_no 兜底。
+    """
+    with SessionLocal() as db:
+        idents = db.query(UserIdentity).filter(UserIdentity.open_id.in_(list(open_ids))).all()
+        user_ids = [i.user_id for i in idents]
+        usernames = ([u.username for u in db.query(User).filter(User.id.in_(user_ids)).all()]
+                     if user_ids else [])
+        # 全部走批量删除：先删绑定再删账号（避免 ORM 单行删除与外键级联撞车）
+        db.query(UserIdentity).filter(
+            UserIdentity.open_id.in_(list(open_ids))).delete(synchronize_session=False)
+        if user_ids:
+            db.query(Notification).filter(
+                Notification.recipient_user_id.in_(user_ids)).delete(synchronize_session=False)
+            db.query(OperationLog).filter(
+                OperationLog.user_id.in_(user_ids)).delete(synchronize_session=False)
+            db.query(User).filter(User.id.in_(user_ids)).delete(synchronize_session=False)
+            if usernames:
+                db.query(OperationLog).filter(
+                    OperationLog.object_no.in_(usernames)).delete(synchronize_session=False)
+        db.query(OperationLog).filter(
+            OperationLog.object_no.in_(list(open_ids))).delete(synchronize_session=False)
+        db.commit()
+
+
+@pytest.fixture
+def feishu_user_info(monkeypatch):
+    """mock 飞书两个出网接口（换令牌 + 取用户信息）。"""
+    monkeypatch.setattr(feishu_client, "oauth_exchange_code", lambda code: "u-token")
+    monkeypatch.setattr(feishu_client, "get_user_info", lambda token: dict(LOGIN_INFO))
+    yield
+
 
 class TestLoginByCode:
+    @pytest.fixture(autouse=True)
+    def cleanup(self):
+        """每个用例前后都清掉自动建号的账号，避免用例之间互相"已绑定"。"""
+        _drop_by_open_id("ou_login_case", "ou_api_case")
+        yield
+        _drop_by_open_id("ou_login_case", "ou_api_case")
+
     @pytest.fixture
-    def mock_feishu(self, feishu_on, monkeypatch):
-        monkeypatch.setattr(feishu_client, "oauth_exchange_code", lambda code: "u-token")
-        monkeypatch.setattr(feishu_client, "get_user_info",
-                            lambda token: {"open_id": "ou_login_case", "name": "李四",
-                                           "union_id": "on_union_1", "tenant_key": "tk_1"})
+    def mock_feishu(self, feishu_on, feishu_user_info):
         yield
 
-    def test_unbound_is_rejected(self, mock_feishu):
-        """AC-FS-01：未绑定的飞书账号一律拒绝，且不签发任何令牌。"""
+    def test_unbound_auto_provisions_account(self, mock_feishu):
+        """AC-FS-01B：未绑定的飞书账号 → **自动建号**，签发本系统 JWT，且零角色。"""
         with SessionLocal() as db:
+            result = identity_service.login_by_code(db, code="c",
+                                                    state=identity_service.make_state())
+            assert result["token"]
+            assert result["auto_provisioned"] is True
+            assert result["pending_roles"] is True        # 没有角色 → 前端送「待分配角色」页
+            uid = result["user_id"]
+
+        with SessionLocal() as db:
+            user = db.get(User, uid)
+            # 账号资料取自飞书返回值（登录名优先用邮箱前缀，管理员一眼认得出是谁）
+            assert user.username == "lisi"
+            assert user.real_name == "李四"
+            assert user.email == "lisi@corp.com"
+            assert user.phone == "13800000000"
+            assert user.status == "enabled"
+            assert user.is_superadmin is False
+            assert user.created_by is None
+            # 零权限：建号不等于授权，角色必须由管理员分配
+            assert list(user.roles) == []
+            assert collect_perms(db, user) == set()
+            assert data_scope_of(user) == "SELF"
+            # 绑定同时建立，下次登录不再建号
+            ident = identity_service.identity_of(db, uid)
+            assert ident is not None and ident.open_id == "ou_login_case"
+            assert int(decode_token(result["token"])["sub"]) == uid
+            # 建号留痕：管理员能查到"这是扫码自动建的、还没分配角色"
+            signup = (db.query(OperationLog)
+                      .filter(OperationLog.action == "feishu_signup").first())
+            assert signup is not None and signup.object_no == user.username
+            assert "未分配角色" in (signup.detail or "")
+
+    def test_second_login_reuses_account(self, mock_feishu):
+        """同一飞书身份再次扫码：复用同一个账号，不重复建号。"""
+        with SessionLocal() as db:
+            first = identity_service.login_by_code(db, code="c",
+                                                   state=identity_service.make_state())
+        with SessionLocal() as db:
+            second = identity_service.login_by_code(db, code="c",
+                                                    state=identity_service.make_state())
+        assert second["user_id"] == first["user_id"]
+        assert second["auto_provisioned"] is False
+        with SessionLocal() as db:
+            assert db.query(UserIdentity).filter(
+                UserIdentity.open_id == "ou_login_case").count() == 1
+            assert db.query(OperationLog).filter(
+                OperationLog.action == "feishu_signup").count() == 1
+
+    def test_unbound_rejected_when_auto_provision_disabled(self, mock_feishu, monkeypatch):
+        """`CTMS_FEISHU_AUTO_PROVISION=0` 时退回旧口径：未绑定一律 401，不建号。"""
+        monkeypatch.setattr(config, "FEISHU_AUTO_PROVISION", False)
+        with SessionLocal() as db:
+            before = int(db.query(User).count() or 0)
             with pytest.raises(identity_service.IdentityError) as exc:
-                identity_service.login_by_code(db, code="c", state=identity_service.make_state())
+                identity_service.login_by_code(db, code="c",
+                                               state=identity_service.make_state())
             assert exc.value.status == 401
             assert "未绑定" in str(exc.value)
-
-    def test_unbound_leaves_audit_log(self, mock_feishu):
-        """失败也留痕（管理员能查到是谁在试图登录）。"""
-        with SessionLocal() as db:
-            with pytest.raises(identity_service.IdentityError):
-                identity_service.login_by_code(db, code="c", state=identity_service.make_state())
+            assert int(db.query(User).count() or 0) == before
         with SessionLocal() as db:
             row = (db.query(OperationLog)
                    .filter(OperationLog.action == "feishu_login",
-                           OperationLog.object_no == "ou_login_case")
+                           OperationLog.object_no == "ou_login_case",
+                           OperationLog.result == "fail")
                    .order_by(OperationLog.id.desc()).first())
-            assert row is not None and row.result == "fail"
+            assert row is not None
 
-    def test_bound_login_issues_system_jwt(self, mock_feishu):
-        """AC-FS-02：免登签发的是**本系统** JWT（权限与密码登录同源）。"""
-        uid = _mk_user()
+    def test_auto_provision_does_not_take_over_existing_username(self, mock_feishu):
+        """登录名撞车（邮箱前缀已被占用）时加后缀，**绝不**顶替既有账号。"""
+        existing_id = None
+        with SessionLocal() as db:
+            other = User(username="lisi", real_name="真实李四",
+                         password_hash=hash_password("init12345"), status="enabled")
+            db.add(other)
+            db.commit()
+            existing_id = other.id
         try:
-            _bind(uid, open_id="ou_login_case")
             with SessionLocal() as db:
                 result = identity_service.login_by_code(
                     db, code="c", state=identity_service.make_state())
-            assert result["token"]
-            assert int(decode_token(result["token"])["sub"]) == uid
+                uid = result["user_id"]
+            with SessionLocal() as db:
+                assert db.get(User, uid).username == "lisi_2"
+                # 既有账号原封不动（仍能用原密码登录，绑定关系不受影响）
+                kept = db.get(User, existing_id)
+                assert kept.username == "lisi" and kept.status == "enabled"
+                assert identity_service.identity_of(db, existing_id) is None
         finally:
-            _drop_user(uid)
+            if existing_id:
+                _drop_user(existing_id)
+
+    def test_concurrent_provision_conflict_recovers(self, mock_feishu, monkeypatch):
+        """并发扫码（两个标签页）：唯一约束冲突后按 open_id 复用对方建好的账号，不冒 500。"""
+        real = identity_service.provision_user_from_feishu
+
+        def _race(db, *, info, request=None):
+            real(db, info=info, request=request)      # 对方先建好并提交
+            db.commit()
+            raise IntegrityError("INSERT INTO user_identities", {}, Exception("UNIQUE failed"))
+
+        monkeypatch.setattr(identity_service, "provision_user_from_feishu", _race)
+        with SessionLocal() as db:
+            result = identity_service.login_by_code(db, code="c",
+                                                    state=identity_service.make_state())
+        assert result["auto_provisioned"] is False      # 复用了对方创建的账号
+        assert result["pending_roles"] is True
+        with SessionLocal() as db:
+            assert db.query(UserIdentity).filter(
+                UserIdentity.open_id == "ou_login_case").count() == 1
 
     def test_disabled_account_rejected(self, mock_feishu):
         uid = _mk_user(status="disabled")
@@ -340,6 +467,85 @@ class TestLoginByCode:
             with pytest.raises(identity_service.IdentityError):
                 identity_service.login_by_code(db, code="c", state="bad.state.value")
         assert called["n"] == 0
+
+
+# ===================== 自动建号：接口层与管理员可见性 =====================
+
+class TestAutoProvisionApi:
+    @pytest.fixture(autouse=True)
+    def cleanup(self):
+        _drop_by_open_id("ou_api_case")
+        yield
+        _drop_by_open_id("ou_api_case")
+
+    def _login(self, client, monkeypatch):
+        monkeypatch.setattr(feishu_client, "oauth_exchange_code", lambda code: "u-token")
+        monkeypatch.setattr(feishu_client, "get_user_info",
+                            lambda token: dict(API_INFO))
+        resp = client.post("/api/auth/feishu/login",
+                           json={"code": "c", "state": identity_service.make_state()})
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    def test_login_response_flags_and_me_pending(self, client, feishu_on, monkeypatch):
+        """接口层：`auto_provisioned` / `pending_roles` 必须成套返回，
+        `/auth/me` 也报 pending（路由守卫靠它把人送到待分配页）。"""
+        body = self._login(client, monkeypatch)
+        assert body["auto_provisioned"] is True
+        assert body["pending_roles"] is True
+        assert body["roles"] == []
+        assert body["user"]["username"] == "apiuser"
+
+        me = client.get("/api/auth/me",
+                        headers={"Authorization": f"Bearer {body['token']}"})
+        assert me.status_code == 200
+        payload = me.json()
+        assert payload["pending_roles"] is True
+        assert payload["perms"] == [] and payload["menus"] == []
+
+    def test_admin_can_find_pending_account(self, client, feishu_on, monkeypatch):
+        """管理员侧：飞书接入页与账号管理页都能看到"待分配角色"的自动建号账号。"""
+        body = self._login(client, monkeypatch)
+        uid = body["user"]["id"]
+        admin = client.post("/api/auth/login",
+                            json={"username": ADMIN_USERNAME,
+                                  "password": ADMIN_INIT_PASSWORD}).json()["token"]
+        headers = {"Authorization": f"Bearer {admin}"}
+
+        cfg = client.get("/api/system/feishu/config", headers=headers)
+        assert cfg.status_code == 200
+        assert cfg.json()["auto_provision"] is True
+        pending_ids = [u["id"] for u in cfg.json()["pending_role_users"]]
+        assert uid in pending_ids
+        assert cfg.json()["pending_role_total"] >= 1
+
+        users = client.get("/api/system/users",
+                           params={"awaiting_role": True}, headers=headers)
+        assert users.status_code == 200
+        row = next((u for u in users.json()["items"] if u["id"] == uid), None)
+        assert row is not None and row["awaiting_role"] is True
+
+    def test_assigning_role_clears_pending(self, client, feishu_on, monkeypatch):
+        """管理员分配角色后：`/auth/me` 不再是待分配状态，权限点随之生效。"""
+        body = self._login(client, monkeypatch)
+        uid = body["user"]["id"]
+        admin = client.post("/api/auth/login",
+                            json={"username": ADMIN_USERNAME,
+                                  "password": ADMIN_INIT_PASSWORD}).json()["token"]
+        headers = {"Authorization": f"Bearer {admin}"}
+        role_id = next(r["id"] for r in client.get("/api/system/roles", headers=headers)
+                       .json()["items"] if r["code"] != "sysadmin")
+
+        resp = client.put(f"/api/system/users/{uid}", json={"role_ids": [role_id]},
+                          headers=headers)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["awaiting_role"] is False
+        assert resp.json()["role_names"]
+
+        me = client.get("/api/auth/me",
+                        headers={"Authorization": f"Bearer {body['token']}"})
+        assert me.json()["pending_roles"] is False
+        assert me.json()["perms"]
 
 
 # ===================== AC-FS-06/07：outbox =====================

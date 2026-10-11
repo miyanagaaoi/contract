@@ -17,9 +17,10 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .. import config
 from ..config import APP_NAME, APP_VERSION, FEISHU_APP_ID, FEISHU_REDIRECT_URI, FEISHU_API_BASE, feishu_ready
 from ..database import get_db
-from ..models_auth import User, UserIdentity
+from ..models_auth import Role, User, UserIdentity
 from ..services import audit_service
 from ..services.feishu import card, client, identity_service, notify_service
 from ..services.permission_service import get_current_user, require_perm
@@ -77,7 +78,12 @@ def feishu_authorize_url(mode: str = "login"):
 
 @auth_router.post("/login", summary="飞书免登（授权码换本系统令牌）")
 def feishu_login(request: Request, payload: dict = Body(...), db: Session = Depends(get_db)):
-    """`{code, state}` → 本系统 JWT。未绑定的飞书账号一律拒绝（方案 §5.1 方案 A）。"""
+    """`{code, state}` → 本系统 JWT。
+
+    未绑定的飞书账号不再直接拒绝，而是**自动建号**（零角色），由管理员事后分配角色；
+    `CTMS_FEISHU_AUTO_PROVISION=0` 时退回旧口径（401 未绑定）。
+    响应里的 `auto_provisioned` / `pending_roles` 让前端能提示并跳「待分配角色」页。
+    """
     code = str(payload.get("code") or "").strip()
     state = str(payload.get("state") or "").strip()
     if not code:
@@ -94,6 +100,8 @@ def feishu_login(request: Request, payload: dict = Body(...), db: Session = Depe
         "token_type": "Bearer",
         "expires_at": result["expires_at"],
         "must_change_pwd": result["must_change_pwd"],
+        "auto_provisioned": bool(result.get("auto_provisioned")),
+        "pending_roles": bool(result.get("pending_roles")),
         "user": user_brief(user),
         "roles": roles_brief(user),
     }
@@ -155,8 +163,23 @@ def admin_feishu_config(_user: User = Depends(require_perm("system.feishu.view")
                     .order_by(User.id).limit(10).all())
     binding_rows = (db.query(UserIdentity)
                     .filter(UserIdentity.provider == PROVIDER).all())
+    bindings = {r.user_id: {"open_id": r.open_id, "display_name": r.display_name,
+                            "bound_at": _fmt_dt(r.bound_at)} for r in binding_rows}
+
+    # 「待分配角色」：飞书自动建号但还没有**任何启用角色**的账号。
+    # 这类账号能登录却什么都看不到，必须让管理员在飞书页就能发现并当场分配角色。
+    pending_query = (db.query(User)
+                     .join(UserIdentity, UserIdentity.user_id == User.id)
+                     .filter(UserIdentity.provider == PROVIDER,
+                             User.status == "enabled",
+                             User.is_superadmin == False,  # noqa: E712
+                             ~User.roles.any(Role.enabled == True)))  # noqa: E712
+    pending_total = int(pending_query.count() or 0)
+    pending_rows = pending_query.order_by(User.id.desc()).limit(20).all()
+
     return {
         "enabled": feishu_ready(),
+        "auto_provision": bool(config.FEISHU_AUTO_PROVISION),
         "app_id": _mask_app_id(FEISHU_APP_ID),
         "redirect_uri": FEISHU_REDIRECT_URI or None,
         "api_base": FEISHU_API_BASE,
@@ -166,8 +189,14 @@ def admin_feishu_config(_user: User = Depends(require_perm("system.feishu.view")
         "unbound_users": [{"id": u.id, "username": u.username, "real_name": u.real_name}
                           for u in unbound_rows],
         # 账号管理页据此显示"已绑定/未绑定"（小团队，全量返回没有压力）
-        "bindings": {r.user_id: {"open_id": r.open_id, "display_name": r.display_name,
-                                 "bound_at": _fmt_dt(r.bound_at)} for r in binding_rows},
+        "bindings": bindings,
+        "pending_role_users": [{
+            "id": u.id, "username": u.username, "real_name": u.real_name,
+            "org_name": u.org.name if u.org else None,
+            "feishu_name": (bindings.get(u.id) or {}).get("display_name"),
+            "created_at": _fmt_dt(u.created_at), "last_login_at": _fmt_dt(u.last_login_at),
+        } for u in pending_rows],
+        "pending_role_total": pending_total,
         "outbox": notify_service.outbox_stats(db),
     }
 

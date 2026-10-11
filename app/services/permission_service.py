@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from ..config import AUTH_ENABLED
 from ..database import get_db
-from ..models_auth import OrgUnit, User
+from ..models_auth import OrgUnit, Role, User, user_roles
 from ..permissions import PERM_CODES, widest_scope
 from ..security import TokenError, decode_token
 
@@ -34,6 +34,28 @@ def collect_perms(db: Session, user: User) -> set[str]:
         if role.enabled:
             codes.update(role.perm_codes)
     return codes & PERM_CODES
+
+
+def pending_role(db: Session, user: User) -> bool:
+    """账号是否处于「等待管理员分配角色」状态（没有**任何启用**角色）。
+
+    用于两个地方，口径必须一致：
+
+    - 免登/登录响应里的 `pending_roles`（前端据此把人送到「待分配角色」页）；
+    - `GET /api/auth/me`（路由守卫每次导航都要用）。
+
+    直接查关联表而不读 `user.roles`：自动建号的用户刚 flush 完，关系可能尚未加载，
+    靠惰性加载会得到"看起来没角色"的偶然结论；显式查询才能保证结论确定。
+    """
+    if user.is_superadmin:
+        return False
+    if user.id is None:
+        return True
+    count = (db.query(user_roles.c.role_id)
+             .join(Role, Role.id == user_roles.c.role_id)
+             .filter(user_roles.c.user_id == user.id, Role.enabled == True)  # noqa: E712
+             .count())
+    return int(count or 0) == 0
 
 
 def _fallback_user(db: Session) -> User:

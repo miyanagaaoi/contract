@@ -108,7 +108,7 @@ app/tools/feishu_digest.py  # 每日提醒 CLI（计划任务调用），复用 
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
 | GET | `/api/auth/feishu/config` | 公开 | 返回 `{enabled, authorize_url, redirect_uri}`；关闭时前端不显示入口 |
-| POST | `/api/auth/feishu/login` | 公开 | body `{code, state}` → 校验 state → 换令牌 → 取 `open_id` → 查绑定 → 签发本系统 JWT。失败：`401` 未绑定 / `400` state 失效 |
+| POST | `/api/auth/feishu/login` | 公开 | body `{code, state}` → 校验 state → 换令牌 → 取 `open_id` → 查绑定 → **未绑定则自动建号（零角色）** → 签发本系统 JWT。返回 `auto_provisioned` / `pending_roles`。失败：`400` state 失效；`CTMS_FEISHU_AUTO_PROVISION=0` 时未绑定回 `401` |
 | GET | `/api/auth/feishu/bind-info` | 登录态 | 当前账号绑定状态 |
 | POST | `/api/auth/feishu/bind` | 登录态 | **自助绑定**：body `{code, state}`，把当前登录账号与飞书身份绑定 |
 | DELETE | `/api/auth/feishu/bind` | 登录态 | 自助解绑 |
@@ -171,6 +171,7 @@ CTMS_FEISHU_APP_ID=cli_xxxxxxxxxxxxxxxx
 CTMS_FEISHU_APP_SECRET=CHANGE_ME          # 仅环境变量，禁止入库/入 git
 CTMS_FEISHU_REDIRECT_URI=http://192.168.31.27:8080/feishu/callback
 CTMS_FEISHU_BASE_URL=http://192.168.31.27:8080   # 卡片跳转链接的根地址
+CTMS_FEISHU_AUTO_PROVISION=1                     # 未绑定飞书账号扫码 → 自动建号（零角色，待管理员分配）
 ```
 
 - `app_secret` **只从环境变量读**，与 `CTMS_JWT_SECRET` 同策略；不入 KV 库、不进日志、错误信息中脱敏。
@@ -229,17 +230,33 @@ CTMS_FEISHU_BASE_URL=http://192.168.31.27:8080   # 卡片跳转链接的根地�
 
 ## 5. 关键设计决策
 
-### 5.1 账号匹配：默认"先绑定后免登"（安全优先）
+### 5.1 账号匹配：未绑定**自动建号但零角色**（V2.5 业务口径）
 
-免登拿到 `open_id` 后如何对上本系统账号？三选一：
+免登拿到 `open_id` 后如何对上本系统账号？四种做法：
 
 | 方案 | 做法 | 评价 |
 |---|---|---|
-| **A（推荐）** | 管理员在用户管理页预先绑定，或用户先密码登录后自助绑定；未绑定 → `401「飞书账号尚未绑定系统账号，请联系管理员」` | 无越权风险，审计清晰；代价是首个用户要有初始绑定动作 |
-| B | 按 `user_info.mobile`/`email` 自动匹配 `users.phone`/`email` | 便捷，但手机号/邮箱**未经实时核验**（官方明确），改号/复用即越权；仅可作为**预匹配建议**交给管理员确认 |
-| C | 首次免登自动建号 | **禁止**：绕过角色与数据范围，等于把内网系统的权限边界交给飞书通讯录 |
+| A | 管理员在用户管理页预先绑定，或用户先密码登录后自助绑定；未绑定 → `401「飞书账号尚未绑定系统账号，请联系管理员」` | 无越权风险，审计清晰；代价是每个新人都要有一次"先建号 / 先绑定"的人工动作 |
+| B | 按 `user_info.mobile`/`email` 自动匹配 `users.phone`/`email` | 便捷，但手机号/邮箱**未经实时核验**（官方明确），改号/复用即越权；**始终不采用** |
+| C | 首次免登自动建号**并自动给角色/数据范围** | **禁止**：等于把内网系统的权限边界交给飞书通讯录 |
+| **D（V2.5 落地）** | 首次免登自动建号，**但不给任何角色**；账号落在「等待分配角色」页，由管理员在「账号管理 / 飞书接入」分配角色后才可用 | 省掉"先建号"的人工动作，同时**权限边界一点没放松**：没有角色就没有权限点、没有菜单、数据范围保持最窄（`SELF`）。风险在于账号会随手增加，靠"待分配角色"清单让管理员收口 |
 
-落地取 **A**，B 仅作为「待认领绑定」列表的辅助建议（对齐既有 `PartyDraftView` 历史档案认领的交互习惯）。
+**落地取 D**，并把 A 保留为可切换的收紧档：`CTMS_FEISHU_AUTO_PROVISION=0` 即退回
+"未绑定一律 401"，用于出现越权争议或临时审计时一键关闭（无需改代码、无需回滚）。
+
+D 的边界（实现必须守住，`test_v2_4_feishu.py::TestLoginByCode` 逐条固定）：
+
+1. **只新建，不匹配**：绝不按手机号/邮箱认领既有账号（方案 B 的风险）；
+   登录名与既有账号冲突时加 `_2`/`_3` 后缀，**不覆盖**既有账号的任何字段。
+2. **零角色**：新账号 `roles = []`，`collect_perms()` 为空，`data_scope_of()` 为 `SELF`。
+3. **密码随机**：`password_hash` 写随机串，管理员重置密码前该账号**只能**飞书登录；
+   同理 `must_change_pwd=False`（否则会把没有原密码的用户永久卡在改密页）。
+4. **留痕**：写 `feishu_signup` 操作日志（`detail` 含"未分配角色"与 `open_id`），
+   登录本身另写 `feishu_login`。
+5. **可见**：`GET /api/system/feishu/config` 返回 `pending_role_users`（待分配角色清单），
+   `GET /api/system/users?awaiting_role=true` 可按同一口径筛选。
+6. **登录名来源**：`employee_no` → 邮箱前缀 → 手机号 → `fs_<open_id 尾 10 位>`，
+   只保留 `[A-Za-z0-9._-]`；姓名（中文往往清洗为空）只用于 `real_name`。
 
 ### 5.2 令牌处理
 
@@ -253,8 +270,14 @@ CTMS_FEISHU_BASE_URL=http://192.168.31.27:8080   # 卡片跳转链接的根地�
 
 ### 5.4 免登账号的密码与首登改密
 
-- `users.password_hash` 为 NOT NULL，免登账号仍需一个密码哈希（管理员创建时随机生成即可），否则表约束与审计口径都要动。
-- **口径待确认**：`must_change_pwd=True` 的用户经飞书免登时，是否仍强制跳改密页？建议**免登路径跳过强制改密**（否则免登体验自相矛盾），仅在密码登录路径保留强制。该条需业务方签字确认后写入规格。
+- `users.password_hash` 为 NOT NULL，免登账号仍需一个密码哈希；**自动建号时写随机串**
+  （`secrets.token_urlsafe(32)`），管理员重置密码前该账号无法用密码登录。
+- **自动建号的账号 `must_change_pwd=False`**：既没有初始密码，强制改密会在改密页
+  "要求原密码"处把用户卡死。人工创建/管理员重置的账号仍保持既有口径（首次登录强制改密）。
+- 密码登录路径的强制改密逻辑**完全不变**；免登路径沿用 `must_change_pwd` 字段本身
+  （自动建号时必然为 `False`，因此不会出现"免登被弹到改密页"的自相矛盾体验）。
+- **无角色账号的落点**：`/api/auth/me` 返回 `pending_roles=true`，前端路由守卫统一送到
+  `/pending`（等待分配角色页）并每 10 秒复查；否则用户点任何菜单都只会看到 403。
 
 ## 6. 里程碑与验收
 
@@ -269,7 +292,10 @@ CTMS_FEISHU_BASE_URL=http://192.168.31.27:8080   # 卡片跳转链接的根地�
 
 | 编号 | 场景 | 期望 |
 |---|---|---|
-| AC-FS-01 | 飞书账号未绑定，点飞书登录 | 落回登录页并提示"尚未绑定，请联系管理员"；**不签发任何令牌** |
+| AC-FS-01 | `CTMS_FEISHU_AUTO_PROVISION=0` 时飞书账号未绑定，点飞书登录 | 落回登录页并提示"尚未绑定，请联系管理员"；**不签发任何令牌**，不建号 |
+| AC-FS-01B | 未绑定的飞书账号扫码登录（默认口径） | **自动建号并绑定**：登录名取自工号/邮箱前缀/手机号（冲突加后缀），`real_name` 取飞书名；签发本系统 JWT，`auto_provisioned=true`、`pending_roles=true` |
+| AC-FS-01C | 自动建号后的权限与落点 | 该账号 `roles=[]`、`perms=[]`、`menus=[]`、数据范围 `SELF`；前端落在 `/pending`（等待分配角色页），管理员分配角色后自动进入系统 |
+| AC-FS-01D | 同一飞书账号二次扫码 | 复用同一账号（不重复建号，`auto_provisioned=false`）；登录名已存在的既有账号**不被覆盖** |
 | AC-FS-02 | 已绑定账号免登 | 进入系统，`/api/auth/me` 返回的角色/权限/菜单与密码登录**完全一致** |
 | AC-FS-03 | `state` 被篡改或超 10 分钟 | `400`，不换令牌（CSRF 防护） |
 | AC-FS-04 | 解绑后再免登 | `401`；该用户密码登录仍可用 |
@@ -281,7 +307,8 @@ CTMS_FEISHU_BASE_URL=http://192.168.31.27:8080   # 卡片跳转链接的根地�
 | AC-FS-10 | 无 `im:message:send_as_bot` 权限 / 用户不在机器人可用范围 | 自检与测试消息给出**可读的**中文提示与错误码，不 500 |
 | AC-FS-11 | 后端重启（outbox 有 pending） | 未发送通知在重启后继续发送，不丢 |
 
-**回归基线**：`pytest`（329 项）、前端 Playwright E2E（81 项）、冒烟 M1/M2/M3 必须全绿——飞书功能默认关闭时对既有行为**零影响**。
+**回归基线**：`pytest`（329 项）、前端 Playwright E2E（82 项，含 V2.5 新增的
+`17-pending-role.spec.ts`）、冒烟 M1/M2/M3 必须全绿——飞书功能默认关闭时对既有行为**零影响**。
 
 ## 7. 明确不做（本次范围外）
 
@@ -333,6 +360,10 @@ CTMS_FEISHU_BASE_URL=http://192.168.31.27:8080   # 卡片跳转链接的根地�
 | 前端 | 新增 `web/src/views/FeishuCallbackView.vue`；改 `LoginView.vue`、`stores/auth.ts`、`router/index.ts`、`api.ts`、`views/master/UserView.vue`、`views/system/SystemView.vue` |
 | 测试 | `app/tests/test_v2_4_feishu.py`（41 项，飞书 API 全部 mock，不外网） |
 
+V2.5 增补（自动建号）：`web/src/views/PendingRoleView.vue`（等待分配角色页）、
+`app/services/permission_service.py::pending_role`（待分配状态唯一判定）、
+`app/config.py::FEISHU_AUTO_PROVISION`。
+
 ### 10.2 与本文方案的差异（均为简化或加固，不改变业务口径）
 
 1. **没有引入任何新依赖**：出网用标准库 `urllib.request`，未加 `httpx` / `lark-oapi`；
@@ -367,3 +398,40 @@ cd web && npm run build                               → ✓ built（无导入/
    的"范围外"清单需加评审变更批注；
 4. Playwright E2E 未覆盖飞书入口（依赖真实飞书授权页，属外部依赖），
    当前以接口/服务层测试 + 手工联调替代。
+
+---
+
+## 11. 变更记录：V2.5 未绑定自动建号（2026-02）
+
+业务要求：**有人扫码登录飞书、但尚未绑定系统账号时，按飞书账号信息自动新建账号，
+角色等待管理员分配。**
+
+方案与安全边界见 §5.1 方案 D、§5.4；改动落点：
+
+| 层 | 文件 | 改动 |
+|---|---|---|
+| 配置 | `app/config.py` | 新增 `CTMS_FEISHU_AUTO_PROVISION`（默认 `1`）；置 `0` 退回旧口径 |
+| 服务 | `app/services/feishu/identity_service.py` | 新增 `username_candidates` / `unique_username` / `provision_user_from_feishu`；`login_by_code` 未绑定时建号并返回 `auto_provisioned` / `pending_roles` |
+| 服务 | `app/services/permission_service.py` | 新增 `pending_role(db, user)`：没有任何**启用**角色的唯一判定（登录与 `/me` 同源） |
+| 服务 | `app/services/user_service.py` | `fmt_user` 增加 `awaiting_role` 与角色 `enabled`；`list_users` 支持 `awaiting_role` 筛选 |
+| 路由 | `app/routers/feishu.py` | 登录响应加 `auto_provisioned` / `pending_roles`；管理配置接口加 `auto_provision`、`pending_role_users`、`pending_role_total` |
+| 路由 | `app/routers/auth.py`、`app/routers/system.py` | `/auth/me` 加 `pending_roles`；`GET /system/users` 加 `awaiting_role` 参数 |
+| 前端 | `PendingRoleView.vue`（新增）+ `router/index.ts` | `/pending` 路由与守卫：无角色 → 只放行该页，每 10 秒复查，分配后自动进入 |
+| 前端 | `FeishuCallbackView.vue`、`LoginView.vue`、`stores/auth.ts` | 提示"已自动创建账号，等待分配角色"并分流到 `/pending`；store 增加 `pendingRoles` |
+| 前端 | `UserView.vue`、`SystemView.vue`、`api.ts` | 账号管理加「角色分配：待分配角色」筛选与「分配角色」入口；飞书接入页加待分配清单与一键分配角色 |
+| 测试 | `app/tests/test_v2_4_feishu.py` | 49 项（原 41 + 自动建号 8）：自动建号零权限、二次扫码复用、开关关闭回退 401、登录名冲突不覆盖既有账号、并发建号冲突回退、`/me` pending、管理员可见性与分配后解除 pending |
+| 测试 | `web/tests/e2e/17-pending-role.spec.ts` | **新增**：零角色 → `/pending` → 管理员分配角色 → 10 秒内自动进入首页（不依赖飞书授权页，可 CI 稳定运行） |
+
+```
+app/.venv/Scripts/python.exe -m pytest app/tests -q   → 396 passed
+cd web && npm run build                               → ✓ built
+cd web && npx playwright test 17-pending-role         → 1 passed（独立 8123/5273 环境，临时库）
+官方 01-auth / 04-permission / 10-layout 用例回归        → 22 passed（仅把断言里的 dev 端口换成验证端口）
+```
+
+> 端到端验证是在**独立端口 + 临时库**上做的（本机已有 8000/5173 开发服务在跑、连的是真实演示库）：
+> 临时库位于已 gitignore 的 `.dsh/verify/`，验证后连同临时 Playwright/Vite 配置一并删除，
+> 未触碰真实库与正在运行的服务。
+
+上游规格回写（未完成项，与 §10.4 一并处理）：`docs/11` §6 的账号开通流程、
+`docs/16-permission-matrix.md` 的"新账号默认无角色"说明需补一句评审批注。
