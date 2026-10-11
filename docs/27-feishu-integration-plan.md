@@ -175,11 +175,14 @@ CTMS_FEISHU_BASE_URL=http://192.168.31.27:8080   # 卡片跳转链接的根地�
 
 - `app_secret` **只从环境变量读**，与 `CTMS_JWT_SECRET` 同策略；不入 KV 库、不进日志、错误信息中脱敏。
   取值来自飞书后台 **基础信息 → 凭证与基础信息 → App Secret**，必须与 `CTMS_FEISHU_APP_ID` 属于**同一个应用**。
-- ⚠️ **后端不会自动加载 `.env` 文件**：`config.py` 用 `os.environ` 读取，
-  项目未引入 `python-dotenv`，所以 `.env.example` 只是模板，改它不生效。注入方式：
-  开发用 `set` / `$env:`（或写进 `start-all.bat`）；Windows 服务用 NSSM 的
-  `AppEnvironmentExtra`；Docker Compose 用 `environment:` 或 `env_file:`；systemd 用
-  `Environment=` / `EnvironmentFile=`。环境变量在**进程启动时**读取（模块级常量），改完必须**重启后端**。
+- ✅ **`.env` 会被自动加载**（V2.4 起，零依赖实现见 `config.py::load_env_file`）：
+  把 `.env.example` 复制为项目根目录 `.env` 填值即可，无需任何第三方库。
+  优先级为 **真实环境变量 > `.env` > 代码默认值**（用 `os.environ.setdefault`，
+  `.env` **不会**覆盖已注入的环境变量 —— 这是为了防止"本地文件改写生产配置"这类
+  最难排查的事故；`CTMS_ENV_FILE` 可指定其它路径）。
+  也完全可以不用 `.env`：`set` / `$env:` / NSSM `AppEnvironmentExtra` /
+  compose `environment:` / systemd `Environment=` 都等价。环境变量在**进程启动时**读取
+  （模块级常量），改完必须**重启后端**。
 - 四项必须齐全才会启用：`CTMS_FEISHU_ENABLED` + `APP_ID` + `APP_SECRET` + `REDIRECT_URI`；
   缺任何一项，飞书功能整体降级（**包括消息推送**，因为 `feishu_ready()` 是单一开关）。
 - 出网白名单（443）：`open.feishu.cn`、`accounts.feishu.cn`；如有出口代理，需为 `httpx` 配置代理（具体参数落地时确认）。
