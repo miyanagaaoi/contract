@@ -61,13 +61,18 @@ def feishu_config():
             "redirect_uri": FEISHU_REDIRECT_URI or None}
 
 
-@auth_router.get("/authorize-url", summary="取免登授权地址（公开）")
-def feishu_authorize_url():
-    """返回带一次性 `state` 的授权地址；前端拿到后整页跳转过去。"""
+@auth_router.get("/authorize-url", summary="取飞书授权地址（公开）")
+def feishu_authorize_url(mode: str = "login"):
+    """返回带一次性 `state` 的授权地址；前端拿到后整页跳转过去。
+
+    `mode`：`login`（免登）/ `bind`（自助绑定）。场景会被**签进 state** 随回调返回，
+    前端据此决定调哪个接口 —— 不依赖 sessionStorage，避免跨 origin（localhost ↔ 内网 IP）丢失。
+    """
     if not feishu_ready():
         raise HTTPException(status_code=503, detail="飞书登录未启用，请联系管理员配置")
-    state = identity_service.make_state()
-    return {"url": client.build_authorize_url(state)}
+    scene = "bind" if mode == "bind" else "login"
+    state = identity_service.make_state(scene)
+    return {"url": client.build_authorize_url(state), "mode": scene}
 
 
 @auth_router.post("/login", summary="飞书免登（授权码换本系统令牌）")

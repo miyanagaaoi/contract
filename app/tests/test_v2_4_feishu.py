@@ -99,9 +99,9 @@ def _bind(uid: int, open_id: str | None = None) -> str:
     return open_id
 
 
-def _sign_state(ts: int, nonce: str) -> str:
-    """按 identity_service 的算法手工签名（用于构造超时 state）。"""
-    raw = f"{ts}.{nonce}"
+def _sign_state(ts: int, nonce: str, scene: str = "login") -> str:
+    """按 identity_service 的算法手工签名（用于构造超时 / 篡改场景的 state）。"""
+    raw = f"{ts}.{nonce}.{scene}"
     sig = hmac.new(config.get_jwt_secret().encode("utf-8"), raw.encode("ascii"),
                    hashlib.sha256).digest()
     return f"{raw}.{base64.urlsafe_b64encode(sig).rstrip(b'=').decode('ascii')}"
@@ -177,6 +177,25 @@ class TestState:
 
     def test_state_is_unique(self):
         assert identity_service.make_state() != identity_service.make_state()
+
+    def test_state_carries_scene(self):
+        """场景签在 state 里：回调页据此选「免登」还是「自助绑定」。
+
+        这样就不依赖 sessionStorage —— 它按 origin 隔离，从 localhost 跳回内网 IP 时会丢，
+        会把自助绑定误当成免登（表现为"刚绑定完又提示未绑定"）。
+        """
+        assert identity_service.verify_state(identity_service.make_state("bind")) == "bind"
+        assert identity_service.verify_state(identity_service.make_state("login")) == "login"
+        assert identity_service.verify_state(identity_service.make_state()) == "login"
+
+    def test_unknown_scene_falls_back_to_login(self):
+        assert identity_service.verify_state(identity_service.make_state("evil")) == "login"
+
+    def test_scene_tamper_breaks_signature(self):
+        """改场景而不重签 → 签名校验必须失败（场景受签名保护）。"""
+        ts, nonce, _scene, sig = identity_service.make_state("login").split(".")
+        with pytest.raises(identity_service.IdentityError):
+            identity_service.verify_state(f"{ts}.{nonce}.bind.{sig}")
 
 
 # ===================== 绑定（AC-FS-04 相关） =====================

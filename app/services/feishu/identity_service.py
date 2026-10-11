@@ -26,7 +26,8 @@ from .. import audit_service
 from . import client
 
 PROVIDER = "feishu"
-_STATE_TTL = 600            # state 有效期（秒）
+_STATE_TTL = 600                    # state 有效期（秒）
+_STATE_MODES = ("login", "bind")    # state 可携带的调用场景
 
 
 class IdentityError(Exception):
@@ -47,21 +48,31 @@ def _b64d(txt: str) -> bytes:
     return base64.urlsafe_b64decode(txt + "=" * (-len(txt) % 4))
 
 
-def make_state() -> str:
-    """生成一次性 state（内含时间戳与随机数，HMAC 签名）。"""
-    raw = f"{int(time.time())}.{secrets.token_urlsafe(12)}"
+def make_state(mode: str = "login") -> str:
+    """生成一次性 state（内含时间戳、随机数与**调用场景**，HMAC 签名）。
+
+    场景（`login` / `bind`）签进 state 而**不**放 sessionStorage：sessionStorage 是
+    按 origin 隔离的 —— 用户从 `localhost` 登录、回调却跳到内网 IP 时标记就丢了，
+    自助绑定会被误当成免登（表现为"刚绑定完又提示未绑定"）。签进 state 则一定随回调回来。
+    """
+    scene = mode if mode in _STATE_MODES else "login"
+    raw = f"{int(time.time())}.{secrets.token_urlsafe(12)}.{scene}"
     sig = hmac.new(get_jwt_secret().encode("utf-8"), raw.encode("ascii"),
                    hashlib.sha256).digest()
     return f"{raw}.{_b64e(sig)}"
 
 
-def verify_state(state: str) -> None:
-    """校验 state 的签名与时效；失败抛 `IdentityError`（防 CSRF / 重放）。"""
+def verify_state(state: str) -> str:
+    """校验 state 的签名与时效；返回携带的场景（`login` / `bind`）。
+
+    失败抛 `IdentityError`（防 CSRF / 重放）。返回值仅供调用方记账，
+    真正决定"调哪个接口"的是**接口本身**，不是 state。
+    """
     parts = (state or "").split(".")
-    if len(parts) != 3:
+    if len(parts) != 4:
         raise IdentityError("登录状态参数格式错误，请重新发起飞书登录")
-    ts_s, nonce, sig = parts
-    raw = f"{ts_s}.{nonce}"
+    ts_s, nonce, scene, sig = parts
+    raw = f"{ts_s}.{nonce}.{scene}"
     expect = hmac.new(get_jwt_secret().encode("utf-8"), raw.encode("ascii"),
                       hashlib.sha256).digest()
     try:
@@ -76,6 +87,7 @@ def verify_state(state: str) -> None:
         raise IdentityError("登录状态参数校验失败，请重新发起飞书登录")
     if abs(int(time.time()) - issued) > _STATE_TTL:
         raise IdentityError("飞书登录已超时（超过 10 分钟），请重新发起")
+    return scene if scene in _STATE_MODES else "login"
 
 
 # ---------------- 绑定查询 ----------------
