@@ -110,9 +110,40 @@ docker compose -f deploy/docker-compose.single.yml up -d --force-recreate
 | 访问页面 502/连接失败 | 端口冲突换端口（`-p 8090:8000`）、宝塔安全+云安全组放行 |
 | 上传超 20M | 附件上限在后端；如需调大改 `app/config.py MAX_UPLOAD_MB` 重新构建 |
 | 重启后数据还在吗 | 只要使用 `ctms_data:/data` 卷，数据就在；**别用**不带 `-v` 的裸运行（除非允许丢弃） |
-| 想换 PostgreSQL | compose 里加 `environment: CTMS_DB_URL: postgresql+psycopg2://...`，并 `pip install -r app/requirements-pg.txt`（需重打镜像，或改 Dockerfile 加入该依赖） |
+| 想换 PostgreSQL | **V2.3 起镜像已内置 `psycopg2`**，无需重打；`environment: CTMS_DB_URL: postgresql+psycopg2://...` 即可（见 §9） |
 
-## 8. 与本项目其他交付物的关系
+## 8. V2.3：连 PostgreSQL 与数据迁移
+
+镜像自 V2.3 起一并安装 `app/requirements-pg.txt`（`psycopg2-binary`），单容器可直接连 PG；
+`app/tools` 也已打进镜像，可在容器内执行迁移。
+
+```bash
+# 9.1 连既有 PostgreSQL 启动（开发库示例：192.168.31.27:5444/ctms）
+docker run -d --name ctms -p 8080:8000 -v ctms_data:/data \
+  -e CTMS_DB_URL="postgresql+psycopg2://postgres:密码@192.168.31.27:5444/ctms" ctms:2.3.0
+
+# 或使用编排（连接串可由 deploy/.env 注入，避免密码进命令行历史）
+cd deploy && docker compose -f docker-compose.external-pg.yml up -d
+
+# 9.2 迁移既有 SQLite 数据（把 ctms.db 放进 /data 后，在容器内跑一次）
+docker cp app/data/ctms.db ctms:/data/ctms.db
+docker exec ctms python -m app.tools.migrate_sqlite_to_pg \
+  --sqlite /data/ctms.db \
+  --pg-url "postgresql+psycopg2://postgres:密码@192.168.31.27:5444/ctms"
+
+# 9.3 V2.3 存量字段回填（仓库所属公司 / 单据签约公司 / 调拨单位；只填空值、幂等）
+docker exec -e CTMS_DB_URL="postgresql+psycopg2://postgres:密码@192.168.31.27:5444/ctms" \
+  ctms python -m app.tools.backfill_subject_v23 --dry-run
+docker exec -e CTMS_DB_URL="postgresql+psycopg2://postgres:密码@192.168.31.27:5444/ctms" \
+  ctms python -m app.tools.backfill_subject_v23
+```
+
+> 若希望数据库与应用同栈部署（推荐给新环境）：`deploy/docker-compose.yml` 已内置
+> `postgres:16` 服务 + 健康检查 + `pgdata` 卷，`cd deploy && docker compose up -d --build` 即可。
+> 迁移脚本会先建表、逐表拷贝、重置自增序列，并**逐表校验行数**（不一致直接失败退出）。
+> 回退：把 `CTMS_DB_URL` 去掉即回到 `/data/ctms.db`（SQLite 文件始终保留）。
+
+## 9. 与本项目其他交付物的关系
 
 - 本方式替代 `docs/08` 的“Nginx+Supervisor”两手装：单容器开箱即用，适合 3~4 人规模；
 - 需要域名/HTTPS/白名单等网关层时，仍建议外层加 Nginx（宝塔反代或 `docs/09` 建站方式把 8080 反代出去）。

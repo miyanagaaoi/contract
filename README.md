@@ -2,13 +2,15 @@
 
 > 内网版合同台账与履约跟踪系统：采购 / 财务 / 项目管理 3~4 人使用。
 > 开发方法：SDD（Specification-Driven Development，规格驱动开发）。
-> 当前阶段：**V2.0（ERP 进销存）开发完成并进入 UAT；V2.2 小版本迭代已交付（界面反馈四条）**。
+> 当前阶段：**V2.0（ERP 进销存）开发完成并进入 UAT；V2.2 界面迭代、V2.3 多公司维度 + PostgreSQL 迁移均已交付**。
 > 里程碑：`v2.0-m1`（权限与主数据）、`v2.0-m2`（采购线与库存过账）、`v2.0-m3`（销售、盘点、导出、打印）已打标签；
 > `v2.0` 发布标签待 UAT 通过后打。
-> 验证基线：`pytest` 305 passed；前端 E2E 全量通过（含 V2.2 新增 6 条）；
-> 端到端冒烟 15/15 + 11/11 + 11/11 + 13/13；权限矩阵与备份恢复演练均通过
-> —— 详见 [20-v2-acceptance-summary.md](docs/20-v2-acceptance-summary.md)（AC 逐条证据映射）
-> 与 [25-v2.2-adjustments.md](docs/25-v2.2-adjustments.md)（V2.2 迭代记录）。
+> 验证基线：`pytest` 329 passed；前端 E2E 81 passed；
+> 端到端冒烟 M1 15/15 + M2 11/11 + M3 11/11（**已切 PostgreSQL 运行**）+ V2.3 专项 11/11；
+> 权限矩阵与备份恢复演练均通过
+> —— 详见 [20-v2-acceptance-summary.md](docs/20-v2-acceptance-summary.md)（AC 逐条证据映射）、
+> [25-v2.2-adjustments.md](docs/25-v2.2-adjustments.md)（V2.2 迭代记录）
+> 与 [26-v2.3-adjustments.md](docs/26-v2.3-adjustments.md)（V2.3：仓库/单据公司维度、库存按公司筛选、调拨出入单位、PG 迁移）。
 > 下一步：业务用户按 [17-uat-plan.md](docs/17-uat-plan.md) 逐条演示并签字；上线按
 > [19-go-live-checklist.md](docs/19-go-live-checklist.md) 执行。
 
@@ -38,6 +40,7 @@
 | [19-go-live-checklist.md](docs/19-go-live-checklist.md) | **V2.0 上线清单**：里程碑与 tag、升级步骤（含迁移动作）、上线后验证、回滚与运维 | 运维、决策人 |
 | [20-v2-acceptance-summary.md](docs/20-v2-acceptance-summary.md) | **V2.0 验收报告（汇总）**：AC-V2-01~42 逐条证据映射、总体结果、人工确认项与签字页 | 全体、业务用户 |
 | [25-v2.2-adjustments.md](docs/25-v2.2-adjustments.md) | **V2.2 迭代记录**：操作列可读性、供货商详情与简称必填、库存明细命名、**打印模板**（升级/回滚注意） | 全体 |
+| [26-v2.3-adjustments.md](docs/26-v2.3-adjustments.md) | **V2.3 迭代记录**：仓库所属公司、单据签约公司、库存按公司筛选、调拨出入单位、**PostgreSQL 启动与数据迁移**、Docker 发布 | 全体、运维 |
 
 ## 关键决策记录（本轮已确认）
 
@@ -63,6 +66,15 @@
     （与旧版版面逐项一致）。见 `25-v2.2-adjustments.md` §5。
 17. **供货商简称（V2.2）**：简称由选填改为**必填**（仅供应商，客户不变），
     并被单据列表、下拉与打印统一用作默认显示名；存量无简称档案不自动改写，按全称回退显示。
+18. **多公司维度（V2.3）**：以系统设置的「我方公司（主体码）」为唯一取值源 ——
+    仓库新增**所属公司**（选填），单据（采购申请/采购单/销售申请/销售订单/入库单/出库单）
+    新增**签约公司**（必填，落名称快照，下推继承）；仓库默认显示名统一为 `主体码-仓库名`
+    （如 `ZC-主仓`）；库存明细可按公司筛选；调拨单的调出/调入单位由两端仓库所属公司自动带出。
+    见 `26-v2.3-adjustments.md` §2~§5。
+19. **运行库（V2.3）**：正式/开发库改用 **PostgreSQL**（`192.168.31.27:5444/ctms`），
+    由迁移工具 `app/tools/migrate_sqlite_to_pg.py` 一次性搬运并校验行数，存量公司字段由
+    `app/tools/backfill_subject_v23.py` 回填；发布镜像内置 `psycopg2`，
+    `deploy/docker-compose.yml` 默认一键起 PostgreSQL。SQLite 仍受支持（不设 `CTMS_DB_URL` 即回退）。
 
 ## 当前阶段与下一步
 
@@ -77,7 +89,12 @@
 6. ✅ **V2.2 小版本迭代（界面反馈四条）**：操作列可读性与对齐、供货商可点击详情与**简称必填**、
    库存明细「商品类型-物料名称」、**单据打印模板**（版面与文字可视化配置）；
    口径与升级注意事项见 `25-v2.2-adjustments.md`；
-7. ▶ 下一步：① 业务用户按 `17-uat-plan.md` 逐条演示并签字；
+7. ✅ **V2.3 迭代（多公司维度 + PostgreSQL）**：仓库所属公司、六类单据签约公司（必填）、
+   库存明细按公司筛选、调拨调出/调入单位自动带出；
+   启动 PostgreSQL（`192.168.31.27:5444/ctms`）并迁移 24 表 / 5320 行数据，
+   存量字段回填完成；发布镜像与编排已内置 PG 支持。
+   口径、迁移步骤与回滚见 `26-v2.3-adjustments.md`；
+8. ▶ 下一步：① 业务用户按 `17-uat-plan.md` 逐条演示并签字；
    ② 打 tag `v2.0` 并按 `19-go-live-checklist.md` 上线。
 
 ## 开发快速开始（原型阶段）
@@ -98,9 +115,16 @@
 app\.venv\Scripts\python -m pip install -r app\requirements.txt   # 依赖
 app\.venv\Scripts\python -m app.init_db --demo                    # 建库+演示数据（幂等）
 
-# 2) 后端（FastAPI + SQLite）
+# 2) 后端（FastAPI；默认 SQLite，可用 CTMS_DB_URL 切 PostgreSQL）
 app\.venv\Scripts\python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 #   → API 文档 http://127.0.0.1:8000/docs  健康检查 /api/health
+#
+# 2b) 切到 PostgreSQL（V2.3；迁移与回填各执行一次，SQLite 原文件保留可回退）
+#   set CTMS_DB_URL=postgresql+psycopg2://postgres:good789good@192.168.31.27:5444/ctms
+#   app\.venv\Scripts\python -m app.tools.migrate_sqlite_to_pg --pg-url "%CTMS_DB_URL%"
+#   app\.venv\Scripts\python -m app.tools.backfill_subject_v23 --dry-run
+#   app\.venv\Scripts\python -m app.tools.backfill_subject_v23
+#   详见 docs\26-v2.3-adjustments.md §6（含 Docker 发布编排）
 
 # 3) 前端（Vue3 + Vite + Element Plus，/api 已代理到 8000）
 cd web
