@@ -73,6 +73,19 @@ export const useAuthStore = defineStore('auth', {
       return data as { must_change_pwd: boolean; user: AuthUser }
     },
 
+    /**
+     * 飞书免登（V2.4）：授权码换**本系统**令牌。
+     *
+     * 与密码登录等价 —— 权限、数据范围、菜单全部由后端按同一套逻辑决定；
+     * 飞书只负责证明"你是谁"（`docs/27-feishu-integration-plan.md` §5）。
+     */
+    async feishuLogin(code: string, state: string) {
+      const { data } = await http.post('/auth/feishu/login', { code, state })
+      this.setToken(data.token)
+      this.user = data.user as AuthUser
+      return data as { must_change_pwd: boolean; user: AuthUser }
+    },
+
     /** 拉取当前用户与权限（已加载则跳过；force=true 强制刷新） */
     async fetchMe(force = false) {
       if (this.loaded && !force) return

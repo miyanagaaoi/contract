@@ -8,17 +8,21 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import SettingsView from '@/views/SettingsView.vue'
 import {
+  checkFeishuConnectivity,
   createBackup,
   deleteBackup,
   downloadBackup,
   fetchAbout,
   fetchBackups,
   fetchChangeLogs,
+  fetchFeishuAdminConfig,
   fetchNumberRules,
   fetchOperationLogs,
   fetchSysParams,
+  retryFeishuFailed,
   saveNumberRules,
   saveSysParams,
+  sendFeishuTestMessage,
   type Dict,
 } from '@/api'
 import { useAuthStore } from '@/stores/auth'
@@ -199,11 +203,67 @@ const COUNT_LABELS: Dict = {
   customers: '客户', suppliers: '供应商', products: '物料',
 }
 
+// ---- V2.4：飞书接入（配置自检 / 测试消息 / 失败通知重试） ----
+const feishu = ref<Dict | null>(null)
+const feishuBusy = ref(false)
+const canFeishuEdit = computed(() => auth.hasPerm('system.feishu.edit'))
+
+/** 无权限（403）或未启用时置空：tab 内只显示一条说明，不影响其它系统管理功能。 */
+async function loadFeishu() {
+  try {
+    feishu.value = await fetchFeishuAdminConfig()
+  } catch {
+    feishu.value = null
+  }
+}
+
+function _feishuError(err: unknown, fallback: string): string {
+  return (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || fallback
+}
+
+async function checkFeishu() {
+  feishuBusy.value = true
+  try {
+    const data = await checkFeishuConnectivity()
+    ElMessage.success(`飞书连通正常（应用令牌 ${data.token_prefix}）`)
+  } catch (err: unknown) {
+    ElMessage.error(_feishuError(err, '飞书连通性检查失败'))
+  } finally {
+    feishuBusy.value = false
+  }
+}
+
+async function sendFeishuTest() {
+  feishuBusy.value = true
+  try {
+    await sendFeishuTestMessage()
+    ElMessage.success('测试消息已发送，请在飞书里查看')
+  } catch (err: unknown) {
+    ElMessage.error(_feishuError(err, '测试消息发送失败'))
+  } finally {
+    feishuBusy.value = false
+  }
+}
+
+async function retryFeishu() {
+  feishuBusy.value = true
+  try {
+    const data = await retryFeishuFailed()
+    ElMessage.success(`已重置 ${data.reset} 条失败通知，稍后自动重发`)
+    await loadFeishu()
+  } catch (err: unknown) {
+    ElMessage.error(_feishuError(err, '重置失败通知失败'))
+  } finally {
+    feishuBusy.value = false
+  }
+}
+
 async function onTabChange(name: string) {
   if (name === 'logs') await loadLogs()
   else if (name === 'changes') await loadChanges()
   else if (name === 'backup') await loadBackups()
   else if (name === 'about') await loadAbout()
+  else if (name === 'feishu') await loadFeishu()
 }
 
 onMounted(async () => {
@@ -415,6 +475,63 @@ onMounted(async () => {
             </span>
           </el-descriptions-item>
         </el-descriptions>
+      </el-tab-pane>
+
+      <!-- V2.4：飞书接入（免登 + 消息推送） -->
+      <el-tab-pane label="飞书接入" name="feishu">
+        <el-alert v-if="!feishu" type="info" :closable="false" show-icon
+                  title="飞书接入未启用，或当前账号没有查看权限"
+                  description="启用需在后端配置 CTMS_FEISHU_ENABLED=1 以及 app_id / app_secret / redirect_uri；查看权限点为 system.feishu.view。" />
+        <template v-else>
+          <el-descriptions :column="2" border>
+            <el-descriptions-item label="接入状态">
+              <el-tag :type="feishu.enabled ? 'success' : 'info'" size="small">
+                {{ feishu.enabled ? '已启用' : '未启用' }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="App ID">{{ feishu.app_id || '未配置' }}</el-descriptions-item>
+            <el-descriptions-item label="回调地址">{{ feishu.redirect_uri || '未配置' }}</el-descriptions-item>
+            <el-descriptions-item label="API 域名">{{ feishu.api_base }}</el-descriptions-item>
+            <el-descriptions-item label="已绑定 / 账号总数">
+              {{ feishu.bound_users }} / {{ feishu.total_users }}
+            </el-descriptions-item>
+            <el-descriptions-item label="通知发送线程">
+              {{ feishu.outbox?.worker_running ? '运行中' : '未运行' }}
+            </el-descriptions-item>
+            <el-descriptions-item label="待发 / 失败 / 今日已发">
+              {{ feishu.outbox?.pending ?? 0 }} / {{ feishu.outbox?.failed ?? 0 }} /
+              {{ feishu.outbox?.sent_today ?? 0 }}
+            </el-descriptions-item>
+          </el-descriptions>
+
+          <div class="mt12">
+            <el-button :loading="feishuBusy" @click="checkFeishu">连通性检查</el-button>
+            <el-button v-if="canFeishuEdit" type="primary" :loading="feishuBusy"
+                       @click="sendFeishuTest">发送测试消息</el-button>
+            <el-button v-if="canFeishuEdit" :loading="feishuBusy" @click="retryFeishu">
+              重试失败通知
+            </el-button>
+          </div>
+
+          <el-table v-if="feishu.outbox?.recent_failures?.length" class="mt12"
+                    :data="feishu.outbox.recent_failures" size="small">
+            <el-table-column prop="event_key" label="消息" min-width="220" />
+            <el-table-column prop="attempts" label="尝试" width="70" />
+            <el-table-column prop="error" label="失败原因" min-width="260" />
+            <el-table-column prop="created_at" label="创建时间" width="160" />
+          </el-table>
+          <p v-else class="tip mt12">最近没有发送失败的通知。</p>
+
+          <p v-if="feishu.unbound_users?.length" class="tip mt12">
+            未绑定飞书的启用账号：
+            <span v-for="u in feishu.unbound_users" :key="u.id" class="count">
+              {{ u.real_name || u.username }}
+            </span>
+            <span v-if="feishu.total_users - feishu.bound_users > feishu.unbound_users.length">
+              （仅列出前 {{ feishu.unbound_users.length }} 个）
+            </span>
+          </p>
+        </template>
       </el-tab-pane>
     </el-tabs>
   </el-card>

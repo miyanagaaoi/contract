@@ -20,6 +20,13 @@ const router = createRouter({
       meta: { title: '登录', public: true },
     },
     {
+      // V2.4：飞书授权回调落点。**必须与飞书后台登记的 redirect_uri 完全一致**，
+      // 因此它不能携带任何额外 query；"登录还是绑定"通过 sessionStorage 传递。
+      path: '/feishu/callback', name: 'feishu-callback',
+      component: () => import('@/views/FeishuCallbackView.vue'),
+      meta: { title: '飞书登录', public: true },
+    },
+    {
       path: '/change-password', name: 'change-password',
       component: () => import('@/views/ChangePasswordView.vue'),
       meta: { title: '修改密码' },
