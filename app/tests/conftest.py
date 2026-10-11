@@ -65,6 +65,7 @@ def pytest_configure(config) -> None:  # noqa: ARG001
     import app.models_doc  # noqa: F401  单据表
     import app.models_master  # noqa: F401  主数据表
     import app.models_stock  # noqa: F401  库存表
+    import app.models_notify  # noqa: F401  V2.4：飞书通知 outbox 表
 
     ensure_dirs()
     Base.metadata.create_all(bind=engine)
