@@ -363,6 +363,114 @@ def _render_sign(doc, cfg: dict) -> str:
     return f'<div class="sign">{"".join(parts)}</div>'
 
 
+# ==================== 《付款申请单》专用版式（对齐纸质模板） ====================
+#
+# 几何量直接取自参考文件 `docs/.参考文档/合同请示审批单模版.xlsx` 的「付款单 (新)」工作表：
+#   列宽 A6.375 B5.125 C7.375 D24 E9.875 F12.375 G27.75（Excel 字符宽）
+#   行高 标题33 / 日期21 / 明细行24.95×7 / 备注35.1 / 签字27×2（磅）
+#   字体 标题16磅宋体加粗、日期12、正文11、签字10；纸张 A4 **横向**，页边距 上19 右17.8 下19 左35mm
+# 表头字段仍受打印模板配置控制（标题/签字栏可改），但**行列结构与尺寸不随配置漂移**。
+
+_PAY_COL_WIDTHS = [6.375, 5.125, 7.375, 24.0, 9.875, 12.375, 27.75]   # A~G
+_PAY_ROW_HEIGHTS = [33, 21, 24.95, 24.95, 24.95, 24.95, 24.95, 24.95, 24.95, 35.1, 27, 27]
+_PAY_CATEGORIES = ["经营", "经济", "行政", "人力", "投资", "往来"]
+
+_PAYMENT_CSS = """
+@page { size: A4 landscape; margin: 19mm 17.8mm 19mm 35mm; }
+body { background: #fff; }
+.sheet { width: 100%; box-shadow: none; padding: 0; }
+table.pay { width: 100%; table-layout: fixed; border-collapse: collapse; font-family: SimSun, "宋体", serif; }
+table.pay td { border: 1px solid #000; font-size: 11pt; padding: 2px 4px; vertical-align: middle;
+               word-break: break-all; }
+table.pay td.k { text-align: center; font-size: 11pt; }
+table.pay tr.title td { border: none; font-size: 16pt; font-weight: 700; text-align: center;
+                        letter-spacing: 6px; }
+table.pay tr.sub td { border: none; font-size: 12pt; }
+table.pay tr.sub td.right { text-align: right; }
+table.pay tr.sign td { border: none; font-size: 10pt; padding-top: 8px; }
+table.pay tr.remark td.k { }
+"""
+
+
+def _pay_checkbox(selected: str, options: list[str]) -> str:
+    """勾选串：`经营√经济□…`（纸质模板的勾选样式）。"""
+    picked = (selected or "").strip()
+    return "".join(f"{opt}{'√' if picked == opt else '□'}" for opt in options)
+
+
+def _pay_settle(settle_type: str | None) -> str:
+    """结算方式勾选串：银行√/现金□（纸质模板只区分这两种）。"""
+    value = (settle_type or "")
+    return f"银行{'√' if '银行' in value or '转账' in value else '□'}　现金{'√' if '现金' in value else '□'}"
+
+
+def _pay_value(value) -> str:
+    """付款申请单的空值保留空格（纸质表格不能因为没填就把格子去掉）。"""
+    text = "" if value is None else str(value)
+    return f'<span class="v">{_e(text)}</span>' if text else "&nbsp;"
+
+
+def _render_payment_application(doc, cfg: dict) -> str:
+    """《付款申请单》12 行 × 7 列（A~G）固定网格；行列与尺寸不随模板配置漂移。"""
+    widths = _PAY_COL_WIDTHS
+    total = sum(widths)
+    colgroup = "".join(f'<col style="width:{w / total * 100:.3f}%" />' for w in widths)
+    heights = _PAY_ROW_HEIGHTS
+
+    def row(idx: int, cells: str, cls: str = "") -> str:
+        style = f' style="height:{heights[idx]}pt"'
+        return f'<tr class="{cls}"{style}>{cells}</tr>'
+
+    def k(text: str, colspan: int = 1) -> str:
+        return f'<td class="k" colspan="{colspan}">{escape(text)}</td>'
+
+    def v(value, colspan: int = 1, cls: str = "") -> str:
+        extra = f' class="{cls}"' if cls else ""
+        return f'<td{extra} colspan="{colspan}">{_pay_value(value)}</td>'
+
+    date_text = _ymd(getattr(doc, "doc_date", None))
+    plan = _pay_checkbox(getattr(doc, "plan_type", None), ["计划内", "计划外"])
+    category = _pay_checkbox(getattr(doc, "category_l1", None), _PAY_CATEGORIES)
+    total_amount = getattr(doc, "total_amount", None) or 0
+    labels = cfg.get("signature_labels") or print_template_service.PAYMENT_SIGN_LABELS
+    labels = list(labels) + ["", "", ""]
+    sign_rows = ""
+    for start in (0, 3):
+        cells = ""
+        spans = [(3, "k"), (3, "k"), (1, "k")]
+        for offset, (span, cls) in enumerate(spans):
+            name = labels[start + offset] if start + offset < len(labels) else ""
+            text = f"{escape(str(name))}："
+            cells += f'<td class="{cls}" colspan="{span}">{text}</td>' if start == 0 and offset == 0                 else f'<td colspan="{span}" style="text-align:center">{text}</td>'
+        sign_rows += row(10 + start // 3, cells, "sign")
+
+    body = (
+        row(0, f'<td class="title" colspan="7">{escape(str(cfg.get("title") or "付款申请单"))}</td>', "title")
+        + row(1, f'<td colspan="4" style="text-align:right">{date_text}</td>'
+                  f'<td colspan="3" style="text-align:left;padding-left:12px">{plan}</td>', "sub")
+        + row(2, k("收款<br/>信息", 1).replace('colspan="1"',
+              'rowspan="2" style="width:6.86%"') + k("收款单位名称", 2)
+              + v(getattr(doc, "supplier_name", None), 4))
+        + row(3, k("开户银行", 2) + v(getattr(doc, "payee_bank", None))
+                  + k("账号") + v(getattr(doc, "payee_account", None), 2))
+        + row(4, k("付款<br/>信息").replace('colspan="1"',
+              'rowspan="5" style="width:6.86%"') + k("付款单位名称", 2)
+              + v(getattr(doc, "subject_name", None) or getattr(doc, "subject_code", None))
+              + k("开户行") + v(getattr(doc, "payer_bank", None), 2))
+        + row(5, k("一级分类", 2) + v(category, 2) + k("付款归属期")
+                  + v(getattr(doc, "belong_period", None)))
+        + row(6, k("二级分类", 2) + v(getattr(doc, "category_l2", None))
+                  + k("回单") + k("银行付款用途") + v(getattr(doc, "bank_purpose", None)))
+        + row(7, k("结算方式", 2) + v(_pay_settle(getattr(doc, "settle_type", None)), 2)
+                  + k("付款事由") + v(getattr(doc, "pay_reason", None)))
+        + row(8, k("金额", 2) + v(f"￥{_money(total_amount)}")
+                  + k("金额（大写）人民币") + v(amount_cn(total_amount)))
+        + row(9, k("备注", 3) + v(getattr(doc, "remark", None), 4))
+        + sign_rows
+    )
+    return (f'<table class="pay"><colgroup>{colgroup}</colgroup><tbody>{body}</tbody></table>')
+
+
 def build_doc_print_html(db: Session, doc, config: dict | None = None) -> str:
     """生成单据 A4 打印 HTML（纯字符串，无模板引擎依赖）。
 
@@ -389,13 +497,17 @@ def build_doc_print_html(db: Session, doc, config: dict | None = None) -> str:
         html = render()
         if html:
             sections.append(html)
-    body = '<div class="gap"></div>'.join(sections)
+    if kind == "payment":
+        # 《付款申请单》：整版固定网格（行列与尺寸对齐纸质模板），不走通用区块拼装
+        body = _render_payment_application(doc, cfg)
+    else:
+        body = '<div class="gap"></div>'.join(sections)
     footer = (f'<div class="foot">{escape(cfg["footer"])}</div>' if cfg.get("footer") else "")
 
     return f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8" />
 <title>{_e(label)} {_e(getattr(doc, "doc_no", ""))}</title>
-<style>{_CSS}</style></head>
+<style>{_CSS}{_PAYMENT_CSS if kind == "payment" else ""}</style></head>
 <body>
   <div class="toolbar"><button onclick="window.print()">打印 / 另存为 PDF</button></div>
   <div class="sheet">

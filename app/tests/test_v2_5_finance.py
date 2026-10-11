@@ -1077,6 +1077,66 @@ class TestPaymentPrintTemplate:
         assert html.status_code == 200
         text = html.text
         assert "付款申请单" in text
-        assert "收款方开户银行" in text and "1405 0183" in text
+        # 《付款申请单》纸质版式：收款信息区用「开户银行 / 账号」标签
+        assert "收款单位名称" in text and "开户银行" in text and "1405 0183" in text
         assert "叁万柒仟伍佰元整" in text          # 金额大写
         assert "施工预付款" in text and "领款人" in text
+
+
+# ===================== 付款申请单版式严格对齐参考模板（docs/33 §5） =====================
+
+class TestPaymentPaperLayout:
+    def _html(self, client, box, admin):
+        po_id = box.purchase_order(amount="37500")
+        created = client.post("/api/finance/payments",
+                              json={"supplier_id": box.supplier_id, "subject_code": SUBJECT,
+                                    "total_amount": "37500", "settle_type": "银行转账",
+                                    "payee_bank": "中国建设银行太原市漪汾街支行",
+                                    "payee_account": "1405 0183 6108 0000 0435",
+                                    "payer_bank": "中国银行太原综改区支行",
+                                    "category_l1": "经营", "category_l2": "物联网及硬件成本",
+                                    "belong_period": "2026-09", "bank_purpose": "预付款",
+                                    "pay_reason": "施工预付款", "plan_type": "计划内",
+                                    "allocations": [{"target_type": "purchase_order",
+                                                     "target_id": po_id, "amount": "37500"}]},
+                              headers=admin).json()
+        box.docs["payments"].append(created["id"])
+        resp = client.get(f"/api/finance/payments/{created['id']}/print", headers=admin)
+        assert resp.status_code == 200
+        return resp.text
+
+    def test_geometry_matches_reference(self, client, box, admin):
+        """列宽比例、行高、纸张与字体与参考 xlsx 一致。"""
+        html = self._html(client, box, admin)
+        assert "size: A4 landscape" in html
+        assert "margin: 19mm 17.8mm 19mm 35mm" in html
+        widths = [6.375, 5.125, 7.375, 24.0, 9.875, 12.375, 27.75]
+        total = sum(widths)
+        for w in widths:
+            assert f"width:{w / total * 100:.3f}%" in html
+        for height in ("33pt", "21pt", "24.95pt", "35.1pt", "27pt"):
+            assert f"height:{height}" in html
+        assert "SimSun" in html and "16pt" in html and "10pt" in html
+
+    def test_row_order_matches_paper_form(self, client, box, admin):
+        html = self._html(client, box, admin)
+        order = ["收款单位名称", "开户银行", "账号", "付款单位名称", "开户行", "一级分类",
+                 "付款归属期", "二级分类", "银行付款用途", "付款事由", "金额",
+                 "金额（大写）人民币", "备注",
+                 "经理", "部门负责人", "制单人", "财务", "财务负责人", "领款人"]
+        pos = -1
+        for label in order:
+            idx = html.find(label)
+            assert idx > pos, f"{label} 顺序不符（{idx} <= {pos}）"
+            pos = idx
+
+    def test_values_and_checkboxes(self, client, box, admin):
+        html = self._html(client, box, admin)
+        assert "叁万柒仟伍佰元整" in html                  # 金额大写
+        assert "￥37,500.00" in html or "￥37500.00" in html
+        assert "经营√经济□行政□人力□投资□往来□" in html     # 一级分类勾选串
+        assert "银行√" in html and "现金□" in html          # 结算方式勾选串
+        assert "计划内√计划外□" in html
+        assert "中国建设银行太原市漪汾街支行" in html
+        # 付款单没有物料行项：不应出现通用行项表
+        assert 'class="items"' not in html
