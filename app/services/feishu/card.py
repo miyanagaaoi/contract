@@ -30,6 +30,11 @@ DOC_PATHS: dict[str, str] = {
     "stock_out": "/stock/out-orders",
     "stock_take": "/stock/takes",
     "stock_transfer": "/stock/transfers",
+    # V2.5：财务域（前端路由在 M2 落地；先登记，避免卡片按钮静默消失，
+    # 并与 `permissions.DOC_APPROVE_PERM` 的完整性断言保持一致）
+    "payment": "/finance/payments",
+    "receipt": "/finance/receipts",
+    "invoice": "/finance/invoices",
 }
 
 # 每日摘要每条最多列几项（卡片 ≤30 KB；刷屏也会让人关掉机器人）
