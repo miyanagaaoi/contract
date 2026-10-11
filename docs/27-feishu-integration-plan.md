@@ -174,6 +174,14 @@ CTMS_FEISHU_BASE_URL=http://192.168.31.27:8080   # 卡片跳转链接的根地�
 ```
 
 - `app_secret` **只从环境变量读**，与 `CTMS_JWT_SECRET` 同策略；不入 KV 库、不进日志、错误信息中脱敏。
+  取值来自飞书后台 **基础信息 → 凭证与基础信息 → App Secret**，必须与 `CTMS_FEISHU_APP_ID` 属于**同一个应用**。
+- ⚠️ **后端不会自动加载 `.env` 文件**：`config.py` 用 `os.environ` 读取，
+  项目未引入 `python-dotenv`，所以 `.env.example` 只是模板，改它不生效。注入方式：
+  开发用 `set` / `$env:`（或写进 `start-all.bat`）；Windows 服务用 NSSM 的
+  `AppEnvironmentExtra`；Docker Compose 用 `environment:` 或 `env_file:`；systemd 用
+  `Environment=` / `EnvironmentFile=`。环境变量在**进程启动时**读取（模块级常量），改完必须**重启后端**。
+- 四项必须齐全才会启用：`CTMS_FEISHU_ENABLED` + `APP_ID` + `APP_SECRET` + `REDIRECT_URI`；
+  缺任何一项，飞书功能整体降级（**包括消息推送**，因为 `feishu_ready()` 是单一开关）。
 - 出网白名单（443）：`open.feishu.cn`、`accounts.feishu.cn`；如有出口代理，需为 `httpx` 配置代理（具体参数落地时确认）。
 - 每日提醒（复用既有计划任务机制，见 `docs/08` §57 / `docs/09` §9 / `deploy` 容器 cron）：
   `python -m app.tools.feishu_digest --kind warranty,stock,todo`
