@@ -47,3 +47,6 @@ web/.playwright/
 # 需要用 scripts/export-docker.bat 在本地重新生成）
 ctms-image-*.tar
 ctms-image-*.tar.gz
+
+# Office 临时锁文件（打开 xlsx/docx 时生成，形如 ~$xxx.xlsx，勿入库）
+~$*

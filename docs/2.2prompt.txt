@@ -1,0 +1,13 @@
+根据一下需求增加功能：
+1.仓库增加字段：所属公司，取值仅能选择系统设置里，我方公司（主体码字段）
+其他表单收货仓库默认显示公司名简称+仓库名，例如：ZC-主仓
+2.采购申请单、采购单、销售申请单、销售订单、入库单、出库单，增加签约公司，选取我方公司字段名称
+3.库存明细、增加筛选项，可以根据公司筛选商品
+4.调拨单增加调出单位和调入单位
+5.启动PostgreSQL数据库、迁移数据
+
+setx CTMS_FEISHU_ENABLED 1
+setx CTMS_FEISHU_APP_ID cli_aa41a09cf638dcef
+setx CTMS_FEISHU_APP_SECRET YOUR_FEISHU_APP_SECRET
+setx CTMS_FEISHU_REDIRECT_URI http://192.168.31.27:8080/feishu/callback
+setx CTMS_FEISHU_BASE_URL http://192.168.31.27:8080
