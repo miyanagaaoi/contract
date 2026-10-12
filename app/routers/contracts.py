@@ -38,7 +38,7 @@ from ..models import (
     contract_tag,
 )
 from ..models_auth import User
-from ..models_master import Customer, Product, Supplier
+from ..models_master import Customer, Product, Supplier, Uom
 from ..numbering import next_number
 from ..services import audit_service, migrate_service
 from ..services.permission_service import apply_data_scope, require_perm
@@ -199,6 +199,20 @@ def _fmt(c: Contract, db: Session | None = None) -> dict:
     # V2.0：往来单位档案名称（T-V2-13，列表/详情显示档案名；未绑定时回落到文本快照）
     customer = db.get(Customer, c.customer_id) if (db is not None and c.customer_id) else None
     supplier = db.get(Supplier, c.supplier_id) if (db is not None and c.supplier_id) else None
+    # V2.5：行项「单位」随物料带出（`product_id` → 物料档案的 `uom.name`）。
+    # 合同行项只存物料快照（code/name），单位非快照字段，故这里 join 查一次；
+    # 口径与单据行项（`doc_service` 的 `uom_name`）一致，前端只读展示。
+    items = c.items or []
+    uom_names: dict[int, str] = {}
+    product_ids = {it.product_id for it in items if it.product_id}
+    if product_ids and db is not None:
+        uom_names = {
+            pid: name
+            for pid, name in db.query(Product.id, Uom.name)
+            .join(Uom, Product.uom_id == Uom.id)
+            .filter(Product.id.in_(product_ids))
+            .all()
+        }
     return {
         "id": c.id,
         "contract_no": c.contract_no,
@@ -252,8 +266,10 @@ def _fmt(c: Contract, db: Session | None = None) -> dict:
              # 前端行项选择器、以及"提取合同明细"（N2）都依赖这三个字段。
              "product_id": it.product_id,
              "product_code": it.product_code,
-             "product_name": it.product_name}
-            for it in (c.items or [])
+             "product_name": it.product_name,
+             # V2.5：单位（非快照，按当前物料档案实时取；物料停用/删除后可为 None）
+             "uom_name": uom_names.get(it.product_id)}
+            for it in items
         ],
         "created_at": c.created_at.isoformat() if c.created_at else None,
         "updated_at": c.updated_at.isoformat() if c.updated_at else None,

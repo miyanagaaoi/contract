@@ -60,11 +60,19 @@ const typeTree = ref<Dict[]>([])
 const quickRef = ref<InstanceType<typeof QuickCreateDialog> | null>(null)
 const quickKind = ref<'product' | 'product-type' | 'uom'>('product')
 
-/** 商品类型树（`/master/product-types` 已返回现成 tree 结构） */
+/**
+ * 商品类型树（`/master/product-types` 已返回现成 tree 结构）。
+ *
+ * ⚠️ 路径必须带 `/master` 前缀：`http` 的 baseURL 是 `/api`，原先写作 `/product-types`
+ * 实际请求 `/api/product-types` → 404（`QuickCreateDialog.vue` 修过同一个坑）。
+ * 后果不是"报错"而是**静默空树**：`catch` 把 404 吞掉后 `typeTree` 恒为 `[]`，
+ * 新增物料时下拉显示"无数据"（选不到任何已有类型），编辑时 `el-tree-select` 只能把
+ * `v-model` 的裸 ID 回显出来（如 `8`）而不是类型名称。
+ */
 async function ensureTypeTree(force = false) {
   if (typeTree.value.length && !force) return
   try {
-    const res: Dict = await fetchMasterList('/product-types')
+    const res: Dict = await fetchMasterList('/master/product-types')
     typeTree.value = (res.tree ?? res.items ?? []) as Dict[]
   } catch {
     typeTree.value = []
@@ -238,6 +246,9 @@ async function remove(row: Dict) {
 
 onMounted(async () => {
   await loadOptions()
+  // 建树先于打开表单：树只在下拉 `visible-change` 时才加载，编辑已有物料时
+  // `el-tree-select` 在树到位前只能显示裸 ID（见 ensureTypeTree 注释）。
+  if (props.fields.some((f) => f.type === 'tree-select')) await ensureTypeTree()
   await load()
 })
 </script>

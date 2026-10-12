@@ -30,10 +30,12 @@ import {
   uploadAttachment,
   type Dict,
 } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 import { fmtDate, fmtDateTime, fmtMoney } from '@/utils/format'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 
 // ---------- 状态 ----------
 const rows = ref<Dict[]>([])
@@ -322,6 +324,36 @@ async function loadPartyOptions() {
   }
 }
 
+// ---------- 经办人：系统用户下拉（与单据页 `DocFormPage` 同源） ----------
+/**
+ * `Contract` 只有文本字段 `owner_name`（无 `handler_user_id`），因此这里**绑姓名**：
+ * 下拉 `value` 就是用户姓名，选中即写入既有的 `owner_name`。
+ * 好处是历史数据（纯文本/已停用账号）原样保留、后端与"提取合同明细"等调用方零改动；
+ * 代价是同名账号无法区分——对内网 3~4 人规模可接受。
+ */
+const ownerOptions = ref<Dict[]>([])
+
+async function loadOwnerOptions() {
+  try {
+    ownerOptions.value = await fetchMasterOptions('user')
+  } catch {
+    // 取不到账号列表时不阻塞表单：`ownerChoices` 会把已有 owner_name 兜底显示出来，
+    // 用户仍可保存原文（历史数据不因接口异常而丢）
+    ownerOptions.value = []
+  }
+}
+
+/**
+ * 下拉候选：历史 `owner_name` 不在启用账号列表里时（账号被停用、或早期纯文本录入），
+ * 补一条同名选项，否则 `el-select` 会显示空白、看起来像"经办人丢了"。
+ * 兜底项没有登录名，label 只显示姓名（与改动前的纯文本输入观感一致）。
+ */
+const ownerChoices = computed<Dict[]>(() => {
+  const name = String(form.owner_name || '')
+  if (!name || ownerOptions.value.some((u) => u.name === name)) return ownerOptions.value
+  return [...ownerOptions.value, { id: `raw:${name}`, name, username: '' }]
+})
+
 /** 选择档案后写入名称快照（后端同样会回填，前端即时可见） */
 function onCustomerChange(id: number | null) {
   const hit = customerOptions.value.find((c) => c.id === id)
@@ -334,9 +366,9 @@ function onSupplierChange(id: number | null) {
 }
 
 function emptyRow(): Dict {
-  // V2.1（N4）：行项必须绑定物料档案，故新增 product_id 与快照字段
+  // V2.1（N4）：行项必须绑定物料档案，故新增 product_id 与快照字段（含单位 uom_name）
   return { item_type: meta.value.item_types?.[0] ?? '采购', name: '', spec: '',
-           product_id: null, product_code: '', product_name: '',
+           product_id: null, product_code: '', product_name: '', uom_name: '',
            qty: null, unit_price: null, remark: '' }
 }
 
@@ -354,12 +386,14 @@ async function ensureProducts() {
   }
 }
 
-/** 选中物料 → 带出名称/规格/默认单价（用户仍可覆盖） */
+/** 选中物料 → 带出名称/规格/单位/默认单价（用户仍可覆盖） */
 function onItemProductChange(row: Dict, id: number | null) {
   const hit = productOptions.value.find((p) => p.id === id)
   if (!hit) return
   row.product_code = hit.code ?? ''
   row.product_name = hit.name ?? ''
+  // V2.5：单位随物料带出（只读列；口径与单据行项 `DocItemsTable` 一致）
+  row.uom_name = hit.uom_name ?? ''
   if (!(row.name || '').trim()) row.name = hit.name ?? ''
   if (!(row.spec || '').trim() && hit.spec) row.spec = hit.spec
   const price = Number(row.unit_price) || 0
@@ -379,13 +413,43 @@ function resetForm() {
 }
 
 // 行项（MVP2 需求①）联动计算
-const hasItems = computed(() => (form.items?.length ?? 0) > 0)
+/**
+ * 空行判定：与 `save()` 提交时的过滤口径**必须一致**（两处漂移会导致
+ * "界面说没行项、提交时却按行项算金额"这类难查的错）。
+ */
+function isBlankRow(r: Dict): boolean {
+  // 与原先 `save()` 里 map 之后再 filter 的口径等价：文本 trim 后为空、数量/单价折算为 0
+  return !(
+    String(r.name ?? '').trim() || String(r.spec ?? '').trim()
+    || Number(r.qty) || Number(r.unit_price) || String(r.remark ?? '').trim()
+  )
+}
+
+/**
+ * 是否有"有效行项"。
+ *
+ * ⚠️ 不能用 `form.items.length`：`openEdit()` 会给**没有行项的合同**补一个空行占位，
+ * 按长度判断会得到 `true` → 金额框被禁用、合计按 0 算，编辑老合同一保存就把金额清零。
+ */
+const hasItems = computed(() => (form.items || []).some((r: Dict) => !isBlankRow(r)))
 
 function rowTotal(r: Dict): number {
   return Number(((Number(r.qty) || 0) * (Number(r.unit_price) || 0)).toFixed(2))
 }
 
 const itemsTotal = computed(() => (form.items || []).reduce((s: number, r: Dict) => s + rowTotal(r), 0))
+
+/**
+ * 行项合计是**派生值**：有（有效）行项时「合同金额」必须实时等于它。
+ *
+ * 原先 `form.amount` 只在保存时（`save()` 里 `payload.amount = itemsTotal`）才被赋值，
+ * 而金额输入框在有行项时是 `disabled` 的——于是改数量/单价/增删行后，框里始终停着
+ * 打开表单时的旧值（新增时就是 0），用户看到"汇总金额没更新"。
+ * 这里把显示值也与 `itemsTotal` 同步，保证**界面显示 = 提交给后端的金额**。
+ */
+watch(itemsTotal, (v) => {
+  if (hasItems.value) form.amount = v
+})
 
 function addItemRow() {
   form.items.push(emptyRow())
@@ -466,6 +530,8 @@ function openNew() {
   editingId.value = null
   resetForm()
   form.subject_code = defaultSubjectCode()
+  // 经办人默认当前登录账号（与单据页 `handler_user_id` 的默认口径一致）
+  form.owner_name = auth.displayName
   form.type = String(meta.value.contract_type_defs?.find((t: Dict) => t.enabled && t.code !== 'OTH')?.label ?? meta.value.contract_types?.[0] ?? '采购/支出')
   previewNo.value = ''
   dialogVisible.value = true
@@ -487,7 +553,7 @@ function openEdit(row: Dict) {
     items: (row.items ?? []).map((it: Dict) => ({
       item_type: it.item_type ?? '采购', name: it.name ?? '', spec: it.spec ?? '',
       product_id: it.product_id ?? null, product_code: it.product_code ?? '',
-      product_name: it.product_name ?? '',
+      product_name: it.product_name ?? '', uom_name: it.uom_name ?? '',
       qty: it.qty ?? null, unit_price: it.unit_price ?? null, remark: it.remark ?? '',
     })),
     has_warranty: row.has_warranty ?? false,
@@ -519,6 +585,8 @@ async function save() {
     return
   }
   const items = (form.items || [])
+    // 过滤口径与 `hasItems` / `isBlankRow` 共用一处，避免"显示金额"与"提交行项"判断漂移
+    .filter((r: Dict) => !isBlankRow(r))
     .map((r: Dict, i: number) => ({
       seq: i + 1,
       item_type: r.item_type || '采购',
@@ -529,7 +597,6 @@ async function save() {
       unit_price: Number(r.unit_price) || 0,
       remark: (r.remark || '').trim(),
     }))
-    .filter((r: Dict) => r.name || r.spec || r.qty || r.unit_price || r.remark)
   // V2.1（N4，BR-V2.1-02）：行项必须选物料。前端给出**精确到行**的提示，
   // 服务端 `routers/contracts.py::_resolve_item_product` 仍会强制校验（前端不算边界）。
   const missingIdx = items.findIndex((r: Dict) => !r.product_id)
@@ -869,7 +936,7 @@ function fLabel(f: string): string {
 onMounted(async () => {
   meta.value = await getMeta()
   applyQueryFromUrl()      // 深链/刷新：先回填筛选，避免多打一次接口
-  await Promise.all([load(), loadFrameworks(), loadTags(), loadPartyOptions()])
+  await Promise.all([load(), loadFrameworks(), loadTags(), loadPartyOptions(), loadOwnerOptions()])
 })
 </script>
 
@@ -1048,7 +1115,15 @@ onMounted(async () => {
             </el-select>
           </el-form-item></el-col>
           <el-col :span="6"><el-form-item label="签订日期"><el-date-picker v-model="form.sign_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item></el-col>
-          <el-col :span="6"><el-form-item label="经办人"><el-input v-model="form.owner_name" /></el-form-item></el-col>
+          <el-col :span="6"><el-form-item label="经办人">
+            <!-- 数据源与单据页一致：`/api/master/options/user`（仅启用账号）；
+                 绑姓名而非 id —— `Contract` 只有文本字段 `owner_name`（见 ownerChoices 注释） -->
+            <el-select v-model="form.owner_name" filterable clearable placeholder="选择系统用户"
+                       style="width: 100%">
+              <el-option v-for="u in ownerChoices" :key="u.id"
+                         :label="u.username ? `${u.name}（${u.username}）` : u.name" :value="u.name" />
+            </el-select>
+          </el-form-item></el-col>
           <el-col :span="12"><el-form-item label="甲方">
             <el-select v-if="isSalesType" v-model="form.customer_id" filterable clearable
                        placeholder="选择客户档案（销售合同）" style="width: 100%"
@@ -1109,6 +1184,11 @@ onMounted(async () => {
           </el-table-column>
           <el-table-column label="规格型号" min-width="110">
             <template #default="{ row }"><el-input v-model="row.spec" size="small" placeholder="如 X-2000" /></template>
+          </el-table-column>
+          <!-- V2.5：单位只读列，随所选物料带出（口径同单据行项 `DocItemsTable`；
+               编辑旧合同时由后端 `/api/contracts` 的 items 返回 `uom_name`） -->
+          <el-table-column label="单位" width="80">
+            <template #default="{ row }"><span>{{ row.uom_name || '—' }}</span></template>
           </el-table-column>
           <el-table-column label="数量" width="110">
             <template #default="{ row }"><el-input-number v-model="row.qty" :min="0" :precision="3" :controls="false" size="small" style="width: 100%" /></template>
