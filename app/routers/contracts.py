@@ -49,6 +49,8 @@ router = APIRouter(prefix="/api/contracts", tags=["contracts"])
 TRACKED_FIELDS = [
     "contract_no", "name", "type", "party_a", "party_b", "sign_date", "effective_date",
     "subject_matter", "amount", "currency", "subject_code", "paid_amount", "has_warranty",
+    # V2.5+：销售/收入类合同的「累计已收」（收款单审核增量回写；台账按类型取数）
+    "received_amount",
     "warranty_amount", "warranty_rate", "warranty_start", "warranty_months",
     "warranty_end", "warranty_released", "warranty_release_date", "warranty_note",
     "is_framework", "parent_id", "arrival_status", "expected_arrival_date",
@@ -59,7 +61,7 @@ TRACKED_FIELDS = [
 
 _INT_FIELDS = {"warranty_months", "customer_id", "supplier_id"}
 _BOOL_FIELDS = {"has_warranty", "warranty_released", "is_framework"}
-_DECIMAL_FIELDS = {"amount", "paid_amount", "warranty_amount", "warranty_rate"}
+_DECIMAL_FIELDS = {"amount", "paid_amount", "received_amount", "warranty_amount", "warranty_rate"}
 _DATE_FIELDS = {
     "sign_date", "effective_date", "warranty_start", "warranty_end",
     "warranty_release_date", "expected_arrival_date",
@@ -236,6 +238,9 @@ def _fmt(c: Contract, db: Session | None = None) -> dict:
         "created_by": c.created_by,
         "paid_amount": float(c.paid_amount) if c.paid_amount is not None else None,
         "payment_ratio": float(ratio) if ratio is not None else None,
+        # V2.5+：销售/收入类合同的累计已收与收款比例（前端按类型二选一显示，避免前后端两套算法）
+        "received_amount": float(c.received_amount) if c.received_amount is not None else None,
+        "receipt_ratio": float(c.receipt_ratio) if c.receipt_ratio is not None else None,
         "has_warranty": c.has_warranty,
         "warranty_amount": float(c.warranty_amount) if c.warranty_amount is not None else None,
         "warranty_rate": float(c.warranty_rate) if c.warranty_rate is not None else None,

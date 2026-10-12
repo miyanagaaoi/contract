@@ -181,6 +181,10 @@ def _parse_main(db: Session, row: dict) -> dict:
         "is_framework": _clean(row.get("是否框架")).startswith("是"),
         "_type_code": code,
     }
+    # V2.5+：销售/收入合同的台账口径是「累计已收」，故导入模板里的"已付金额"写入
+    # `received_amount`（列表按合同类型二选一取数，见 `contracts._fmt`）；采购/其他类型仍进 `paid_amount`。
+    if code == "SAL":
+        payload["received_amount"] = payload.pop("paid_amount")
     tag_txt = _clean(row.get("标签(逗号分隔)"))
     payload["tags"] = [t.strip() for t in tag_txt.split(",") if t.strip()] if tag_txt else []
     w_amount = _to_dec(row.get("质保金额"), "质保金额", allow_none=True)

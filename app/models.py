@@ -119,6 +119,10 @@ class Contract(Base):
     customer_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)      # 客户档案 id
     supplier_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)      # 供应商档案 id
     paid_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)  # 累计已付（BR3）
+    # V2.5+：累计已收（销售/收入类合同的收款口径）。与 `paid_amount` 同构——审核收款单时
+    # 由 `finance_service._write_back_contract` **增量**回写、反审核精确回退；
+    # 合同台账的「已付（比例）」列按类型取其中一个（采购/支出→已付，销售/收入→已收）。
+    received_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     has_warranty: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)       # BR5
     warranty_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)   # 质保金金额
     warranty_rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)     # 质保金比例
@@ -164,6 +168,13 @@ class Contract(Base):
         if self.amount is None or self.amount == 0:
             return None
         return (self.paid_amount / self.amount) * Decimal("100")
+
+    @property
+    def receipt_ratio(self) -> Decimal | None:
+        """收款比例 = 累计已收 / 合同金额 ×100%（与 `payment_ratio` 同口径，除零返回 None）。"""
+        if self.amount is None or self.amount == 0:
+            return None
+        return (self.received_amount / self.amount) * Decimal("100")
 
 
 class Tag(Base):

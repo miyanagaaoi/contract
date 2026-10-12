@@ -21,6 +21,16 @@ const related = ref<Dict[]>([])
 // fmtMoney 统一走 @/utils/format（T1-3）：空值由 '0.00' 改为 '—'，
 // 消除「空」与「零」在界面上不可辨的问题。
 
+/**
+ * V2.5+：销售/收入类合同看「累计已收」（收款单回写），其余看「累计已付」（付款单回写），
+ * 与合同台账「已付（比例）」列同一口径。本抽屉是只读轻量组件（不加载类型字典），
+ * 故直接按类型文本判定。
+ */
+function isSalesContract(type: unknown): boolean {
+  const value = String(type ?? '')
+  return value.includes('销售') || value.includes('收入')
+}
+
 /** 打开抽屉并加载指定合同（`id` 为空时不动作） */
 async function open(id: number | null | undefined) {
   if (!id) return
@@ -64,7 +74,9 @@ defineExpose({ open })
           <el-descriptions-item label="乙方">{{ contract.party_b || '—' }}</el-descriptions-item>
           <el-descriptions-item label="签订日期">{{ contract.sign_date || '—' }}</el-descriptions-item>
           <el-descriptions-item label="合同金额">{{ fmtMoney(contract.amount) }}</el-descriptions-item>
-          <el-descriptions-item label="累计已付">{{ fmtMoney(contract.paid_amount) }}</el-descriptions-item>
+          <el-descriptions-item :label="isSalesContract(contract.type) ? '累计已收' : '累计已付'">
+            {{ fmtMoney(isSalesContract(contract.type) ? contract.received_amount : contract.paid_amount) }}
+          </el-descriptions-item>
           <el-descriptions-item label="经办人">{{ contract.owner_name || '—' }}</el-descriptions-item>
         </el-descriptions>
 

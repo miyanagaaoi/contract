@@ -10,6 +10,8 @@
  * - **组件放置位置**：四个区块（标题区 / 表头信息 / 行项明细 / 签字与备注）的整体
  *   先后顺序；表头字段与行项列的先后顺序（↑↓）、是否显示、是否独占整行；
  *   表头每行放几个字段；
+ * - **组成部分显隐**（V2.5+）：标题区 / 表头信息 / 行项明细 / 签字与备注 / 页脚
+ *   各自一个显示开关（默认全开，可只打行项与签字）；
  * - **文字信息（字段级）**：表头字段标签、行项列标签、签字栏文字（可增删改序）。
  *
  * 交互要点：
@@ -381,9 +383,22 @@ onMounted(async () => {
               <div class="tip-line">提示：至少需要保留一列；金额列开启时会自动带「合计」行。</div>
             </el-collapse-item>
 
-            <!-- 签字与备注 -->
-            <el-collapse-item name="sign" title="⑤ 签字栏与备注">
+            <!-- 组成部分显隐 + 签字栏与备注 -->
+            <el-collapse-item name="sign" title="⑤ 显示开关 / 签字栏与备注">
               <el-form label-width="96px" :disabled="!canEdit" size="small">
+                <!-- V2.5+：5 个组成部分各自的**显示开关**（默认全开），与下面的审批/备注/作废开关同一组。
+                     清单来自后端 meta.show_keys，前端不重复硬编码（新增组成部分时这里无需改动）。
+                     开关决定"印不印"，② 里的区块顺序决定"谁在上面"。 -->
+                <el-form-item v-for="part in meta.show_keys || []" :key="part.key as string"
+                              :label="part.label as string">
+                  <el-switch v-model="config[part.key as string]" />
+                  <span class="tip">{{ part.note }}</span>
+                </el-form-item>
+                <el-form-item>
+                  <span class="tip-line">
+                    提示：关掉的部分整块不打印（例如只要行项与签字，就关掉「标题区」「表头信息」「页脚」）。
+                  </span>
+                </el-form-item>
                 <el-form-item label="审批信息">
                   <el-switch v-model="config.show_approval" />
                   <span class="tip">制单人、提交时间、审核时间</span>

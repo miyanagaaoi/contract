@@ -35,6 +35,7 @@ from app.models_doc import (
     PaymentOrder,
     PurchaseOrder,
     PurchaseOrderItem,
+    ReceiptAllocation,
     ReceiptOrder,
     SalesOrder,
     SalesOrderItem,
@@ -157,6 +158,8 @@ class Box:
                 db.query(PaymentAllocation).filter(PaymentAllocation.payment_id == pid).delete()
                 db.query(PaymentOrder).filter(PaymentOrder.id == pid).delete()
             for rid in self.docs["receipts"]:
+                # 与付款单一致：先删核销明细，避免留下孤儿行
+                db.query(ReceiptAllocation).filter(ReceiptAllocation.receipt_id == rid).delete()
                 db.query(ReceiptOrder).filter(ReceiptOrder.id == rid).delete()
             for iid in self.docs["invoices"]:
                 db.query(InvoiceAllocation).filter(InvoiceAllocation.invoice_id == iid).delete()
@@ -565,6 +568,122 @@ class TestContractWriteBack:
                 finance_service.approve_fund_doc(db, pay, _User())
                 db.commit()
                 assert db.get(Contract, cid).paid_amount == Decimal("0.00")
+        finally:
+            self._drop_contract(cid)
+
+
+# ===================== 合同累计已收回写（V2.5+：收款单 → received_amount） =====================
+
+class TestContractReceivedAmountWriteBack:
+    """收款单审核/反审核回写销售合同「累计已收」；台账按合同类型二选一取数。"""
+
+    def _contract(self, amount: str = "10000", received: str = "0",
+                  ctype: str = "销售/收入") -> tuple[int, str]:
+        from app.models import Contract
+
+        no = f"HT{uuid.uuid4().hex[:8].upper()}"
+        with SessionLocal() as db:
+            contract = Contract(contract_no=no, name="E2E 收款合同", type=ctype,
+                                party_a="测试客户", party_b="众诚",
+                                amount=Decimal(amount), received_amount=Decimal(received))
+            db.add(contract)
+            db.commit()
+            return contract.id, no
+
+    def _drop_contract(self, cid: int) -> None:
+        from app.models import ChangeLog, Contract
+
+        with SessionLocal() as db:
+            db.query(ChangeLog).filter(ChangeLog.contract_id == cid).delete()
+            db.query(Contract).filter(Contract.id == cid).delete()
+            db.commit()
+
+    def _submitted_receipt(self, db, box, amount: str, so_id: int) -> ReceiptOrder:
+        """建一张草稿收款单（带一行核销）并提交 —— 服务层用例驱动记账前的状态机。"""
+        from app.services import doc_service
+
+        recv = ReceiptOrder(doc_no=f"REC{uuid.uuid4().hex[:8].upper()}", doc_date=date.today(),
+                            status="draft", customer_id=box.customer_id,
+                            customer_name=box.customer_name, total_amount=Decimal(amount),
+                            subject_code=SUBJECT, subject_name="众诚")
+        db.add(recv)
+        db.flush()
+        finance_service.parse_allocations(db, recv, [{
+            "target_type": "sales_order", "target_id": so_id, "amount": amount}], kind="receipt")
+        doc_service.submit(db, recv, _User())
+        return recv
+
+    def test_approve_and_unapprove_update_received_amount(self, box):
+        from app.models import Contract
+
+        cid, _no = self._contract(received="0")
+        so_id = box.sales_order(amount="10000")
+        try:
+            with SessionLocal() as db:
+                recv = self._submitted_receipt(db, box, "3000", so_id)
+                recv.contract_id = cid
+                db.commit()
+                box.docs["receipts"].append(recv.id)
+                finance_service.approve_fund_doc(db, recv, _User())
+                db.commit()
+                assert db.get(Contract, cid).received_amount == Decimal("3000.00")
+                # 方向隔离：收款单不动合同「累计已付」
+                assert db.get(Contract, cid).paid_amount == Decimal("0.00")
+
+                finance_service.unapprove_fund_doc(db, db.get(ReceiptOrder, recv.id), "录错", _User())
+                db.commit()
+                assert db.get(Contract, cid).received_amount == Decimal("0.00")
+        finally:
+            self._drop_contract(cid)
+
+    def test_manual_received_amount_is_preserved(self, box):
+        """合同上人工补录的历史收款（500）不被覆盖：审核 3000 → 3500（与付款侧同口径）。"""
+        from app.models import Contract
+
+        cid, _no = self._contract(received="500")
+        so_id = box.sales_order(amount="10000")
+        try:
+            with SessionLocal() as db:
+                recv = self._submitted_receipt(db, box, "3000", so_id)
+                recv.contract_id = cid
+                db.commit()
+                box.docs["receipts"].append(recv.id)
+                finance_service.approve_fund_doc(db, recv, _User())
+                db.commit()
+                assert db.get(Contract, cid).received_amount == Decimal("3500.00")
+        finally:
+            self._drop_contract(cid)
+
+    def test_receipt_without_contract_is_noop(self, box):
+        from app.models import Contract
+
+        cid, _no = self._contract(received="0")
+        so_id = box.sales_order(amount="10000")
+        try:
+            with SessionLocal() as db:
+                recv = self._submitted_receipt(db, box, "1000", so_id)     # 未关联合同
+                db.commit()
+                box.docs["receipts"].append(recv.id)
+                finance_service.approve_fund_doc(db, recv, _User())
+                db.commit()
+                assert db.get(Contract, cid).received_amount == Decimal("0.00")
+        finally:
+            self._drop_contract(cid)
+
+    def test_contract_api_exposes_amounts_by_type(self, client, admin):
+        """接口层：销售合同带回 `received_amount`/`receipt_ratio`，且表单可维护（列表按类型取数）。"""
+        cid, no = self._contract(amount="10000", received="6000")
+        try:
+            row = client.get("/api/contracts", params={"keyword": no}, headers=admin).json()["items"][0]
+            assert row["received_amount"] == 6000.0
+            assert row["receipt_ratio"] == 60.0
+            assert row["paid_amount"] == 0.0          # 两个口径互不干扰
+
+            updated = client.put(f"/api/contracts/{cid}", json={"received_amount": "8000"},
+                                 headers=admin)
+            assert updated.status_code == 200, updated.text
+            assert updated.json()["received_amount"] == 8000.0
+            assert updated.json()["receipt_ratio"] == 80.0
         finally:
             self._drop_contract(cid)
 

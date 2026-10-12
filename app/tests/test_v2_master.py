@@ -478,6 +478,21 @@ class TestProduct:
         created = box.product(ptype_id=leaf["id"], uom_id=uom["id"], code="MANUAL-001")
         assert created["code"] == "MANUAL-001"
 
+    def test_blank_code_auto_generates(self, box):
+        """编码**留空**（缺省 / 空串 / 全空格）一律自动生成 —— 前端不必再手填。"""
+        leaf = box.ptype(code="BLK")
+        uom = box.uom()
+        for raw in (None, "", "   "):
+            payload = {"name": f"留空物料_{uuid.uuid4().hex[:4]}",
+                       "product_type_id": leaf["id"], "uom_id": uom["id"]}
+            if raw is not None:
+                payload["code"] = raw
+            resp = box.client.post(f"{API}/products", headers=box.h, json=payload)
+            assert resp.status_code == 200, resp.text
+            data = resp.json()
+            box.products.append(data["id"])
+            assert data["code"].startswith("BLK"), data["code"]
+
     def test_snapshot_fields_of_type_and_uom(self, box):
         leaf = box.ptype(code="STL")
         uom = box.uom(decimals=3)

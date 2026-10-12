@@ -78,6 +78,8 @@ _ADD_COLUMNS: list[tuple[str, str, str]] = [
     ("purchase_orders", "invoiced_amount", "NUMERIC(16,2) NOT NULL DEFAULT 0"),
     ("sales_orders", "received_amount", "NUMERIC(16,2) NOT NULL DEFAULT 0"),
     ("sales_orders", "invoiced_amount", "NUMERIC(16,2) NOT NULL DEFAULT 0"),
+    # ---- V2.5+：合同「累计已收」（销售/收入类合同，收款单审核增量回写；列表按类型取数） ----
+    ("contracts", "received_amount", "NUMERIC(14,2) NOT NULL DEFAULT 0"),
 ]
 
 _ADD_INDEXES: list[tuple[str, str, str]] = [

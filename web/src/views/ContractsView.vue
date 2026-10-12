@@ -290,7 +290,7 @@ const editingId = ref<number | null>(null)
 const form = reactive<Dict>({
   contract_no: '', name: '', type: '采购', party_a: '', party_b: '',
   customer_id: null, supplier_id: null,
-  sign_date: '', amount: 0, paid_amount: 0, status: '内部审批中',
+  sign_date: '', amount: 0, paid_amount: 0, received_amount: 0, status: '内部审批中',
   owner_name: '', remark: '', is_framework: false, parent_id: null, tags: [],
   items: [] as Dict[], subject_code: '',
   has_warranty: false, warranty_amount: null, warranty_rate: null,
@@ -310,6 +310,30 @@ const typeCode = computed(() => {
 })
 const isPurchaseType = computed(() => typeCode.value === 'PUR')
 const isSalesType = computed(() => typeCode.value === 'SAL')
+
+/**
+ * 合同方向的**行级**判定（列表/详情用）：先按类型定义表把标签/代码映射回标准码
+ * （`销售/收入`→SAL），映射不到时（历史纯文本"销售"、字典项被停用）用关键词兜底。
+ *
+ * 口径（V2.5+）：销售/收入类合同的金额来自**收款单**（`received_amount`），
+ * 其余来自**付款单**（`paid_amount`）—— 同一列「已付（比例）」按类型二选一显示，
+ * 分母都是合同金额，故两个比例字段也二选一。
+ */
+function isSalesRow(type: unknown): boolean {
+  const value = String(type ?? '')
+  const defs = (meta.value.contract_type_defs || []) as Dict[]
+  const code = String(defs.find((d) => d.label === value || d.code === value)?.code || '')
+  if (code) return code === 'SAL'
+  return value.includes('销售') || value.includes('收入')
+}
+
+function rowAmount(row: Dict) {
+  return isSalesRow(row.type) ? row.received_amount : row.paid_amount
+}
+
+function rowRatio(row: Dict) {
+  return isSalesRow(row.type) ? row.receipt_ratio : row.payment_ratio
+}
 
 async function loadPartyOptions() {
   try {
@@ -404,7 +428,7 @@ function resetForm() {
   Object.assign(form, {
     contract_no: '', name: '', type: '采购', party_a: '', party_b: '',
     customer_id: null, supplier_id: null,
-    sign_date: '', amount: 0, paid_amount: 0, status: '内部审批中',
+    sign_date: '', amount: 0, paid_amount: 0, received_amount: 0, status: '内部审批中',
     owner_name: '', remark: '', is_framework: false, parent_id: null, tags: [],
     items: [] as Dict[], subject_code: '',
     has_warranty: false, warranty_amount: null, warranty_rate: null,
@@ -546,6 +570,7 @@ function openEdit(row: Dict) {
     customer_id: row.customer_id ?? null, supplier_id: row.supplier_id ?? null,
     sign_date: row.sign_date ?? '',
     amount: row.amount ?? 0, paid_amount: row.paid_amount ?? 0,
+    received_amount: row.received_amount ?? 0,
     status: row.status, owner_name: row.owner_name ?? '',
     remark: row.remark ?? '', is_framework: row.is_framework,
     parent_id: row.parent_id ?? null, tags: [...(row.tags ?? [])],
@@ -613,7 +638,8 @@ async function save() {
       customer_id: isSalesType.value ? form.customer_id : null,
       supplier_id: isPurchaseType.value ? form.supplier_id : null,
       sign_date: form.sign_date || null,
-      paid_amount: form.paid_amount, status: form.status,
+      paid_amount: form.paid_amount, received_amount: form.received_amount,
+      status: form.status,
       owner_name: form.owner_name || '', remark: form.remark || '',
       is_framework: form.is_framework, parent_id: form.parent_id,
       tags: form.tags, items,
@@ -1056,10 +1082,11 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="已付（比例）" width="128" align="right">
           <template #default="{ row }">
-            <span>{{ fmtMoney(row.paid_amount) }}</span>
+            <!-- V2.5+：同一列按合同类型取数 —— 销售/收入看「累计已收」（收款单），其余看「累计已付」（付款单） -->
+            <span>{{ fmtMoney(rowAmount(row)) }}</span>
             <span class="ratio">
-              {{ row.payment_ratio !== null && row.payment_ratio !== undefined
-                ? Number(row.payment_ratio).toFixed(1) + '%' : '—' }}
+              {{ rowRatio(row) !== null && rowRatio(row) !== undefined
+                ? Number(rowRatio(row)).toFixed(1) + '%' : '—' }}
             </span>
           </template>
         </el-table-column>
@@ -1219,7 +1246,7 @@ onMounted(async () => {
           </div>
         </div>
 
-        <el-divider content-position="left">金额与付款（比例 = 已付 ÷ 金额）</el-divider>
+        <el-divider content-position="left">金额与收付款（比例 = 已付/已收 ÷ 金额）</el-divider>
         <el-row :gutter="12">
           <el-col :span="8">
             <el-form-item label="合同金额">
@@ -1228,7 +1255,15 @@ onMounted(async () => {
               <span v-if="hasItems" class="gray" style="line-height:1">＝行项合计</span>
             </el-form-item>
           </el-col>
-          <el-col :span="8"><el-form-item label="累计已付"><el-input-number v-model="form.paid_amount" :min="0" :precision="2" :controls="false" style="width: 100%" /></el-form-item></el-col>
+          <!-- V2.5+：字段随合同方向切换 —— 销售/收入类录「累计已收」（收款单回写口径），其余录「累计已付」 -->
+          <el-col :span="8">
+            <el-form-item :label="isSalesType ? '累计已收' : '累计已付'">
+              <el-input-number v-if="isSalesType" v-model="form.received_amount"
+                               :min="0" :precision="2" :controls="false" style="width: 100%" />
+              <el-input-number v-else v-model="form.paid_amount"
+                               :min="0" :precision="2" :controls="false" style="width: 100%" />
+            </el-form-item>
+          </el-col>
           <el-col :span="8"><el-form-item label="状态"><el-select v-model="form.status" filterable style="width: 100%"><el-option v-for="s in meta.statuses" :key="s" :label="s" :value="s" /></el-select></el-form-item></el-col>
         </el-row>
         <el-divider content-position="left">质保金（BR5 · 到期日自动计算并提醒）</el-divider>
@@ -1401,9 +1436,11 @@ onMounted(async () => {
           <el-descriptions-item label="经办人">{{ detail.owner_name || '—' }}</el-descriptions-item>
           <el-descriptions-item label="标的物" :span="2">{{ detail.subject_matter || '—' }}</el-descriptions-item>
           <el-descriptions-item label="合同金额">{{ fmtMoney(detail.amount) }}</el-descriptions-item>
-          <el-descriptions-item label="累计已付">{{ fmtMoney(detail.paid_amount) }}</el-descriptions-item>
-          <el-descriptions-item label="付款比例">
-            {{ detail.payment_ratio !== null ? Number(detail.payment_ratio).toFixed(1) + '%' : '—' }}
+          <el-descriptions-item :label="isSalesRow(detail.type) ? '累计已收' : '累计已付'">
+            {{ fmtMoney(rowAmount(detail)) }}
+          </el-descriptions-item>
+          <el-descriptions-item :label="isSalesRow(detail.type) ? '收款比例' : '付款比例'">
+            {{ rowRatio(detail) !== null ? Number(rowRatio(detail)).toFixed(1) + '%' : '—' }}
           </el-descriptions-item>
           <el-descriptions-item label="所属框架">{{ detail.parent_no || '—' }}</el-descriptions-item>
           <el-descriptions-item v-if="detail.is_framework" label="子合同" :span="2">

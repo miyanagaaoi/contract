@@ -26,9 +26,18 @@ const fields: MasterField[] = [
   // V2.1（N15）：计量单位同样支持现场快建
   { prop: 'uom_id', label: '计量单位', type: 'options', optionKind: 'uom',
     quickCreate: 'uom', required: true },
-  { prop: 'code', label: '物料编码', placeholder: '留空自动生成（类型码+序号）', span: 24 },
+  // V2.5+：编码由系统自动生成（留空即自动，按"商品类型码+序号"），**编辑时只读**——
+  // 编码是审计线索（单据/库存/合同行项都存了快照），创建后改动会让历史单据对不上物料。
+  // 显式传入仍按传入值（历史/导入场景），接口层保留该能力。
+  { prop: 'code', label: '物料编码', placeholder: '留空自动生成（类型码+序号）', span: 24,
+    readonlyOnEdit: true, tip: '留空即按商品类型码自动生成；保存后不再修改' },
   { prop: 'spec', label: '规格型号' },
-  { prop: 'brand', label: '品牌' },
+  // V2.5+：品牌改为**从供应商档案选择**，显示并保存**简称**（无简称回落全称）：
+  // 落库的仍是文本快照（`Product.brand`），供应商改名/停用不影响历史物料；
+  // 旧数据的自由文本仍能显示（下拉里会带出历史值，不会被清空）。
+  { prop: 'brand', label: '品牌', type: 'options', optionKind: 'supplier',
+    storeText: true, textField: 'short_name', placeholder: '选择系统供应商（显示简称）',
+    tip: '取供应商档案的简称（未维护简称时显示全称）；保存为简称快照' },
   { prop: 'barcode', label: '条码' },
   { prop: 'default_price', label: '默认单价', type: 'number', precision: 4, min: 0 },
   { prop: 'safety_stock', label: '安全库存', type: 'number', precision: 3, min: 0 },

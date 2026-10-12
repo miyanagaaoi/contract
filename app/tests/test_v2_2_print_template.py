@@ -297,3 +297,65 @@ def test_sample_doc_covers_every_kind():
         doc = print_service.sample_doc(kind)
         assert print_service.doc_kind_of(doc) == kind
         assert len(doc.items) >= 1
+
+
+# ===================== 5 个组成部分的显示开关（V2.5+） =====================
+
+def test_show_switches_default_on_and_legacy_compatible():
+    """5 个开关默认全开；**旧配置**（没有这些键）读取时按开处理 —— 升级后版面不变。"""
+    keys = [key for key, _, _ in print_template_service.SHOW_KEYS]
+    assert keys == ["show_title", "show_head", "show_items", "show_sign", "show_footer"]
+    for kind, _label in print_template_service.KINDS:
+        cfg = print_template_service.default_config(kind)
+        assert all(cfg[key] is True for key in keys), kind
+        legacy = {k: v for k, v in cfg.items() if k not in keys}
+        # 旧配置（缺开关键）与"显式全开"的配置归一化结果一致 → 升级后版面不变
+        assert (print_template_service.normalize_config(kind, legacy)
+                == print_template_service.normalize_config(kind, cfg))
+
+
+def test_show_switches_skip_parts():
+    """关掉标题/表头/页脚 → 只印行项与签字；关掉行项或签字则对应区块整块不渲染。"""
+    with SessionLocal() as db:
+        doc = print_service.sample_doc("purchase_order")
+        cfg = print_template_service.default_config("purchase_order")
+        full = print_service.build_doc_print_html(db, doc, cfg)
+        assert "<h1>采购单</h1>" in full and "单据编号" in full
+        assert "<th>物料名称</th>" in full and 'class="sign"' in full
+        assert "本单据由系统生成" in full
+
+        lean = print_service.build_doc_print_html(
+            db, doc, dict(cfg, show_title=False, show_head=False, show_footer=False))
+        assert "<h1>" not in lean and "单据编号" not in lean
+        assert "本单据由系统生成" not in lean
+        assert "<th>物料名称</th>" in lean and "制单：" in lean     # 行项与签字仍然打印
+
+        no_items = print_service.build_doc_print_html(db, doc, dict(cfg, show_items=False))
+        assert 'class="items"' not in no_items and "<th>物料名称</th>" not in no_items
+        assert "<h1>采购单</h1>" in no_items
+
+        no_sign = print_service.build_doc_print_html(db, doc, dict(cfg, show_sign=False))
+        assert "制单：" not in no_sign and 'class="sign"' not in no_sign
+        assert "<th>物料名称</th>" in no_sign
+
+
+def test_payment_switches_control_fixed_grid_sections():
+    """付款单是**固定网格**：开关按「标题行 / 日期+信息网格+备注 / 签字行」三段生效。"""
+    with SessionLocal() as db:
+        doc = print_service.sample_doc("payment")
+        cfg = print_template_service.default_config("payment")
+        full = print_service.build_doc_print_html(db, doc, cfg)
+        assert "付款申请单" in full
+        assert "收款单位名称" in full and "金额（大写）人民币" in full and "领款人" in full
+        assert 'class="items"' not in full          # 付款单没有物料行项表
+
+        no_title = print_service.build_doc_print_html(db, doc, dict(cfg, show_title=False))
+        assert "付款申请单" not in no_title
+        assert "收款单位名称" in no_title and "领款人" in no_title
+
+        no_head = print_service.build_doc_print_html(db, doc, dict(cfg, show_head=False))
+        assert "收款单位名称" not in no_head and "金额（大写）人民币" not in no_head
+        assert "付款申请单" in no_head and "领款人" in no_head
+
+        no_sign = print_service.build_doc_print_html(db, doc, dict(cfg, show_sign=False))
+        assert "领款人" not in no_sign and "收款单位名称" in no_sign

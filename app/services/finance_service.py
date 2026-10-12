@@ -81,6 +81,10 @@ _WRITE_FIELD: dict[tuple[str, str], str] = {
 }
 # 可被核销的目标单据状态（已审核/已完成；草稿不能核销，作废更不能）
 _TARGET_OK_STATUSES = ("approved", "completed")
+# 财务单据类型 → 合同上的回写字段（V2.5+：付款单记「累计已付」、收款单记「累计已收」）
+_CONTRACT_WRITE_FIELD: dict[str, str] = {"payment": "paid_amount", "receipt": "received_amount"}
+# 回写字段的中文口径（写操作日志用，避免日志里出现英文列名）
+_CONTRACT_FIELD_LABEL: dict[str, str] = {"paid_amount": "累计已付", "received_amount": "累计已收"}
 
 
 # ==================== 金额与核销明细 ====================
@@ -250,32 +254,39 @@ def _write_back(db: Session, doc, sign: int) -> list[dict]:
 
 
 def _write_back_contract(db: Session, doc, sign: int) -> dict | None:
-    """付款单审核/反审核时增量回写合同「累计已付」（BR-V2.5-12 / AC-V2.5-19）。
+    """付款单/收款单审核·反审核时增量回写合同金额（BR-V2.5-12 / AC-V2.5-19）。
+
+    方向与字段（V2.5+ 抽成通用函数，收款单复用同一模式）：
+
+    - 付款单 → 合同 `paid_amount`（累计已付）；
+    - 收款单 → 合同 `received_amount`（累计已收，销售/收入类合同的台账口径）。
 
     口径（关键取舍）：
 
-    - **增量加减**（`+= / -=`）而非"按单据重算"：合同上的历史付款多为人工补录，
+    - **增量加减**（`+= / -=`）而非"按单据重算"：合同上的历史收付款多为人工补录，
       重算会把它们抹掉；增量法保留人工值，红冲也精确回退同一金额；
-    - 金额取**付款单总额**（不是核销合计）：合同口径关心"这张合同付出去多少钱"，
-      暂未对应到具体单据的预付款同样属于已付；
-    - 只在付款单且**关联了合同**时生效；收款单不回写 —— 合同只有"累计已付"一个字段，
-      销售侧"累计已收"本版不做（`docs/32` §4 已登记）。
+    - 金额取**财务单据总额**（不是核销合计）：合同口径关心"这张合同收/付了多少钱"，
+      暂未对应到具体单据的预付款同样属于已收/已付；
+    - 只在单据**关联了合同**时生效；发票不回写合同（开票不是收付款）。
     """
-    if doc.doc_type != "payment" or not getattr(doc, "contract_id", None):
+    field = _CONTRACT_WRITE_FIELD.get(doc.doc_type)
+    if field is None or not getattr(doc, "contract_id", None):
         return None
     from ..models import Contract
 
     contract = db.get(Contract, doc.contract_id)
     if contract is None:                       # 合同被物理删除（正常流程不会）
         return None
-    old = contract.paid_amount or ZERO
+    old = getattr(contract, field) or ZERO
     new = max(ZERO, old + sign * (getattr(doc, "total_amount", None) or ZERO))
-    contract.paid_amount = new
-    return {"contract_no": contract.contract_no, "old": float(old), "new": float(new)}
+    setattr(contract, field, new)
+    return {"contract_no": contract.contract_no, "field": field,
+            "label": _CONTRACT_FIELD_LABEL.get(field, ""), "old": float(old), "new": float(new)}
 
 
 def _contract_note(contract: dict | None) -> str:
-    return (f"，合同 {contract['contract_no']} 累计已付 {contract['old']:.2f}→{contract['new']:.2f}"
+    return (f"，合同 {contract['contract_no']} {contract['label']} "
+            f"{contract['old']:.2f}→{contract['new']:.2f}"
             if contract else "")
 
 

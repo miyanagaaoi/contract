@@ -9,7 +9,9 @@
 
 - **文字信息**：标题 / 副标题 / 页脚、表头字段标签、行项列标签、签字栏文字；
 - **组件放置位置**：四个区块（标题区 / 表头信息 / 行项明细 / 签字与备注）的整体顺序，
-  表头字段与行项列的先后顺序、是否显示、是否独占整行，表头每行放几个字段。
+  表头字段与行项列的先后顺序、是否显示、是否独占整行，表头每行放几个字段；
+- **组成部分显隐**（V2.5+）：标题区 / 表头信息 / 行项明细 / 签字与备注 / 页脚
+  各自一个显示开关（`SHOW_KEYS`，默认全开）——"只打行项与签字"这类要求不必再删区块。
 
 设计要点：
 1. **默认值即代码**：`default_config()` 由目录常量生成，与旧版硬编码版面**逐项一致**；
@@ -55,6 +57,22 @@ BLOCKS: list[tuple[str, str, str]] = [
     ("sign", "签字与备注", "审批信息、备注、作废说明与签字栏"),
 ]
 BLOCK_LABELS: dict[str, str] = {key: label for key, label, _ in BLOCKS}
+
+#: 5 个**组成部分**的显示开关（key, 名称, 说明），默认全开。
+#: 前 4 个直接由 `BLOCKS` 派生（名称与说明完全一致，避免两处文案漂移），页脚单独一项。
+#: 与「区块顺序」（`blocks`）正交：顺序决定谁在上面、开关决定**印不印**——
+#: 管理员常要"只打行项与签字"，此前只能靠清空标题文字/页脚来变相实现（表头字段仍会印）。
+SHOW_KEYS: list[tuple[str, str, str]] = [
+    (f"show_{key}", label, note) for key, label, note in BLOCKS
+] + [
+    ("show_footer", "页脚", "页面最下方的一行说明"),
+]
+SHOW_KEY_LABELS: dict[str, str] = {key: label for key, label, _ in SHOW_KEYS}
+#: 区块 key → 显示开关 key（`print_service` 渲染时按此跳过整块）
+BLOCK_SHOW_KEYS: dict[str, str] = {"title": "show_title", "head": "show_head",
+                                   "items": "show_items", "sign": "show_sign"}
+#: 页脚开关（页脚不在 BLOCKS 里，单独一项）
+SHOW_FOOTER_KEY = "show_footer"
 
 #: 表头字段目录：(key, 默认标签, 内容说明)
 HEAD_FIELD_CATALOG: list[tuple[str, str, str]] = [
@@ -189,6 +207,8 @@ def default_config(kind: str) -> dict:
         "show_approval": True,
         "show_remarks": True,
         "show_void_note": True,
+        # V2.5+：5 个组成部分的显示开关，默认全开（与旧版版面逐项一致）
+        **{key: True for key, _, _ in SHOW_KEYS},
     }
 
 
@@ -312,6 +332,8 @@ def normalize_config(kind: str, raw) -> dict:
         "show_approval": bool(raw.get("show_approval", base["show_approval"])),
         "show_remarks": bool(raw.get("show_remarks", base["show_remarks"])),
         "show_void_note": bool(raw.get("show_void_note", base["show_void_note"])),
+        # 旧模板里没有这些键 → 回落默认 True（向后兼容：升级后版面不变）
+        **{key: bool(raw.get(key, base[key])) for key, _, _ in SHOW_KEYS},
     }
 
 
@@ -425,6 +447,9 @@ def template_meta() -> dict:
     return {
         "kinds": [{"kind": kind, "label": label} for kind, label in KINDS],
         "blocks": [{"key": key, "label": label, "note": note} for key, label, note in BLOCKS],
+        # 5 个组成部分的显示开关（前端"显示开关"区渲染用；文案与区块说明保持一致）
+        "show_keys": [{"key": key, "label": label, "note": note}
+                      for key, label, note in SHOW_KEYS],
         "head_fields": [{"key": key, "label": label, "note": note}
                         for key, label, note in HEAD_FIELD_CATALOG],
         "item_columns": [{"key": key, "label": label}

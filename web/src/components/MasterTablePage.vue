@@ -102,6 +102,44 @@ function isEnabled(row: Dict): boolean {
   return props.statusMode === 'bool' ? !!row.enabled : row.status === 'enabled'
 }
 
+/**
+ * V2.5+：`type='options'` 的候选值与显示文案。
+ *
+ * - 常规字段：值=档案 id，文案=`名称（编码）`；
+ * - `storeText`（物料品牌）：值=**显示文本**，文案优先 `textField`（供应商简称），
+ *   无简称回退全称 —— 落库的是简称快照，供应商改名不影响历史物料。
+ *
+ * 历史自由文本（旧品牌 / 已停用或已删除的供应商）不在候选里：临时补一项带 `raw:` 前缀的
+ * 候选项，否则下拉会显示空白、保存时把旧值"默默清掉"。
+ */
+function optionText(o: Dict, f: MasterField): string {
+  const text = String(o[f.textField || 'name'] ?? '').trim()
+  return text || String(o.name ?? '').trim()
+}
+
+function optionValue(o: Dict, f: MasterField) {
+  return f.storeText ? optionText(o, f) : o.id
+}
+
+function optionLabel(o: Dict, f: MasterField): string {
+  if (f.storeText) return optionText(o, f)
+  return o.code ? `${o.name}（${o.code}）` : String(o.name ?? '')
+}
+
+function optionsOf(f: MasterField): Dict[] {
+  const list = optionCache[f.optionKind || ''] || []
+  if (!f.storeText) return list
+  const current = form[f.prop]
+  if (current === '' || current === null || current === undefined) return list
+  if (list.some((o) => optionText(o, f) === current)) return list
+  return [...list, { id: `raw:${current}`, name: String(current) }]
+}
+
+/** 编辑已有记录时只读的字段（编码等审计线索，见 MasterField.readonlyOnEdit） */
+function readonlyOf(f: MasterField): boolean {
+  return !!f.readonlyOnEdit && !!editingId.value
+}
+
 function statusText(row: Dict): string {
   return isEnabled(row) ? '启用' : '停用'
 }
@@ -338,7 +376,7 @@ onMounted(async () => {
           <el-col v-for="f in fields" :key="f.prop" :span="f.span || 12">
             <el-form-item :label="f.label" :required="f.required">
               <el-input v-if="!f.type || f.type === 'input'" v-model="form[f.prop]"
-                        :placeholder="f.placeholder" />
+                        :placeholder="f.placeholder" :readonly="readonlyOf(f)" />
               <el-input v-else-if="f.type === 'textarea'" v-model="form[f.prop]" type="textarea" :rows="2" />
               <el-input-number v-else-if="f.type === 'number'" v-model="form[f.prop]"
                                :precision="f.precision" :min="f.min" :max="f.max" :step="f.step || 1"
@@ -358,8 +396,8 @@ onMounted(async () => {
               <div v-else-if="f.type === 'options'" class="quick-line">
                 <el-select v-model="form[f.prop]" filterable clearable style="flex: 1"
                            :placeholder="f.placeholder || '请选择'">
-                  <el-option v-for="o in optionCache[f.optionKind || ''] || []" :key="o.id"
-                             :label="o.code ? `${o.name}（${o.code}）` : o.name" :value="o.id" />
+                  <el-option v-for="o in optionsOf(f)" :key="o.id"
+                             :label="optionLabel(o, f)" :value="optionValue(o, f)" />
                 </el-select>
                 <!-- V2.1（N15）：现场快建，不跳转（BR-V2.1-10 禁止丢失未保存表单） -->
                 <el-button v-if="f.quickCreate" size="small" title="快速新增"

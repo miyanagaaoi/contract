@@ -411,11 +411,19 @@ def _pay_value(value) -> str:
 
 
 def _render_payment_application(doc, cfg: dict) -> str:
-    """《付款申请单》12 行 × 7 列（A~G）固定网格；行列与尺寸不随模板配置漂移。"""
+    """《付款申请单》12 行 × 7 列（A~G）固定网格；行列与尺寸不随模板配置漂移。
+
+    组成部分显示开关（V2.5+）在**固定网格内部**分段生效 —— 付款单没有通用的四个区块，
+    故按模板上的三段来对应：`show_title`=标题行、`show_head`=日期行+信息网格+备注行、
+    `show_sign`=签字行（`show_items` 对无行项的付款单无意义，不渲染行项表）。
+    """
     widths = _PAY_COL_WIDTHS
     total = sum(widths)
     colgroup = "".join(f'<col style="width:{w / total * 100:.3f}%" />' for w in widths)
     heights = _PAY_ROW_HEIGHTS
+    show_title = cfg.get("show_title", True)
+    show_head = cfg.get("show_head", True)
+    show_sign = cfg.get("show_sign", True)
 
     def row(idx: int, cells: str, cls: str = "") -> str:
         style = f' style="height:{heights[idx]}pt"'
@@ -442,35 +450,45 @@ def _render_payment_application(doc, cfg: dict) -> str:
             for name, span in zip(group, (3, 3, 1)))
         sign_rows += row(10 + r_i, cells, "sign")
 
-    body = (
-        row(0, f'<td class="title" colspan="7">{escape(str(cfg.get("title") or "付款申请单"))}</td>', "title")
-        + row(1, f'<td colspan="4" style="text-align:right">{date_text}</td>'
-                  f'<td colspan="3" style="text-align:left;padding-left:12px">{plan}</td>', "sub")
-        + row(2, k("收款<br/>信息", 1, raw=True).replace('colspan="1"',
-              'rowspan="2" style="width:6.86%"') + k("收款单位名称", 2)
-              + v(getattr(doc, "supplier_name", None), 4))
-        + row(3, k("开户银行", 2) + v(getattr(doc, "payee_bank", None))
-                  + k("账号") + v(getattr(doc, "payee_account", None), 2))
-        + row(4, k("付款<br/>信息", 1, raw=True).replace('colspan="1"',
-              'rowspan="5" style="width:6.86%"') + k("付款单位名称", 2)
-              + v(getattr(doc, "subject_name", None) or getattr(doc, "subject_code", None))
-              + k("开户行") + v(getattr(doc, "payer_bank", None), 2))
-        + row(5, k("一级分类", 2) + v(category, 2) + k("付款归属期")
-                  + v(getattr(doc, "belong_period", None)))
-        + row(6, k("二级分类", 2) + v(getattr(doc, "category_l2", None))
-                  + k("回单") + k("银行付款用途") + v(getattr(doc, "bank_purpose", None)))
-        + row(7, k("结算方式", 2) + v(_pay_settle(getattr(doc, "settle_type", None)), 2)
-                  + k("付款事由") + v(getattr(doc, "pay_reason", None)))
-        + row(8, k("金额", 2) + v(f"￥{_money(total_amount)}")
-                  + k("金额（大写）人民币", 2) + v(amount_cn(total_amount)))
-        + row(9, k("备注", 3) + v(getattr(doc, "remark", None), 4))
-        + sign_rows
-    )
+    parts: list[str] = []
+    if show_title:
+        parts.append(
+            row(0, f'<td class="title" colspan="7">{escape(str(cfg.get("title") or "付款申请单"))}</td>',
+                "title"))
+    if show_head:
+        # 日期行 + 信息网格 + 备注行视作"表头信息"整段：模板上它们同属表格主体
+        parts.append(
+            row(1, f'<td colspan="4" style="text-align:right">{date_text}</td>'
+                   f'<td colspan="3" style="text-align:left;padding-left:12px">{plan}</td>', "sub")
+            + row(2, k("收款<br/>信息", 1, raw=True).replace('colspan="1"',
+                  'rowspan="2" style="width:6.86%"') + k("收款单位名称", 2)
+                  + v(getattr(doc, "supplier_name", None), 4))
+            + row(3, k("开户银行", 2) + v(getattr(doc, "payee_bank", None))
+                      + k("账号") + v(getattr(doc, "payee_account", None), 2))
+            + row(4, k("付款<br/>信息", 1, raw=True).replace('colspan="1"',
+                  'rowspan="5" style="width:6.86%"') + k("付款单位名称", 2)
+                  + v(getattr(doc, "subject_name", None) or getattr(doc, "subject_code", None))
+                  + k("开户行") + v(getattr(doc, "payer_bank", None), 2))
+            + row(5, k("一级分类", 2) + v(category, 2) + k("付款归属期")
+                      + v(getattr(doc, "belong_period", None)))
+            + row(6, k("二级分类", 2) + v(getattr(doc, "category_l2", None))
+                      + k("回单") + k("银行付款用途") + v(getattr(doc, "bank_purpose", None)))
+            + row(7, k("结算方式", 2) + v(_pay_settle(getattr(doc, "settle_type", None)), 2)
+                      + k("付款事由") + v(getattr(doc, "pay_reason", None)))
+            + row(8, k("金额", 2) + v(f"￥{_money(total_amount)}")
+                      + k("金额（大写）人民币", 2) + v(amount_cn(total_amount)))
+            + row(9, k("备注", 3) + v(getattr(doc, "remark", None), 4)))
+    if show_sign:
+        parts.append(sign_rows)
+    body = "".join(parts)
+    if not body:
+        return ""
     grid = f'<table class="pay"><colgroup>{colgroup}</colgroup><tbody>{body}</tbody></table>'
 
-    # 模板上没有、但管理员在「打印模板」页显式打开的项目 → 印在网格之后（默认全关，故默认输出＝纯模板）
+    # 模板上没有、但管理员在「打印模板」页显式打开的项目 → 印在网格之后（默认全关，故默认输出＝纯模板）；
+    # 它们本质是"表头字段"，因此随 `show_head` 一起隐藏（关掉表头就没有"附加信息"一说）
     extra_entries = []
-    for field in cfg.get("head_fields", []):
+    for field in cfg.get("head_fields", []) if show_head else []:
         if not field.get("enabled") or field.get("key") in print_template_service.PAYMENT_TEMPLATE_KEYS:
             continue
         value = _head_value_html(doc, field["key"])
@@ -504,6 +522,9 @@ def build_doc_print_html(db: Session, doc, config: dict | None = None) -> str:
     }
     sections = []
     for key in cfg["blocks"]:
+        # 组成部分显示开关（V2.5+）：关掉整块时既不渲染也不占位（缺键按开处理，兼容旧模板）
+        if not cfg.get(print_template_service.BLOCK_SHOW_KEYS.get(key, ""), True):
+            continue
         render = renderers.get(key)
         if render is None:
             continue
@@ -515,7 +536,9 @@ def build_doc_print_html(db: Session, doc, config: dict | None = None) -> str:
         body = _render_payment_application(doc, cfg)
     else:
         body = '<div class="gap"></div>'.join(sections)
-    footer = (f'<div class="foot">{escape(cfg["footer"])}</div>' if cfg.get("footer") else "")
+    show_footer = cfg.get(print_template_service.SHOW_FOOTER_KEY, True)
+    footer = (f'<div class="foot">{escape(cfg["footer"])}</div>'
+              if show_footer and cfg.get("footer") else "")
 
     return f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8" />
