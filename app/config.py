@@ -105,7 +105,7 @@ def _sqlite_file_of(url: str, fallback: Path) -> Path:
 DB_FILE = _sqlite_file_of(DB_URL, _DEFAULT_DB_FILE)
 
 APP_NAME = "CTMS"
-APP_VERSION = "2.5.0"  # V2.5（财务模块：付款单/收款单/发票 + 六条进度列 + 付款申请单打印模板）
+APP_VERSION = "2.5.1"  # V2.5.1（打印模板 5 部分开关、物料编码/品牌、合同已付按财务单据取数）
 
 # 附件限制
 MAX_UPLOAD_MB = 20

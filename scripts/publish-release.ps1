@@ -1,5 +1,5 @@
 <#
-  V2.5.0 发行：推送代码/标签并把 docker 包作为 GitHub Release 资产上传。
+  V2.5.1 发行：推送代码/标签并把 docker 包作为 GitHub Release 资产上传。
 
   前置（二选一）：
     A) 安装 GitHub CLI 并登录：winget install GitHub.cli ; gh auth login
@@ -10,9 +10,9 @@
     pwsh -File scripts/publish-release.ps1 -SkipPush       # 只建 Release（代码已推过）
 #>
 param(
-  [string]$Tag = 'v2.5.0',
-  [string]$Asset = 'ctms-image-2.5.0.tar',
-  [string]$NotesFile = 'docs/35-release-v2.5.0.md',
+  [string]$Tag = 'v2.5.1',
+  [string]$Asset = 'ctms-image-2.5.1.tar',
+  [string]$NotesFile = 'docs/36-release-v2.5.1.md',
   [switch]$SkipPush
 )
 $ErrorActionPreference = 'Stop'
@@ -25,7 +25,7 @@ if (-not $SkipPush) {
 } else { Write-Host "[1/3] 跳过推送" }
 
 $noteExists = Test-Path $NotesFile
-if (-not (Test-Path $Asset)) { throw "发行包不存在：$Asset（先执行 bash scripts/export-docker.sh 2.5.0）" }
+if (-not (Test-Path $Asset)) { throw "发行包不存在：$Asset（先执行 bash scripts/export-docker.sh 2.5.1）" }
 
 $gh = Get-Command gh -ErrorAction SilentlyContinue
 if ($gh) {
