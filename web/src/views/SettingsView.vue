@@ -40,7 +40,7 @@ async function loadSubjects() {
   const { data } = await http.get('/settings/subjects')
   subjects.value = data.subjects
 }
-function addSubject() { subjects.value.push({ code: '', name: '' }) }
+function addSubject() { subjects.value.push({ code: '', name: '', bank_name: '', bank_account: '', tax_no: '' }) }
 function removeSubject(i: number) { subjects.value.splice(i, 1) }
 async function saveSubjectsNow() {
   subjectsSaving.value = true
@@ -216,6 +216,16 @@ onMounted(async () => {
           </el-table-column>
           <el-table-column label="公司名称" min-width="200">
             <template #default="{ row }"><el-input v-model="row.name" size="small" placeholder="如 智澈公司" /></template>
+          </el-table-column>
+          <!-- V2.6：开户行/账号/税号（可选）—— 付款单打印「税号」与开户行自动提取的数据来源 -->
+          <el-table-column label="开户银行" min-width="160">
+            <template #default="{ row }"><el-input v-model="row.bank_name" size="small" placeholder="如 中国银行…支行" /></template>
+          </el-table-column>
+          <el-table-column label="银行账号" min-width="150">
+            <template #default="{ row }"><el-input v-model="row.bank_account" size="small" placeholder="选填" /></template>
+          </el-table-column>
+          <el-table-column label="税号" min-width="150">
+            <template #default="{ row }"><el-input v-model="row.tax_no" size="small" placeholder="选填" /></template>
           </el-table-column>
           <el-table-column label="操作" width="80">
             <template #default="{ $index }"><el-button link type="danger" @click="removeSubject($index)">删除</el-button></template>

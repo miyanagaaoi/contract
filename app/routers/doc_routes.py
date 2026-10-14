@@ -37,11 +37,15 @@ def _guard(db: Session, fn, *args, **kwargs):
 def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, perm_prefix: str,
                         label: str, create_hook=None, update_hook=None,
                         approve_handler=None, unapprove_handler=None,
-                        export_perm: str | None = None, sign_subject: bool = False) -> None:
+                        export_perm: str | None = None, sign_subject: bool = False,
+                        save_validator=None) -> None:
     """注册一类单据的标准端点。
 
     `sign_subject=True`（V2.3 / N2）时启用「签约公司」：新建必填（取值必须命中系统设置
     的我方公司字典），修改时若显式传值则同样校验；未启用该参数的单据（盘点单等）不受影响。
+
+    `save_validator(db, doc)`（可选）：**保存（新增/修改）阶段**的业务校验钩子，
+    在行项写入后、落库前执行（如出库单的负库存前移校验——不必等到审核过账才拦截）。
     """
     view_perm = require_perm(f"{perm_prefix}.view")
     create_perm = require_perm(f"{perm_prefix}.create")
@@ -83,6 +87,8 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
         _guard(db, doc_service.bind_contract, db, doc, payload.get("contract_id"))
         _guard(db, doc_service.apply_items, db, doc, payload.get("items"),
                default_warehouse_id=getattr(doc, "warehouse_id", None))
+        if save_validator is not None:
+            _guard(db, save_validator, db, doc)
         return doc
 
     def _build_query(db: Session, user: User, *, keyword=None, status=None, date_from=None,
@@ -127,13 +133,17 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
         rows = (query.order_by(model.id.desc())
                 .offset((page - 1) * page_size).limit(page_size).all())
         out = [doc_service.fmt_doc(db, row, with_items=False) for row in rows]
-        # V2.1（N7，BR-V2.1-06）：采购申请单附带"剩余可下推量合计"，
-        # 供列表按行级数据决定是否显示「下推」按钮（其余单据不受影响）。
-        if kind == "purchase_request":
+        # V2.1（N7，BR-V2.1-06）：附带"剩余可下推量合计"，供列表按行级数据决定是否
+        # 显示「下推」按钮。采购申请单/销售申请单按未下单量；采购单按未入库量
+        # （过账回写 received_qty 后归零）；销售订单按未出库量（shipped_qty）。
+        remain_field = {"purchase_request": "ordered_qty", "sales_request": "ordered_qty",
+                        "purchase_order": "received_qty", "sales_order": "shipped_qty",
+                        }.get(kind)
+        if remain_field:
             from ..services import push_service
 
             for row, row_out in zip(rows, out):
-                row_out["remain_qty_sum"] = float(push_service.remain_qty_sum(row))
+                row_out["remain_qty_sum"] = float(push_service.remain_qty_sum(row, remain_field))
         return {
             "items": out,
             "total": total, "page": page, "page_size": page_size,
@@ -208,6 +218,8 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
             _guard(db, update_hook, db, doc, payload)
         _guard(db, doc_service.apply_items, db, doc, payload.get("items"),
                default_warehouse_id=getattr(doc, "warehouse_id", None))
+        if save_validator is not None:
+            _guard(db, save_validator, db, doc)
         audit_service.log(db, user, module=perm_prefix.split(".")[0], action="edit",
                           object_type=kind, object_id=doc.id, object_no=doc.doc_no,
                           detail=f"修改{label}", request=request)

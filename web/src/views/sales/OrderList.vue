@@ -91,6 +91,7 @@ onMounted(async () => {
                show-customer show-warehouse show-subject
                contract-source="sales" export-path="/api/sales/orders/export.xlsx"
                pushable push-perm="sales.order.push" :extra-cols="['shipped']"
+               push-remain-field="remain_qty_sum"
                :progress-cols="['shipped_qty', 'received_amount', 'invoiced_amount']"
                :progress-labels="{ invoiced_amount: '开票进度' }"
                @push="onPush" @more="onMore">

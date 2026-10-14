@@ -79,6 +79,7 @@ onMounted(async () => {
                form-route="purchase-order-form" edit-route="purchase-order-edit" show-supplier show-warehouse
                show-subject
                pushable push-perm="purchase.order.push" :extra-cols="['received']"
+               push-remain-field="remain_qty_sum"
                :progress-cols="['received_qty', 'paid_amount', 'invoiced_amount']"
                :progress-labels="{ invoiced_amount: '收票进度' }"
                export-path="/api/purchase/orders/export.xlsx"

@@ -20,8 +20,24 @@ from html import escape
 
 from sqlalchemy.orm import Session
 
+from ..dicts import subject_attr_of, subject_name_of
 from ..models_doc import DOC_STATUS
 from . import doc_service, print_template_service
+
+
+def _subject_display(db, name: str | None, code: str | None, *, allow_code: bool = True) -> str | None:
+    """签约公司打印值：名称快照优先；缺失时按主体码反查我方公司字典全称。
+
+    `allow_code=False`（付款单「付款单位名称」）时字典也查不到就**留空**，
+    不把 "ZC" 这类主体码印到纸质单据上。
+    """
+    if name:
+        return name
+    if db and code:
+        full = subject_name_of(db, code)
+        if full:
+            return full
+    return code if allow_code else None
 
 _CSS = """
   @page { size: A4; margin: 14mm 12mm; }
@@ -162,7 +178,7 @@ def amount_cn(amount) -> str:
     return f"{sign}{head}{tail}"
 
 
-def _head_value_html(doc, key: str) -> str | None:
+def _head_value_html(doc, key: str, db=None) -> str | None:
     """表头字段的单元格 HTML；**返回 None 表示该单据没有这个字段**（整项跳过）。
 
     与旧版硬编码版面保持一致：可选字段（仓库/往来单位/类型/日期/生成单号）只在
@@ -182,8 +198,10 @@ def _head_value_html(doc, key: str) -> str | None:
             return None
         return _e(getattr(doc, "warehouse_name", None))
     if key == "subject":
-        # V2.3（N2）：签约公司（我方公司名称快照）；未启用/未填写的单据不印
-        value = getattr(doc, "subject_name", None) or getattr(doc, "subject_code", None)
+        # V2.3（N2）：签约公司（我方公司名称快照）；快照缺失时按主体码反查我方公司字典，
+        # 仍无（字典外代码/无 db）才回退主体码 —— 避免把 "ZC" 这类代码印到纸上
+        value = _subject_display(db, getattr(doc, "subject_name", None),
+                                 getattr(doc, "subject_code", None))
         return _e(value) if value else None
     if key in ("from_subject", "to_subject"):
         # V2.3（N4）：调拨单调出/调入单位（由两端仓库所属公司自动带出）
@@ -198,7 +216,14 @@ def _head_value_html(doc, key: str) -> str | None:
     if key == "payee":
         return _e(getattr(doc, "supplier_name", None))
     if key == "payer":
-        return _e(getattr(doc, "subject_name", None) or getattr(doc, "subject_code", None))
+        # 快照缺失时按主体码反查我方公司字典全称（V2.6）；仍无则留空而非印主体码
+        value = _subject_display(db, getattr(doc, "subject_name", None),
+                                 getattr(doc, "subject_code", None), allow_code=False)
+        return _e(value) if value else None
+    if key == "tax_no":
+        # V2.6：我方公司税号（取自系统设置「我方公司」的扩展属性；模板外项目默认关闭）
+        value = subject_attr_of(db, getattr(doc, "subject_code", None), "tax_no") if db else None
+        return _e(value) if value else None
     if key in ("payee_bank", "payee_account", "payer_bank", "category_l1", "category_l2",
                "belong_period", "bank_purpose", "pay_reason", "plan_type"):
         if not hasattr(doc, key):
@@ -269,13 +294,13 @@ def _render_title(cfg: dict) -> str:
     return f"<h1>{escape(cfg['title'])}</h1>{sub_html}"
 
 
-def _render_head(doc, cfg: dict) -> str:
+def _render_head(doc, cfg: dict, db=None) -> str:
     """表头信息表：支持每行 N 个字段（`head_columns`）与字段独占整行（`full`）。"""
     entries: list[tuple[str, str, bool]] = []
     for field in cfg["head_fields"]:
         if not field.get("enabled"):
             continue
-        value = _head_value_html(doc, field["key"])
+        value = _head_value_html(doc, field["key"], db)
         if value is None:
             continue
         entries.append((str(field["label"]), value, bool(field.get("full"))))
@@ -341,6 +366,18 @@ def _render_items(doc, cfg: dict) -> str:
             f"<tbody>{body}{total_html}</tbody></table>")
 
 
+#: 签字栏**每行 3 个**，超过自动换行（通用版式与付款申请单固定网格统一口径）
+SIGN_PER_ROW = 3
+
+
+def _split_sign_rows(labels: list[str], per_row: int = SIGN_PER_ROW) -> list[list[str]]:
+    """签字标签按每行 `per_row` 个分组（最后一行不足则留空占位，由渲染端补下划线）。"""
+    rows: list[list[str]] = []
+    for i in range(0, len(labels or []), per_row):
+        rows.append(list(labels[i:i + per_row]))
+    return rows
+
+
 def _render_sign(doc, cfg: dict) -> str:
     parts: list[str] = []
     if cfg.get("show_approval", True):
@@ -358,8 +395,12 @@ def _render_sign(doc, cfg: dict) -> str:
         parts.append(f'<p class="void">作废原因：{_e(getattr(doc, "void_reason", None))}'
                      f"（{_dt(getattr(doc, 'voided_at', None))}）</p>")
     labels = cfg.get("signature_labels") or print_template_service.DEFAULT_SIGN_LABELS
-    sign_html = "".join(f"<td>{escape(str(name))}：</td>" for name in labels)
-    parts.append(f'<table class="sign"><tr>{sign_html}</tr></table>')
+    # V2.6：每行 3 个签字位，超过自动换行（每行都是 `签字名：____` 样式）
+    sign_html = ""
+    for group in _split_sign_rows(list(labels)):
+        cells = "".join(f"<td>{escape(str(name))}：</td>" for name in group)
+        sign_html += f"<tr>{cells}</tr>"
+    parts.append(f'<table class="sign">{sign_html}</table>')
     return f'<div class="sign">{"".join(parts)}</div>'
 
 
@@ -410,7 +451,7 @@ def _pay_value(value) -> str:
     return f'<span class="v">{_e(text)}</span>' if text else "&nbsp;"
 
 
-def _render_payment_application(doc, cfg: dict) -> str:
+def _render_payment_application(doc, cfg: dict, db=None) -> str:
     """《付款申请单》12 行 × 7 列（A~G）固定网格；行列与尺寸不随模板配置漂移。
 
     组成部分显示开关（V2.5+）在**固定网格内部**分段生效 —— 付款单没有通用的四个区块，
@@ -441,14 +482,18 @@ def _render_payment_application(doc, cfg: dict) -> str:
     plan = _pay_checkbox(getattr(doc, "plan_type", None), ["计划内", "计划外"])
     category = _pay_checkbox(getattr(doc, "category_l1", None), _PAY_CATEGORIES)
     total_amount = getattr(doc, "total_amount", None) or 0
+    # V2.6：签字行与通用版式统一 —— 每行 3 个，超过 6 个自动换行（未来 9 个 = 三行）。
+    # 不足一行的用空标签占位，保持"3+3"的纸质模板视觉（下划线、居中）不变。
     labels = list(cfg.get("signature_labels")
-                  or print_template_service.PAYMENT_SIGN_LABELS) + ["", "", ""]
+                  or print_template_service.PAYMENT_SIGN_LABELS)
     sign_rows = ""
-    for r_i, group in enumerate((labels[0:3], labels[3:6])):
+    for r_i, group in enumerate(_split_sign_rows(labels)):
+        group = list(group) + [""] * (SIGN_PER_ROW - len(group))
+        idx = min(10 + r_i, len(heights) - 1)
         cells = "".join(
             f'<td colspan="{span}" style="text-align:center">{escape(str(name))}：{"_" * 14}</td>'
             for name, span in zip(group, (3, 3, 1)))
-        sign_rows += row(10 + r_i, cells, "sign")
+        sign_rows += f'<tr class="sign" style="height:{heights[idx]}pt">{cells}</tr>'
 
     parts: list[str] = []
     if show_title:
@@ -467,7 +512,8 @@ def _render_payment_application(doc, cfg: dict) -> str:
                       + k("账号") + v(getattr(doc, "payee_account", None), 2))
             + row(4, k("付款<br/>信息", 1, raw=True).replace('colspan="1"',
                   'rowspan="5" style="width:6.86%"') + k("付款单位名称", 2)
-                  + v(getattr(doc, "subject_name", None) or getattr(doc, "subject_code", None))
+                  + v(_subject_display(db, getattr(doc, "subject_name", None),
+                                       getattr(doc, "subject_code", None), allow_code=False))
                   + k("开户行") + v(getattr(doc, "payer_bank", None), 2))
             + row(5, k("一级分类", 2) + v(category, 2) + k("付款归属期")
                       + v(getattr(doc, "belong_period", None)))
@@ -491,7 +537,7 @@ def _render_payment_application(doc, cfg: dict) -> str:
     for field in cfg.get("head_fields", []) if show_head else []:
         if not field.get("enabled") or field.get("key") in print_template_service.PAYMENT_TEMPLATE_KEYS:
             continue
-        value = _head_value_html(doc, field["key"])
+        value = _head_value_html(doc, field["key"], db)
         if value is None:
             continue
         extra_entries.append(f'<td class="k">{escape(str(field["label"]))}</td><td>{value}</td>')
@@ -516,7 +562,7 @@ def build_doc_print_html(db: Session, doc, config: dict | None = None) -> str:
 
     renderers = {
         "title": lambda: _render_title(cfg),
-        "head": lambda: _render_head(doc, cfg),
+        "head": lambda: _render_head(doc, cfg, db),
         "items": lambda: _render_items(doc, cfg),
         "sign": lambda: _render_sign(doc, cfg),
     }
@@ -533,7 +579,7 @@ def build_doc_print_html(db: Session, doc, config: dict | None = None) -> str:
             sections.append(html)
     if kind == "payment":
         # 《付款申请单》：整版固定网格（行列与尺寸对齐纸质模板），不走通用区块拼装
-        body = _render_payment_application(doc, cfg)
+        body = _render_payment_application(doc, cfg, db)
     else:
         body = '<div class="gap"></div>'.join(sections)
     show_footer = cfg.get(print_template_service.SHOW_FOOTER_KEY, True)

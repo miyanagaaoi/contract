@@ -185,11 +185,16 @@ def complete_if_fully_ordered(db: Session, request_doc) -> bool:
     return True
 
 
-def remain_qty_sum(doc) -> Decimal:
-    """V2.1（N7）：单据全部行项的剩余可下推量合计（供列表按钮显隐）。"""
+def remain_qty_sum(doc, field: str = "ordered_qty") -> Decimal:
+    """V2.1（N7）：单据全部行项的剩余可下推量合计（供列表按钮显隐）。
+
+    `field` 与下推链对应：申请单/订单下游是下单 → `ordered_qty`；
+    采购单下游是入库 → `received_qty`；销售订单下游是出库 → `shipped_qty`。
+    过账回写后剩余量归零，列表据此隐藏「下推」按钮。
+    """
     total = ZERO
     for it in (doc.items or []):
-        total += remaining_qty(it, "ordered_qty")
+        total += remaining_qty(it, field)
     return total
 
 

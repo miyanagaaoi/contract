@@ -95,6 +95,7 @@ register_doc_routes(router, prefix=OUT_PREFIX, kind="stock_out", model=StockOutO
                     create_hook=_apply_out_fields, update_hook=_apply_out_fields,
                     approve_handler=posting_service.approve_stock_doc,
                     unapprove_handler=posting_service.unapprove_stock_doc,
+                    save_validator=posting_service.assert_out_balance_ok,
                     export_perm="stock.out.export", sign_subject=True)
 
 
@@ -220,6 +221,23 @@ def submit_counts(doc_id: int, request: Request, payload: dict = Body(...),
 
 
 # ==================== 库存明细 / 流水 / 重算 ====================
+
+
+@router.get("/api/stock/fifo-price", tags=["stock"], summary="出库单 FIFO 加权单价")
+def fifo_price(product_id: int = Query(..., description="物料 id"),
+               warehouse_id: int = Query(..., description="仓库 id"),
+               qty: float = Query(..., description="本次出库数量"),
+               _user: User = Depends(require_perm("stock.out.edit")),
+               db: Session = Depends(get_db)):
+    """按先入先出从**已过账入库**批次提取加权平均单价（供出库单自动带出，可手改）。
+
+    累计入库不足本次出库数量时，`enough=false` 且单价按已有部分加权 ——
+    前端提示"该物料累计入库不足，单价按已有入库加权"。
+    """
+    price, short = posting_service.fifo_weighted_price(db, product_id, warehouse_id, qty)
+    return {"unit_price": float(price) if price is not None else None,
+            "enough": not short}
+
 
 def _inbound_amount_subquery(db: Session):
     """V2.1（N11，BR-V2.1-09）：货品总额度 = 该 `(物料 × 仓库)` 的**入库批次金额合计**。

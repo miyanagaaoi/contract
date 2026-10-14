@@ -157,6 +157,15 @@ def type_label_of(db: Session, code_or_label: str) -> str:
 
 
 # ---------- 我方主体码 ----------
+# 条目除 {code,name} 外，还支持可选的开户行/账号/税号（V2.6，付款单打印用）；
+# 旧格式 {code,name} 完全兼容：读取时对缺失字段统一回退空串。
+_SUBJECT_EXTRA_FIELDS = ("bank_name", "bank_account", "tax_no")
+
+
+def _subject_extra(s: dict) -> dict:
+    return {key: str(s.get(key) or "").strip() for key in _SUBJECT_EXTRA_FIELDS}
+
+
 def get_subjects(db: Session) -> list[dict]:
     subs = _load_list(db, KEY_SUBJECTS, DEFAULT_SUBJECTS)
     normalized = []
@@ -167,7 +176,7 @@ def get_subjects(db: Session) -> list[dict]:
         if not code or not name or code in seen:
             continue
         seen.add(code)
-        normalized.append({"code": code, "name": name})
+        normalized.append({"code": code, "name": name, **_subject_extra(s)})
     return normalized
 
 
@@ -184,11 +193,22 @@ def set_subjects(db: Session, values: list[dict]) -> list[dict]:
         if not code or not name or code in seen:
             continue
         seen.add(code)
-        cleaned.append({"code": code, "name": name})
+        cleaned.append({"code": code, "name": name, **_subject_extra(s)})
     if not cleaned:
         raise ValueError("至少保留一个主体")
     _save_list(db, KEY_SUBJECTS, cleaned)
     return cleaned
+
+
+def subject_attr_of(db: Session, code: str | None, key: str) -> str | None:
+    """主体码 → 扩展属性（bank_name/bank_account/tax_no）；缺失或旧格式返回 None。"""
+    s = (code or "").strip().upper()
+    if not s:
+        return None
+    for sub in get_subjects(db):
+        if sub["code"] == s:
+            return sub.get(key) or None
+    return None
 
 
 def subject_code_of(db: Session, code_or_name: str) -> str | None:

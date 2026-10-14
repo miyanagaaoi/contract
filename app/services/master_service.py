@@ -298,8 +298,10 @@ def party_options(db: Session, kind: str, keyword: str | None = None, limit: int
         query = query.filter(or_(model.name.like(like), model.code.like(like),
                                  model.short_name.like(like)))
     rows = query.order_by(model.name.asc()).limit(max(1, min(200, limit))).all()
+    # V2.6：下拉带出开户行/账号 —— 付款单选供应商后可自动填充收款账户（空值才填，可手改）
     return [{"id": r.id, "code": r.code, "name": r.name, "short_name": r.short_name,
-             "contact_name": r.contact_name, "contact_phone": r.contact_phone} for r in rows]
+             "contact_name": r.contact_name, "contact_phone": r.contact_phone,
+             "bank_name": r.bank_name, "bank_account": r.bank_account} for r in rows]
 
 
 # ==================== 商品类型（树） ====================

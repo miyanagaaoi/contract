@@ -11,13 +11,15 @@ import { useRoute } from 'vue-router'
 
 import AllocationTable from '@/components/doc/AllocationTable.vue'
 import DocFormPage from '@/components/doc/DocFormPage.vue'
-import { fetchDoc, fetchDocList, fetchFinanceMeta, fetchMasterOptions, type Dict } from '@/api'
+import { fetchDoc, fetchDocList, fetchFinanceMeta, fetchMasterOptions, fetchSubjects, type Dict } from '@/api'
 import type { AllocationRow } from '@/types/doc'
 
 const route = useRoute()
 const formRef = ref<InstanceType<typeof DocFormPage> | null>(null)
 
 const suppliers = ref<Dict[]>([])
+/** V2.6：我方公司字典（含开户行等扩展属性），供签约公司 → 我方开户行自动填充 */
+const subjects = ref<Dict[]>([])
 const settleTypes = ref<string[]>([])
 const orders = ref<Dict[]>([{ id: 0, doc_no: '', total_amount: 0 }].slice(1))
 const allocations = ref<AllocationRow[]>([])
@@ -35,6 +37,31 @@ const payFields = reactive<Record<string, string>>({
   belong_period: '', bank_purpose: '', pay_reason: '', plan_type: '计划内',
 })
 const CATEGORY_L1 = ['经营', '经济', '行政', '人力', '投资', '往来']
+
+// ---------------- V2.6：选供应商 / 签约公司后自动填充银行信息 ----------------
+/**
+ * 取舍：**"选择那一刻、仅空值填充"** —— 下拉变更或签约公司变更时，只往空字段写入
+ * 档案值；用户已手改（非空）的一律不覆盖。这样既省录入，又不会在用户清空重填时
+ * 被档案值反复顶回来；编辑已保存单据回填时也不会破坏落库值（回填发生在 watch 前）。
+ */
+
+/** 选择供应商 → 收款方开户银行 / 账号（档案有值才填，仅空字段） */
+function onSupplierChange(id: number | null) {
+  if (!id) return
+  const hit = suppliers.value.find((s) => s.id === id)
+  if (!hit) return
+  if (!payFields.payee_bank && hit.bank_name) payFields.payee_bank = String(hit.bank_name)
+  if (!payFields.payee_account && hit.bank_account) payFields.payee_account = String(hit.bank_account)
+}
+
+/** 选择签约公司 → 我方开户行（我方公司字典的 bank_name，仅空字段） */
+function onSubjectChange(code: string | null) {
+  if (!code) return
+  const hit = subjects.value.find((s) => s.code === code)
+  if (hit && !payFields.payer_bank && hit.bank_name) {
+    payFields.payer_bank = String(hit.bank_name)
+  }
+}
 
 const TARGETS = [{ code: 'purchase_order', label: '采购单' }]
 
@@ -78,6 +105,11 @@ onMounted(async () => {
   } catch {
     suppliers.value = []
   }
+  try {
+    subjects.value = await fetchSubjects()
+  } catch {
+    subjects.value = []
+  }
   await loadOrders()
 
   const sourceId = Number(route.query.source_id || 0)
@@ -97,6 +129,9 @@ onMounted(async () => {
     }
   }
 })
+
+/** 签约公司由 DocFormPage 内部表头维护：监听其变化触发我方开户行自动填充 */
+watch(() => formRef.value?.header?.subject_code, (code) => onSubjectChange((code as string) || null))
 
 /** 编辑已保存单据：把落库值填回表单（详情由 DocFormPage 异步加载） */
 watch(() => formRef.value?.detail, (detail: Dict | null | undefined) => {
@@ -121,7 +156,8 @@ watch(() => formRef.value?.detail, (detail: Dict | null | undefined) => {
     <template #header>
       <el-col :span="12">
         <el-form-item label="供应商" required>
-          <el-select v-model="partyId" filterable placeholder="选择供应商" style="width: 100%">
+          <el-select v-model="partyId" filterable placeholder="选择供应商" style="width: 100%"
+                     @change="(v: number | null) => onSupplierChange(v)">
             <el-option v-for="s in suppliers" :key="s.id" :label="s.name" :value="s.id" />
           </el-select>
         </el-form-item>

@@ -379,5 +379,73 @@ def stock_balance_of(db: Session, product_id: int, warehouse_id: int) -> Decimal
     return (stock.qty if stock else ZERO) or ZERO
 
 
+# ==================== 保存阶段校验（负库存前移）与 FIFO 单价 ====================
+
+def assert_out_balance_ok(db: Session, doc) -> None:
+    """出库单**保存/修改时**的可用结存校验（判定前移，审核过账仍会再拦一次）。
+
+    口径：按 `stocks` 当前结存，并把**同单多行同物料同仓库**的数量先合计再比较——
+    逐行分别校验会漏掉"两行各 6、结存 10"这类合计超量的场景。
+    仅对未过账方向为出的单据生效；红冲（reverse）走审核链路，不受此处影响。
+    """
+    if not isinstance(doc, StockOutOrder) or getattr(doc, "posted", False):
+        return
+    need: dict[tuple[int, int], Decimal] = {}
+    name_of: dict[tuple[int, int], tuple[str, str]] = {}
+    for item in doc.items:
+        warehouse_id = item.warehouse_id or doc.warehouse_id
+        if not warehouse_id:
+            continue                       # 缺仓库由过账层报错，这里不重复拦截
+        key = (item.product_id, warehouse_id)
+        need[key] = need.get(key, ZERO) + (item.qty or ZERO)
+        name_of[key] = (item.product_name, item.warehouse_name or "")
+    for key, qty in need.items():
+        balance = stock_balance_of(db, key[0], key[1])
+        if balance < qty:
+            product_name, warehouse_name = name_of[key]
+            raise BusinessError(
+                f"{warehouse_name or f'仓库#{key[1]}'} 物料「{product_name}」库存不足"
+                f"（当前结存 {balance}，本次出库 {qty}），请调整数量后再保存"
+            )
+
+
+def fifo_weighted_price(db: Session, product_id: int, warehouse_id: int,
+                        qty) -> tuple[Decimal | None, bool]:
+    """按**先入先出**从已过账入库批次提取加权平均单价（出库单自动带出用）。
+
+    数据源：`stock_in_orders`（status=approved 且已过账，作废单不含）的行项，
+    按 `doc_date, doc_id` 升序累加直到覆盖本次出库数量，取
+    Σ(数量×单价)/Σ数量（保留 2 位）。
+    选择入库行项而非 `stock_ledger`：流水含盘点/红冲等非采购口径且单价可能为 NULL，
+    入库行项的"批次价格"语义最贴近出库成本。
+    返回 `(单价, short)`：`short=True` 表示累计入库不足 `qty`（用已有部分加权，
+    由接口层给出提示）；完全无入库记录时单价为 None 且 short=True。
+    """
+    from ..models_doc import StockInOrder, StockInOrderItem
+
+    rows = (db.query(StockInOrderItem)
+            .join(StockInOrder)
+            .filter(StockInOrder.status == "approved",
+                    StockInOrder.posted.is_(True),
+                    StockInOrderItem.product_id == product_id,
+                    StockInOrderItem.warehouse_id == warehouse_id)
+            .order_by(StockInOrder.doc_date.asc(), StockInOrder.id.asc(),
+                      StockInOrderItem.id.asc())
+            .all())
+    need = Decimal(str(qty or 0))
+    taken = ZERO
+    value = ZERO
+    for line in rows:
+        if taken >= need:
+            break
+        batch = line.qty or ZERO
+        use = min(batch, need - taken)
+        taken += use
+        value += use * (line.unit_price or ZERO)
+    if taken <= ZERO:
+        return None, need > ZERO
+    return (value / taken).quantize(Decimal("0.01")), taken < need
+
+
 def status_label(doc) -> str:
     return DOC_STATUS.get(doc.status, doc.status)

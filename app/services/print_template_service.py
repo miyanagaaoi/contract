@@ -110,6 +110,8 @@ HEAD_FIELD_CATALOG: list[tuple[str, str, str]] = [
     ("pay_reason", "付款事由", "付款单的事由说明"),
     ("amount_cn", "金额（大写）", "由金额自动换算的财务大写"),
     ("plan_type", "计划内/外", "计划内 / 计划外"),
+    # V2.6：我方公司税号（取自系统设置「我方公司」扩展属性；模板外项目默认关闭，docs/33 §6 口径）
+    ("tax_no", "税号", "我方公司税号（需先在系统设置 → 我方公司维护）"),
 ]
 HEAD_FIELD_LABELS: dict[str, str] = {k: v for k, v, _ in HEAD_FIELD_CATALOG}
 HEAD_FIELD_NOTES: dict[str, str] = {k: note for k, _, note in HEAD_FIELD_CATALOG}
@@ -177,7 +179,10 @@ def default_config(kind: str) -> dict:
          "enabled": (key in PAYMENT_TEMPLATE_KEYS) if kind == "payment" else True,
          "full": False}
         for key, label, _ in HEAD_FIELD_CATALOG
+        if key != "tax_no"
     ]
+    # 税号（V2.6）是模板外项目：所有单据默认关闭，管理员在模板页按需打开（docs/33 §6 口径）
+    head_fields.append({"key": "tax_no", "label": "税号", "enabled": False, "full": False})
     item_columns = []
     for key, label, _default_on in ITEM_COLUMN_CATALOG:
         if key in TAKE_COLUMNS:

@@ -77,6 +77,12 @@ const props = withDefaults(defineProps<{
    * 采购申请/采购单/销售申请/销售订单/入库单/出库单 传 true；后端同样强制必填。
    */
   showSubject?: boolean
+  /**
+   * V2.6：保存前的**父页面业务校验**钩子（在基础校验之后、请求发出之前执行）。
+   * 返回 false（或 Promise<false>）中止保存。如出库单的"库存不足"友好提示——
+   * 真实拦截仍由后端 422 兜底，这里只是提前给出中文提示。
+   */
+  beforeSave?: () => Promise<boolean> | boolean
 }>(), {
   itemsEditable: true,
   showPrice: true,
@@ -351,6 +357,8 @@ async function save(thenSubmit = false) {
   if (!validate()) return
   const payload = buildPayload()
   if (!validateExtra(payload)) return
+  // V2.6：父页面的业务校验（如出库单库存不足提示）；false 则不发出请求
+  if (props.beforeSave && (await props.beforeSave()) === false) return
   saving.value = true
   try {
     const doc = isEdit.value && docId.value

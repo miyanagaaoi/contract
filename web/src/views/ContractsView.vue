@@ -1214,11 +1214,12 @@ onMounted(async () => {
           </el-table-column>
           <!-- V2.5：单位只读列，随所选物料带出（口径同单据行项 `DocItemsTable`；
                编辑旧合同时由后端 `/api/contracts` 的 items 返回 `uom_name`） -->
-          <el-table-column label="单位" width="80">
-            <template #default="{ row }"><span>{{ row.uom_name || '—' }}</span></template>
-          </el-table-column>
+          <!-- V2.6：数量列移到单位前（只调顺序；单位仍是随物料带出的只读列） -->
           <el-table-column label="数量" width="110">
             <template #default="{ row }"><el-input-number v-model="row.qty" :min="0" :precision="3" :controls="false" size="small" style="width: 100%" /></template>
+          </el-table-column>
+          <el-table-column label="单位" width="80">
+            <template #default="{ row }"><span>{{ row.uom_name || '—' }}</span></template>
           </el-table-column>
           <el-table-column label="单价" width="120">
             <template #default="{ row }"><el-input-number v-model="row.unit_price" :min="0" :precision="4" :controls="false" size="small" style="width: 100%" /></template>

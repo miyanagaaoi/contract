@@ -422,15 +422,20 @@ class TestStockPosting:
         assert row["qty"] == 6.0
 
     def test_negative_stock_blocked(self, box):
-        """AC-V2-21：库存不足时审核被拦截，库存与单据状态都不变。"""
+        """AC-V2-21：库存不足时被拦截，库存不变。
+
+        V2.6 判定前移：**保存阶段**即拦截（同口径的过账层兜底由
+        `test_v2_6_improvements.py::TestSaveTimeBalanceCheck` 固化）。
+        """
         product, warehouse, keeper = self._setup(box)
         self._stock_in(box, keeper, product, warehouse, 4)
-        doc, resp = self._stock_out(box, keeper, product, warehouse, 5)
+        resp = box.client.post("/api/stock/out-orders", headers=keeper, json={
+            "subject_code": DEFAULT_SUBJECT,
+            "warehouse_id": warehouse["id"], "out_type": "其他出库",
+            "items": _req_items(box, product, 5)})
         assert resp.status_code == 422
         assert "库存不足" in resp.json()["detail"]
         assert self._balance(box, product["id"], warehouse["id"], keeper) == 4.0
-        detail = box.client.get(f"/api/stock/out-orders/{doc['id']}", headers=keeper).json()
-        assert detail["status"] == "submitted" and detail["posted"] is False
 
     def test_idempotent_approve(self, box):
         """AC-V2-23：重复审核不产生第二条流水。"""
