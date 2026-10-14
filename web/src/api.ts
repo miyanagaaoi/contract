@@ -539,11 +539,37 @@ async function openBlobWindow(
 
 /** 打印单据：取回可打印 HTML（令牌在请求头，不能拼进 URL），在新窗口打开后由用户点「打印」。
  *
- * `params` 可带 `signers`（JSON 字符串，`{"库管员":"张三"}`）：选中系统账号的签字位
- * 打印时预填真实姓名 + 手写留白；不传则签字栏与原先完全一致。
+ * `params` 可带 `signers`（JSON 字符串，`{"库管员": 12}`，值为账号 id）：选中且该账号
+ * 预存了签名图片时在签字位嵌图（后端把 base64 内嵌进 HTML）；无签名则印真实姓名 +
+ * 手写留白。后端兼容旧格式姓名文本；不传则签字栏与原先完全一致。
  */
 export async function openDocPrint(path: string, params: Dict = {}): Promise<void> {
   await openBlobWindow(path, params, '浏览器拦截了新窗口，已尝试直接打开打印页')
+}
+
+// ==================== 电子签名（账号预存签名图片） ====================
+
+/** 上传签名图片（PNG/JPG，≤500KB）；权限：超管任意账号、普通账号仅本人 */
+export async function uploadUserSignature(userId: number, file: File): Promise<void> {
+  const form = new FormData()
+  form.append('file', file)
+  await http.post(`/system/users/${userId}/signature`, form)
+}
+
+/** 删除签名图片（权限同上传） */
+export async function deleteUserSignature(userId: number): Promise<void> {
+  await http.delete(`/system/users/${userId}/signature`)
+}
+
+/** 取签名预览 blob URL（查看接口需登录态，不能把 URL 直接塞 <img src>）；
+ * 没有签名（404）返回 null 由调用方显示「未上传」。调用方负责 revokeObjectURL。 */
+export async function fetchUserSignatureUrl(userId: number): Promise<string | null> {
+  try {
+    const { data } = await http.get(`/system/users/${userId}/signature`, { responseType: 'blob' })
+    return URL.createObjectURL(data as Blob)
+  } catch {
+    return null
+  }
 }
 
 /** 合同关联单据（后端未就绪时 404，调用方需容错） */

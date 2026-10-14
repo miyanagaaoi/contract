@@ -153,7 +153,7 @@ def is_sqlite() -> bool:
 
 
 def ensure_dirs() -> None:
-    for d in (UPLOAD_DIR, LOG_DIR):
+    for d in (UPLOAD_DIR, UPLOAD_DIR / "signatures", LOG_DIR):
         d.mkdir(parents=True, exist_ok=True)
     if is_sqlite():
         DATA_DIR.mkdir(parents=True, exist_ok=True)

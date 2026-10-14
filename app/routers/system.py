@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -32,7 +32,8 @@ from ..models_auth import OperationLog, User
 from ..models_master import Customer, Product, Supplier
 from ..permissions import DATA_SCOPES, PERM_CODES, perm_tree
 from ..services import audit_service, backup_service, numbering_service, org_service, role_service, user_service
-from ..services.permission_service import require_perm
+from ..services import signature_service
+from ..services.permission_service import get_current_user, require_perm
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -297,6 +298,57 @@ def reset_user_password(user_id: int, request: Request, payload: dict = Body(...
                       detail="管理员重置密码", request=request)
     db.commit()
     return {"ok": True}
+
+
+# ==================== 电子签名（账号预存签名图片） ====================
+
+def _guard_signature_target(user: User, user_id: int) -> None:
+    """签名上/传删权限：超管可操作任何人，普通账号只能操作自己（打印嵌入依赖本人签名）。"""
+    if not (user.is_superadmin or user.id == user_id):
+        raise HTTPException(403, "只能维护自己的签名（超级管理员除外）")
+
+
+@router.post("/users/{user_id}/signature")
+def upload_signature(user_id: int, request: Request,
+                     file: UploadFile = File(...),
+                     user: User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """上传手写签名扫描/拍照图片（PNG/JPG，≤500KB）；重复上传即覆盖。"""
+    _guard_signature_target(user, user_id)
+    _run(user_service.get_user, db, user_id)      # 目标账号必须存在（404→422 口径同本文件）
+    data = file.file.read(signature_service.MAX_SIGNATURE_BYTES + 1)
+    path = _run(signature_service.save_signature, user_id, file.filename, data)
+    audit_service.log(db, user, module="master", action="edit", object_type="user",
+                      object_id=user_id, object_no=str(user_id),
+                      detail=f"上传电子签名（{len(data)} 字节，{path.suffix.lstrip('.')}）",
+                      request=request)
+    db.commit()
+    return {"ok": True, "has_signature": True}
+
+
+@router.get("/users/{user_id}/signature")
+def get_signature(user_id: int,
+                  _user: User = Depends(get_current_user)):
+    """签名图片预览（账号管理弹窗用；登录即可，打印页不依赖本接口——HTML 已内嵌 base64）。"""
+    path = signature_service.find_signature(user_id)
+    if path is None:
+        raise HTTPException(404, "该账号没有签名图片")
+    media = signature_service.ALLOWED_TYPES[path.suffix.lstrip(".").lower()]
+    return FileResponse(path, media_type=media)
+
+
+@router.delete("/users/{user_id}/signature")
+def delete_signature(user_id: int, request: Request,
+                     user: User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    _guard_signature_target(user, user_id)
+    if not signature_service.delete_signature(user_id):
+        raise HTTPException(404, "该账号没有签名图片")
+    audit_service.log(db, user, module="master", action="delete", object_type="user",
+                      object_id=user_id, object_no=str(user_id),
+                      detail="删除电子签名", request=request)
+    db.commit()
+    return {"ok": True, "has_signature": False}
 
 
 # ==================== 系统参数（T-V2-12 / AC-V2-38） ====================

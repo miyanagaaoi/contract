@@ -664,5 +664,5 @@ def invoice_print(invoice_id: int,
     from ..services.print_service import build_doc_print_html, parse_signers
 
     inv = _scoped_or_403(db, Invoice, invoice_id, user)
-    # 与单据打印同一 `signers` 口径（只收姓名文本，渲染层转义）
+    # 与单据打印同一 `signers` 口径（账号 id 嵌签名图，姓名文本兼容；渲染层转义）
     return HTMLResponse(content=build_doc_print_html(db, inv, signers=parse_signers(signers)))

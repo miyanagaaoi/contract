@@ -3,7 +3,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-import { http, type Dict } from '@/api'
+import { http, fetchUserSignatureUrl, uploadUserSignature, deleteUserSignature, type Dict } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
@@ -158,6 +158,67 @@ function openReset(row: Dict) {
   pwdVisible.value = true
 }
 
+// ---------------- 电子签名（预存手写签名图片，打印单据时嵌入签字位） ----------------
+
+const sigVisible = ref(false)
+const sigTarget = ref<Dict | null>(null)
+const sigUrl = ref<string | null>(null)
+const sigUploading = ref(false)
+/** 签名按钮：超管/有账号编辑权可维护任何人，普通用户只能维护自己的（后端同口径校验） */
+const canSign = (row: Dict) => auth.user ? (canEdit.value || auth.isSuperadmin || row.id === auth.user.id) : false
+
+function openSignature(row: Dict) {
+  sigTarget.value = row
+  sigVisible.value = true
+  void loadSignaturePreview(row)
+}
+
+async function loadSignaturePreview(row: Dict) {
+  if (sigUrl.value) URL.revokeObjectURL(sigUrl.value)
+  sigUrl.value = null
+  // 只在列表标注「已签名」时才请求，避免无签名账号每次打开都弹 404 错误提示
+  if (row.has_signature) sigUrl.value = await fetchUserSignatureUrl(Number(row.id))
+}
+
+async function onSignatureChange(file: { raw?: File }) {   // el-upload on-change：取 raw 即原 File
+  const raw = file.raw
+  if (!raw || !sigTarget.value) return
+  sigUploading.value = true
+  try {
+    await uploadUserSignature(Number(sigTarget.value.id), raw)
+    ElMessage.success('签名已上传；打印单据时将在签字位嵌入该图片')
+    await load()      // 刷新 has_signature 列表状态
+    await loadSignaturePreview({ ...sigTarget.value, has_signature: true })
+  } catch {
+    // 拦截器已提示（格式/大小/权限）
+  } finally {
+    sigUploading.value = false
+  }
+}
+
+async function removeSignature() {
+  if (!sigTarget.value) return
+  try {
+    await ElMessageBox.confirm('删除后打印单据将退回「姓名 + 手写留白」，确定删除吗？',
+      '提示', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+  } catch {
+    return
+  }
+  try {
+    await deleteUserSignature(Number(sigTarget.value.id))
+    ElMessage.success('签名已删除')
+    await load()
+    await loadSignaturePreview({ ...sigTarget.value, has_signature: false })
+  } catch {
+    // 拦截器已提示
+  }
+}
+
+function closeSignature() {
+  if (sigUrl.value) URL.revokeObjectURL(sigUrl.value)
+  sigUrl.value = null
+}
+
 async function doReset() {
   if (!pwdTarget.value) return
   if (!newPassword.value) return ElMessage.warning('请输入新密码')
@@ -303,14 +364,19 @@ onMounted(async () => {
           <el-tag v-else type="info" size="small">未绑定</el-tag>
         </template>
       </el-table-column>
-      <el-table-column v-if="canEdit || canReset || (feishuReady && canFeishuEdit)" label="操作"
-                       width="300" fixed="right">
+      <!-- 任何登录账号至少能维护自己的签名（本人/超管/账号编辑权，见 canSign） -->
+      <el-table-column v-if="canEdit || canReset || (feishuReady && canFeishuEdit) || auth.user"
+                       label="操作" width="340" fixed="right">
         <template #default="{ row }">
           <el-button v-if="canEdit" link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
           <!-- 待分配角色：直接把编辑弹窗拉起来（同一个保存路径，不新增接口） -->
           <el-button v-if="canEdit && row.awaiting_role" link type="warning" size="small"
                      @click="openEdit(row)">分配角色</el-button>
           <el-button v-if="canReset" link type="warning" size="small" @click="openReset(row)">重置密码</el-button>
+          <!-- 电子签名：预存手写签名图片（打印入库/出库单等单据时嵌入签字位） -->
+          <el-button v-if="canSign(row)" link type="primary" size="small" @click="openSignature(row)">
+            签名{{ row.has_signature ? '✓' : '' }}
+          </el-button>
           <el-button v-if="canEdit" link :type="row.status === 'enabled' ? 'info' : 'success'" size="small"
                      @click="toggleStatus(row)">
             {{ row.status === 'enabled' ? '停用' : '启用' }}
@@ -394,6 +460,32 @@ onMounted(async () => {
         <el-button type="primary" @click="doReset">确定重置</el-button>
       </template>
     </el-dialog>
+
+    <!-- 电子签名：预览当前签名 + 上传覆盖 / 删除（打印单据时嵌入签字位） -->
+    <el-dialog v-model="sigVisible" title="电子签名" width="min(460px, 92vw)" @closed="closeSignature">
+      <el-form label-width="90px">
+        <el-form-item label="账号">
+          <span>{{ sigTarget?.real_name }}（{{ sigTarget?.username }}）</span>
+        </el-form-item>
+        <el-form-item label="当前签名">
+          <img v-if="sigUrl" :src="sigUrl" alt="签名预览" class="sig-preview" />
+          <span v-else class="gray">未上传（打印单据时退回「姓名 + 手写留白」）</span>
+        </el-form-item>
+        <el-form-item label="上传/更换">
+          <!-- auto-upload=false + on-change 手动上传：选完文件立即传，扩展名与大小由后端统一校验 -->
+          <el-upload :show-file-list="false" :auto-upload="false" accept=".png,.jpg,.jpeg"
+                     :on-change="onSignatureChange" :disabled="sigUploading">
+            <el-button type="primary" size="small" :loading="sigUploading">
+              选择图片（PNG/JPG，≤500KB）
+            </el-button>
+          </el-upload>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button v-if="sigUrl" type="danger" @click="removeSignature">删除签名</el-button>
+        <el-button @click="sigVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 
@@ -405,4 +497,5 @@ onMounted(async () => {
 .mb12 { margin-bottom: var(--ctms-gap); }
 .mr4 { margin-right: 4px; }
 .gray { color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
+.sig-preview { max-height: 64px; max-width: 260px; vertical-align: middle; }
 </style>

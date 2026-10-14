@@ -328,13 +328,14 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
     @router.get(prefix + "/{doc_id}/print", summary=f"{label}打印（A4）", response_class=HTMLResponse)
     def _print(doc_id: int,
                signers: str | None = Query(
-                   None, description='签字位预填姓名（JSON，如 {"库管员":"张三"}）；'
-                                     '只收姓名文本，渲染时统一转义'),
+                   None, description='签字人（JSON，如 {"库管员": 12}，值为账号 id，有签名图片'
+                                     '则嵌入图片；兼容旧格式姓名文本'),
                user: User = Depends(view_perm), db: Session = Depends(get_db)):
         """返回可直接打印的 A4 HTML（T-V2-37 / BR-V2-16）。
 
         前端以 blob 方式打开（令牌在请求头，不能放进 URL）；页面顶部自带"打印/另存为 PDF"按钮。
-        `signers` 由「打印前选人」对话框传入：选中系统账号的签字位打印真实姓名 + 手写留白。
+        `signers` 由「打印前选人」对话框传入（值为账号 id）：选中且该账号有签名图片
+        则在签字位嵌图，否则打印真实姓名 + 手写留白。
         """
         from ..services.print_service import build_doc_print_html, parse_signers
 

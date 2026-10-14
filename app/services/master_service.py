@@ -965,7 +965,10 @@ def user_options(db: Session, keyword: str | None = None, limit: int = 200) -> l
         like = f"%{keyword.strip()}%"
         query = query.filter(or_(User.username.like(like), User.real_name.like(like)))
     rows = query.order_by(User.id.asc()).limit(max(1, min(500, limit))).all()
-    return [{"id": u.id, "name": u.real_name or u.username, "username": u.username} for u in rows]
+    from . import signature_service
+    # has_signature：打印前选人下拉标注「已签名」（选中该账号打印时会嵌签名图片）
+    return [{"id": u.id, "name": u.real_name or u.username, "username": u.username,
+             "has_signature": signature_service.has_signature(u.id)} for u in rows]
 
 
 def options(db: Session, kind: str, keyword: str | None = None,

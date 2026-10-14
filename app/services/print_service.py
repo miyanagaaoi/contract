@@ -61,6 +61,8 @@ _CSS = """
   .sign { margin-top: 14px; font-size: 11.5px; }
   /* 签字区对齐纸质模板：只有下划线没有格子（.head/.items 是数据区才带边框） */
   .sign td { border: none; padding: 14px 6px 6px; }
+  /* 电子签名图：以图代签（不印姓名与下划线），垂直居中且不撑破签字行 */
+  .sig-img { vertical-align: middle; max-height: 32px; max-width: 120px; height: auto; }
   .foot { margin-top: 10px; color: #666; font-size: 10.5px; text-align: right; }
   .toolbar { text-align: right; max-width: 210mm; margin: 0 auto 8px; }
   .toolbar button { padding: 6px 14px; font-size: 13px; cursor: pointer; }
@@ -384,11 +386,11 @@ def _split_sign_rows(labels: list[str], per_row: int = SIGN_PER_ROW) -> list[lis
 PREFILL_BLANKS = 8
 
 
-def parse_signers(raw) -> dict[str, str]:
-    """解析打印接口的 `signers` 查询参数（JSON：`{"库管员": "张三"}`）。
+def parse_signers(raw) -> dict[str, str | int]:
+    """解析打印接口的 `signers` 查询参数（JSON：`{"库管员": 12}` 或旧格式 `{"库管员": "张三"}`）。
 
-    安全口径：**只收姓名文本**（前端从系统账号下拉选出的 real_name），不解析用户 ID、
-    不回库反查 —— 后端无需为一次打印多做查询；HTML 转义由渲染层统一 `escape`。
+    值为**整数** → 系统账号 user_id（渲染层回库取姓名，有签名图片则嵌图）；
+    值为**字符串** → 旧格式姓名文本（只印文字，兼容既有调用/书签链接）。
     非法输入（非 JSON / 非对象 / 空值）一律回落为空 dict，打印照常进行。
     """
     if not raw:
@@ -399,9 +401,14 @@ def parse_signers(raw) -> dict[str, str]:
         return {}
     if not isinstance(data, dict):
         return {}
-    out: dict[str, str] = {}
+    out: dict[str, str | int] = {}
     for key, value in data.items():
         if not isinstance(key, str):
+            continue
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            out[key] = value            # 账号 id：走"姓名 + 签名图"解析
             continue
         name = str(value or "").strip()[:24]      # 与签字标签同长度上限，防超长撑破版面
         if name:
@@ -409,16 +416,48 @@ def parse_signers(raw) -> dict[str, str]:
     return out
 
 
-def _sign_cell(name: str, signers: dict[str, str], blanks: int = 0) -> str:
-    """签字位单元格：`角色：` / `角色：姓名________`（预填姓名 + 手写留白）。
+def resolve_signers(db, parsed: dict[str, str | int] | None) -> dict[str, tuple[str, str | None]]:
+    """把 `parse_signers` 的结果解析成 `{角色: (姓名, 签名 data URL|None)}`。
 
-    预填时下划线缩短（`PREFILL_BLANKS`），让姓名与留白的总宽与纯下划线版面接近；
-    姓名来自前端账号下拉，但仍按不可信文本 `escape`。
+    整数按 user_id 回库取 `real_name`（查无此人则该位置退回不预填）；有签名文件时
+    顺带取出 base64 —— 打印页是前端 blob 打开的独立 HTML，无法带令牌请求图片接口，
+    只能内嵌 data URL。
+    """
+    from ..models_auth import User
+    from . import signature_service
+
+    resolved: dict[str, tuple[str, str | None]] = {}
+    for role, value in (parsed or {}).items():
+        if isinstance(value, int):
+            user = db.get(User, value) if db is not None else None
+            if user is None:
+                continue
+            resolved[role] = (user.real_name or user.username,
+                              signature_service.signature_data_url(value))
+        else:
+            resolved[role] = (str(value), None)   # 旧格式：只印文字不嵌图
+    return resolved
+
+
+def _sign_cell(name: str, signers: dict, blanks: int = 0) -> str:
+    """签字位单元格：`角色：` / `角色：姓名________` / `角色：<img 签名图>`。
+
+    签名值三种形态（`resolve_signers` 产物或旧格式裸字符串）：
+    - `(姓名, dataURL)`：有签名图片 → 只嵌图（图片本身就是签名，不再印姓名与下划线）；
+    - `(姓名, None)` / 裸字符串：预填姓名 + 手写留白；
+    - 空：只印角色，整段下划线（付款单固定网格 `blanks=14`）。
+    姓名仍按不可信文本 `escape`（alt 里同样转义）。
     """
     label = escape(str(name))
     picked = (signers or {}).get(str(name))
     if picked:
-        return f"{label}：{escape(picked)}{'_' * PREFILL_BLANKS}"
+        if isinstance(picked, tuple):
+            signer_name, sig_url = picked
+        else:
+            signer_name, sig_url = picked, None
+        if sig_url:
+            return f'{label}：<img class="sig-img" src="{sig_url}" alt="{escape(signer_name)}" />'
+        return f"{label}：{escape(signer_name)}{'_' * PREFILL_BLANKS}"
     return f"{label}：{'_' * blanks}"
 
 
@@ -473,6 +512,8 @@ table.pay tr.title td { border: none; font-size: 16pt; font-weight: 700; text-al
 table.pay tr.sub td { border: none; font-size: 12pt; }
 table.pay tr.sub td.right { text-align: right; }
 table.pay tr.sign td { border: none; font-size: 10pt; padding-top: 8px; }
+/* 固定网格签字行高 27pt：签名图上限略低于行高，打印时不变形、不撑破网格 */
+table.pay .sig-img { vertical-align: middle; max-height: 26px; max-width: 110px; height: auto; }
 table.pay tr.remark td.k { }
 """
 
@@ -594,13 +635,15 @@ def _render_payment_application(doc, cfg: dict, db=None,
 
 
 def build_doc_print_html(db: Session, doc, config: dict | None = None,
-                         signers: dict[str, str] | None = None) -> str:
+                         signers: dict[str, str | int] | None = None) -> str:
     """生成单据 A4 打印 HTML（纯字符串，无模板引擎依赖）。
 
     `config` 可显式传入模板（预览用）；缺省时按单据类型读取已保存模板。
-    `signers`（可选）：`{签字位名称: 预填姓名}`，选了系统账号的签字位打印真实姓名，
-    冒号后留一段下划线作手写签名；不传时签字栏与原先完全一致。
+    `signers`（可选）：`{签字位: user_id}`（新口径，有签名图片则嵌图）或
+    `{签字位: 姓名文本}`（旧口径，只印姓名 + 手写留白）；不传时签字栏与原先完全一致。
     """
+    # user_id 口径先回库解析（姓名 + 签名 data URL），渲染层只认解析结果与裸字符串
+    signers = resolve_signers(db, signers)
     kind = doc_kind_of(doc)
     if config is None and kind in print_template_service.KIND_LABELS:
         cfg = print_template_service.get_config(db, kind)

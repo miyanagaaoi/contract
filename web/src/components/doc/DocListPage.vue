@@ -384,8 +384,8 @@ async function doPrint(row: DocRecord) {
   await openDocPrintFor(row)
 }
 
-/** 真正打开打印页；`signers` 为「打印前选人」的结果（空对象 = 不预填） */
-async function openDocPrintFor(row: DocRecord, signers: Record<string, string> = {}) {
+/** 真正打开打印页；`signers` 为「打印前选人」的结果（`{签字位: 账号 id}`，空对象 = 不预填） */
+async function openDocPrintFor(row: DocRecord, signers: Record<string, number> = {}) {
   const params: Dict = Object.keys(signers).length ? { signers: JSON.stringify(signers) } : {}
   try {
     await openDocPrint(`${props.printApi || props.api}/${row.id}/print`, params)
@@ -398,7 +398,7 @@ async function openDocPrintFor(row: DocRecord, signers: Record<string, string> =
 const printSignVisible = ref(false)
 const printSignRow = ref<DocRecord | null>(null)
 
-function onPrintSignConfirm(signers: Record<string, string>) {
+function onPrintSignConfirm(signers: Record<string, number>) {
   const row = printSignRow.value
   printSignRow.value = null
   if (!row) return

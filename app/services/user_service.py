@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from ..dicts import get_sys_params
 from ..models_auth import Role, User
 from ..security import check_password_strength, hash_password
+from . import signature_service
 
 
 def get_user(db: Session, user_id: int) -> User:
@@ -50,6 +51,8 @@ def fmt_user(db: Session, user: User) -> dict:
                   for r in roles],
         "role_names": [r.name for r in roles],
         "awaiting_role": (not user.is_superadmin) and not enabled_roles,
+        # 电子签名：文件是否存在即状态（无库表列），账号列表/下拉据此标注「已签名」
+        "has_signature": signature_service.has_signature(user.id),
     }
 
 
