@@ -39,6 +39,13 @@ const props = withDefaults(defineProps<{
   showAmount?: boolean
   /** 额外只读快照列 */
   extraCols?: ExtraCol[]
+  /**
+   * 是否显示「当前库存」只读列（出库单特有：表头出库仓库下各物料的当前结存）。
+   * 与 `showWarehouse`（行仓库列）独立 —— 出库单已取消行级仓库，但需要看结存。
+   */
+  showStock?: boolean
+  /** 当前库存映射：product_id → 结存数量（由父页面按表头仓库查询并维护） */
+  stockMap?: Record<number, number>
   /** 空行时提示 */
   emptyText?: string
   /** 校验失败的行索引（T3-6：行内错误定位，由 DocFormPage 传入） */
@@ -49,6 +56,8 @@ const props = withDefaults(defineProps<{
   showPrice: true,
   showAmount: true,
   extraCols: () => [],
+  showStock: false,
+  stockMap: () => ({}),
   emptyText: '暂无行项，请点击「添加行」',
   errorRows: () => [],
 })
@@ -116,6 +125,13 @@ function extraValue(row: Record<string, any>, col: ExtraCol): number | null {
   }
   const v = row[map[col]]
   return v === null || v === undefined ? null : Number(v)
+}
+
+/** 当前库存列：未选物料 / 父页面尚未查回（如仓库未选）时按只读列口径显示 '—' */
+function stockOf(row: Record<string, any>): number | null {
+  const pid = row.product_id as number | null
+  if (!pid || !(pid in (props.stockMap || {}))) return null
+  return Number(props.stockMap?.[pid])
 }
 
 async function loadProducts(keyword = '') {
@@ -274,6 +290,10 @@ defineExpose({ loadProducts, totalAmount })
           <span v-else>{{ fmtQty(row.qty, decimalsOf(row)) }}</span>
           <div v-if="!readonly && integerHint(row)" class="hint">{{ integerHint(row) }}</div>
         </template>
+      </el-table-column>
+      <!-- 出库单特有：表头出库仓库下的当前结存（只读，随物料/仓库变化由父页面刷新） -->
+      <el-table-column v-if="showStock" label="当前库存" width="100" align="right">
+        <template #default="{ row }">{{ fmtQty(stockOf(row), decimalsOf(row)) }}</template>
       </el-table-column>
       <el-table-column v-if="showAmount" label="单价" width="130">
         <template #default="{ row }">

@@ -421,6 +421,21 @@ class TestStockPosting:
         row = next(b for b in balances["items"] if b["product_id"] == product["id"])
         assert row["qty"] == 6.0
 
+    def test_balances_filter_by_product_and_warehouse(self, box):
+        """出库单行项「当前库存」列依赖 product_id+warehouse_id 精确过滤（只查该行物料的结存）。"""
+        product, warehouse, keeper = self._setup(box)
+        self._stock_in(box, keeper, product, warehouse, 10)
+        data = box.client.get("/api/stock/balances", headers=keeper, params={
+            "product_id": product["id"], "warehouse_id": warehouse["id"]}).json()
+        assert data["total"] == 1
+        assert data["items"][0]["product_id"] == product["id"]
+        assert data["items"][0]["warehouse_id"] == warehouse["id"]
+        assert data["items"][0]["qty"] == 10.0
+        # 不存在的物料组合返回空，前端按 0/— 展示
+        miss = box.client.get("/api/stock/balances", headers=keeper,
+                              params={"product_id": product["id"] + 10_000}).json()
+        assert miss["total"] == 0
+
     def test_negative_stock_blocked(self, box):
         """AC-V2-21：库存不足时被拦截，库存不变。
 

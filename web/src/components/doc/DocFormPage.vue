@@ -50,6 +50,10 @@ const props = withDefaults(defineProps<{
   /** 是否显示金额相关列（单价 / 金额）；调拨单等不涉及金额的单据传 false */
   showAmount?: boolean
   showWarehouse?: boolean
+  /** 是否显示「当前库存」只读列（出库单特有，透传给 DocItemsTable） */
+  showStock?: boolean
+  /** 当前库存映射（product_id → 结存），由父页面按表头仓库查询并维护，透传给 DocItemsTable */
+  stockMap?: Record<number, number>
   extraCols?: ExtraCol[]
   /** 表头扩展字段（由父页面 v-model 传入，保存时合并） */
   modelValue?: Dict
@@ -88,6 +92,8 @@ const props = withDefaults(defineProps<{
   showPrice: true,
   showAmount: true,
   showWarehouse: false,
+  showStock: false,
+  stockMap: () => ({}),
   extraCols: () => [],
   modelValue: () => ({}),
   requireItems: true,
@@ -564,7 +570,8 @@ defineExpose({ patchExtra, items, header, load, detail, editable })
                 title="行项校验未通过" :description="itemErrorSummary" />
       <slot name="items" :items="items" :readonly="!editable || !itemsEditable" :editable="editable">
         <DocItemsTable :items="items" :readonly="!editable || !itemsEditable"
-                       :show-warehouse="showWarehouse" :show-price="showPrice" :show-amount="showAmount"
+                       :show-warehouse="showWarehouse" :show-stock="showStock" :stock-map="stockMap"
+                       :show-price="showPrice" :show-amount="showAmount"
                        :extra-cols="extraCols"
                        :error-rows="errorRows" @change="onItemsChange" />
       </slot>

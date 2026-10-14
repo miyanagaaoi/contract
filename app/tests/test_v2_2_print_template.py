@@ -282,6 +282,23 @@ def test_default_rendering_keeps_legacy_layout():
     assert "本单据由系统生成" in html
 
 
+def test_signature_cells_have_no_border():
+    """签字栏对齐纸质模板：通用版式与付款固定网格的签字单元格一律无边框（下划线保留）。"""
+    with SessionLocal() as db:
+        html = print_service.build_doc_print_html(
+            db, print_service.sample_doc("purchase_order"),
+            print_template_service.default_config("purchase_order"))
+        pay = print_service.build_doc_print_html(
+            db, print_service.sample_doc("payment"),
+            print_template_service.default_config("payment"))
+    # 通用版式：.sign td 必须显式 border:none（数据区 .head/.items 仍带边框）
+    assert ".sign td { border: none;" in html
+    assert 'class="sign"' in html
+    # 付款固定网格：签字行规则的特异度（table.pay tr.sign td）压过 table.pay td 的通用边框
+    assert "table.pay tr.sign td { border: none;" in pay
+    assert "领款人" in pay and "_" in pay          # 下划线样式仍在
+
+
 def test_window_print_toolbar_present():
     with SessionLocal() as db:
         html = print_service.build_doc_print_html(

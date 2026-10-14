@@ -82,6 +82,45 @@ function scheduleFifoFill() {
 
 watch(() => formRef.value?.items, scheduleFifoFill, { deep: true })
 
+// ---------------- 当前库存列（行项物料 × 表头出库仓库 的结存，只读展示） ----------------
+
+const stockMap = ref<Record<number, number>>({})
+
+let stockTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * 行项物料或表头仓库变化后，逐物料查 `/api/stock/balances?product_id=&warehouse_id=`。
+ * 与 FIFO 带价一样去抖合并；仓库未选时清空映射（列内统一显示 '—'）。
+ * 结存查询失败不阻塞录入（无 stock.balance.view 权限的用户仍可正常开单）。
+ */
+function scheduleStockRefresh() {
+  if (stockTimer) clearTimeout(stockTimer)
+  stockTimer = setTimeout(async () => {
+    stockTimer = null
+    const wid = extra.value.warehouse_id as number | null
+    const items = (formRef.value?.items as Dict[] | undefined) || []
+    const pids = [...new Set(items.map((r) => r.product_id as number | null).filter(Boolean))] as number[]
+    if (!wid || !pids.length) {
+      stockMap.value = {}
+      return
+    }
+    const next: Record<number, number> = {}
+    await Promise.all(pids.map(async (pid) => {
+      try {
+        const data = await fetchBalances({ product_id: pid, warehouse_id: wid, page_size: 1 })
+        const hit = data.items.find((b) => b.product_id === pid)
+        // 该仓库无此物料的结存记录时按 0 展示（结存表只存 qty != 0 的行）
+        next[pid] = hit ? Number(hit.qty) : 0
+      } catch {
+        // 查不到就留空 → 该行显示 '—'
+      }
+    }))
+    stockMap.value = next
+  }, 200)
+}
+
+watch(() => [formRef.value?.items, extra.value.warehouse_id], scheduleStockRefresh, { deep: true })
+
 // ---------------- V2.6：保存前的库存不足友好提示（后端 422 兜底） ----------------
 
 async function checkBalance(): Promise<boolean> {
@@ -122,7 +161,7 @@ async function checkBalance(): Promise<boolean> {
 <template>
   <DocFormPage ref="formRef" v-model="extra" title="出库单" kind-label="出库单"
                api="/api/stock/out-orders" perm-prefix="stock.out"
-               list-route="stock-out-orders" show-warehouse show-subject :show-price="false"
+               list-route="stock-out-orders" show-subject :show-price="false" show-stock :stock-map="stockMap"
                :extra-cols="['shipped']" :before-save="checkBalance"
                :extra-required="[{ key: 'warehouse_id', label: '出库仓库' }]">
     <template #header>

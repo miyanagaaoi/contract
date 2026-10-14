@@ -259,6 +259,7 @@ def _inbound_amount_subquery(db: Session):
 
 
 def _balances_query(db: Session, *, keyword: str | None = None, warehouse_id: int | None = None,
+                    product_id: int | None = None,
                     product_type_id: int | None = None, below_safety: bool = False,
                     qty_min: float | None = None, qty_max: float | None = None,
                     subject_code: str | None = None):
@@ -279,6 +280,9 @@ def _balances_query(db: Session, *, keyword: str | None = None, warehouse_id: in
         query = query.filter(Stock.warehouse.has(Warehouse.subject_code == subject_code))
     if warehouse_id:
         query = query.filter(Stock.warehouse_id == warehouse_id)
+    if product_id:
+        # 出库单行项「当前库存」列：按物料 + 仓库精确查结存（单行查询，不走批量）
+        query = query.filter(Stock.product_id == product_id)
     if product_type_id:
         node = db.get(ProductType, product_type_id)
         type_ids = [r[0] for r in db.query(ProductType.id)
@@ -300,6 +304,7 @@ def _balances_query(db: Session, *, keyword: str | None = None, warehouse_id: in
 @router.get("/api/stock/balances", tags=["stock"], summary="库存结存列表")
 def stock_balances(keyword: str | None = Query(None, description="物料编码/名称/规格模糊"),
                    warehouse_id: int | None = Query(None),
+                   product_id: int | None = Query(None, description="按物料精确筛选（出库单当前库存列）"),
                    product_type_id: int | None = Query(None),
                    subject_code: str | None = Query(None, description="按仓库所属公司（我方主体码）筛选"),
                    below_safety: bool = Query(False, description="仅看低于安全库存（T-V2-34）"),
@@ -309,7 +314,8 @@ def stock_balances(keyword: str | None = Query(None, description="物料编码/�
                    _user: User = Depends(require_perm("stock.balance.view")),
                    db: Session = Depends(get_db)):
     query = _balances_query(db, keyword=keyword, warehouse_id=warehouse_id,
-                            product_type_id=product_type_id, below_safety=below_safety,
+                            product_id=product_id, product_type_id=product_type_id,
+                            below_safety=below_safety,
                             qty_min=qty_min, qty_max=qty_max, subject_code=subject_code)
     total = int(query.count() or 0)
     rows = (query.order_by(Product.code.asc())

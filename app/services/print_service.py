@@ -58,7 +58,8 @@ _CSS = """
   .center { text-align: center; }
   .total td { font-weight: 700; background: #fafafa; }
   .sign { margin-top: 14px; font-size: 11.5px; }
-  .sign td { border: 1px solid #333; padding: 14px 6px 6px; }
+  /* 签字区对齐纸质模板：只有下划线没有格子（.head/.items 是数据区才带边框） */
+  .sign td { border: none; padding: 14px 6px 6px; }
   .foot { margin-top: 10px; color: #666; font-size: 10.5px; text-align: right; }
   .toolbar { text-align: right; max-width: 210mm; margin: 0 auto 8px; }
   .toolbar button { padding: 6px 14px; font-size: 13px; cursor: pointer; }
