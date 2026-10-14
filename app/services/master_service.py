@@ -925,8 +925,12 @@ def uom_options(db: Session, limit: int = 200) -> list[dict]:
 
 
 def org_options(db: Session, keyword: str | None = None, limit: int = 200) -> list[dict]:
-    """组织节点下拉（部门选择用；登录即可，供单据表单选择申请/采购部门）。"""
-    from ..models_auth import OrgUnit
+    """组织节点下拉（部门选择用；登录即可，供单据表单选择申请/采购部门）。
+
+    附带 `leader_user_id` / `leader_name`：打印前选人对话框用它把「部门负责人」签字位
+    默认填成单据所属部门的负责人（即时取 real_name，不落快照）。
+    """
+    from ..models_auth import OrgUnit, User
 
     query = db.query(OrgUnit).filter(OrgUnit.enabled == True)  # noqa: E712
     kw = _s(keyword)
@@ -934,8 +938,16 @@ def org_options(db: Session, keyword: str | None = None, limit: int = 200) -> li
         like = f"%{kw}%"
         query = query.filter(or_(OrgUnit.name.like(like), OrgUnit.code.like(like)))
     rows = query.order_by(OrgUnit.path.asc()).limit(max(1, min(500, limit))).all()
+    # 一次 IN 查询建负责人映射，避免节点多时逐条查（N+1）
+    leader_ids = {o.leader_user_id for o in rows if o.leader_user_id}
+    leaders = ({uid: (real_name or username) for uid, real_name, username in
+                db.query(User.id, User.real_name, User.username)
+                .filter(User.id.in_(leader_ids)).all()}
+               if leader_ids else {})
     return [{"id": o.id, "name": o.name, "code": o.code, "path": o.path,
-             "level": o.level, "unit_type": o.unit_type} for o in rows]
+             "level": o.level, "unit_type": o.unit_type,
+             "leader_user_id": o.leader_user_id,
+             "leader_name": leaders.get(o.leader_user_id)} for o in rows]
 
 
 def user_options(db: Session, keyword: str | None = None, limit: int = 200) -> list[dict]:

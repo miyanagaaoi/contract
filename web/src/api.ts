@@ -537,9 +537,13 @@ async function openBlobWindow(
   }
 }
 
-/** 打印单据：取回可打印 HTML（令牌在请求头，不能拼进 URL），在新窗口打开后由用户点「打印」。 */
-export async function openDocPrint(path: string): Promise<void> {
-  await openBlobWindow(path, {}, '浏览器拦截了新窗口，已尝试直接打开打印页')
+/** 打印单据：取回可打印 HTML（令牌在请求头，不能拼进 URL），在新窗口打开后由用户点「打印」。
+ *
+ * `params` 可带 `signers`（JSON 字符串，`{"库管员":"张三"}`）：选中系统账号的签字位
+ * 打印时预填真实姓名 + 手写留白；不传则签字栏与原先完全一致。
+ */
+export async function openDocPrint(path: string, params: Dict = {}): Promise<void> {
+  await openBlobWindow(path, params, '浏览器拦截了新窗口，已尝试直接打开打印页')
 }
 
 /** 合同关联单据（后端未就绪时 404，调用方需容错） */

@@ -148,7 +148,13 @@ DEFAULT_FOOTER = "本单据由系统生成，签字后作为业务凭证留存�
 DEFAULT_SIGN_LABELS = ["制单", "审核", "仓管", "领料/收货"]
 # 《付款申请单》纸质模板的签字栏（V2.5）
 PAYMENT_SIGN_LABELS = ["经理", "部门负责人", "制单人", "财务", "财务负责人", "领款人"]
-TAKE_SIGN_LABELS = ["制单", "盘点人", "审核", "仓管"]
+#: 库存类单据（入库/出库/调拨/盘点）的默认签字栏：两行 5 项 ——
+#: 第一行「库管员 / 采购人 / 财务」，第二行「部门负责人 / 部门负责人」。
+#: 渲染端 `_split_sign_rows` 每行 3 个自动换行，5 个标签正好 3 + 2；
+#: 文字可在打印模板页再改（照录用户口径，第二个"部门负责人"不擅自改名）。
+STOCK_SIGN_LABELS = ["库管员", "采购人", "财务", "部门负责人", "部门负责人"]
+#: 库存类单据的 kind 集合（`default_config` 据此切换签字栏默认值）
+STOCK_KINDS = {"stock_in", "stock_out", "stock_transfer", "stock_take"}
 
 #: 《付款申请单》纸质模板上**实际存在**的表头项（其余项默认关闭打印，可按需在模板页开启）
 PAYMENT_TEMPLATE_KEYS: set[str] = {
@@ -207,7 +213,7 @@ def default_config(kind: str) -> dict:
         "head_fields": head_fields,
         "item_columns": item_columns,
         "signature_labels": list(PAYMENT_SIGN_LABELS if kind == "payment"
-                                 else TAKE_SIGN_LABELS if is_take
+                                 else STOCK_SIGN_LABELS if kind in STOCK_KINDS
                                  else DEFAULT_SIGN_LABELS),
         "show_approval": True,
         "show_remarks": True,

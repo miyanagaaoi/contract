@@ -114,7 +114,7 @@ def test_take_template_swaps_columns():
     enabled = {c["key"] for c in cfg["item_columns"] if c["enabled"]}
     assert {"book_qty", "actual_qty", "diff_qty", "diff_reason"} <= enabled
     assert not ({"unit_price", "amount"} & enabled)
-    assert cfg["signature_labels"] == print_template_service.TAKE_SIGN_LABELS
+    assert cfg["signature_labels"] == print_template_service.STOCK_SIGN_LABELS
 
 
 # ===================== 保存 / 归一化 / 恢复 =====================

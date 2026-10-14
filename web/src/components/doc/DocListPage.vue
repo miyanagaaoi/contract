@@ -20,6 +20,7 @@ import ApproveDialog from '@/components/doc/ApproveDialog.vue'
 import type { ApproveMode } from '@/components/doc/ApproveDialog.vue'
 import ContractDetailDrawer from '@/components/doc/ContractDetailDrawer.vue'
 import DocItemsTable from '@/components/doc/DocItemsTable.vue'
+import PrintSignDialog from '@/components/doc/PrintSignDialog.vue'
 import DocStatusTag from '@/components/doc/DocStatusTag.vue'
 import ProgressTag from '@/components/doc/ProgressTag.vue'
 import SourceDocDrawer from '@/components/doc/SourceDocDrawer.vue'
@@ -99,6 +100,12 @@ const props = withDefaults(defineProps<{
    * 避免往通用组件里塞单据特有字段。
    */
   extraFilterParams?: Dict
+  /**
+   * 打印前选人：签字位标签列表。传入后点「打印」先弹「选择签字人员」对话框
+   * （选中账号的签字位打印姓名 + 手写留白）；不传保持现状直接打印。
+   * 目前仅入库单/出库单列表启用，签字位与打印模板默认值保持同口径。
+   */
+  printSignerLabels?: string[]
 }>(), {
   subtitle: '',
   listRoute: '',
@@ -121,6 +128,7 @@ const props = withDefaults(defineProps<{
   progressCols: () => [],
   progressLabels: () => ({}),
   extraFilterParams: () => ({}),
+  printSignerLabels: () => [],
 })
 
 const emit = defineEmits<{
@@ -362,13 +370,39 @@ async function doExport() {
   }
 }
 
-/** 打印单据（后端返回可打印 HTML，新窗口打开后由用户点「打印」） */
+/** 打印单据（后端返回可打印 HTML，新窗口打开后由用户点「打印」）。
+ *
+ * 配置了 `printSignerLabels` 的列表（入库/出库）先弹「选择签字人员」对话框，
+ * 其余单据保持现状直接打印。
+ */
 async function doPrint(row: DocRecord) {
+  if (props.printSignerLabels.length) {
+    printSignRow.value = row
+    printSignVisible.value = true
+    return
+  }
+  await openDocPrintFor(row)
+}
+
+/** 真正打开打印页；`signers` 为「打印前选人」的结果（空对象 = 不预填） */
+async function openDocPrintFor(row: DocRecord, signers: Record<string, string> = {}) {
+  const params: Dict = Object.keys(signers).length ? { signers: JSON.stringify(signers) } : {}
   try {
-    await openDocPrint(`${props.printApi || props.api}/${row.id}/print`)
+    await openDocPrint(`${props.printApi || props.api}/${row.id}/print`, params)
   } catch {
     // 拦截器已提示
   }
+}
+
+// ---------------- 打印前选人对话框（V2.6，入库/出库） ----------------
+const printSignVisible = ref(false)
+const printSignRow = ref<DocRecord | null>(null)
+
+function onPrintSignConfirm(signers: Record<string, string>) {
+  const row = printSignRow.value
+  printSignRow.value = null
+  if (!row) return
+  void openDocPrintFor(row, signers)
 }
 
 // ---------------- 内置详情抽屉 ----------------
@@ -898,6 +932,11 @@ defineExpose({ load: () => load(false), rows })
 
     <ApproveDialog v-model="approveVisible" :mode="approveMode" :loading="approveLoading"
                    :subject="`${kindLabel} ${actionRow?.doc_no ?? ''}`" @confirm="onApproveConfirm" />
+
+    <!-- V2.6：入库/出库打印前选人（未配置 printSignerLabels 的列表不渲染） -->
+    <PrintSignDialog v-if="printSignerLabels.length" v-model="printSignVisible"
+                     :labels="printSignerLabels" :org-id="printSignRow?.org_id ?? null"
+                     @confirm="onPrintSignConfirm" />
 
     <!-- V2.2：供货商详情（只读），由列表列与详情抽屉共用 -->
     <SupplierDetailDialog ref="supplierDialog" />

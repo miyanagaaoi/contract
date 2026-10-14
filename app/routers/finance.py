@@ -657,9 +657,12 @@ def invoice_logs(invoice_id: int,
 @router.get(INVOICE_PREFIX + "/{invoice_id}/print", summary="发票打印（A4）",
             response_class=HTMLResponse)
 def invoice_print(invoice_id: int,
+                  signers: str | None = Query(
+                      None, description='签字位预填姓名（JSON，如 {"制单":"张三"}）'),
                   user: User = Depends(require_perm("finance.invoice.view")),
                   db: Session = Depends(get_db)):
-    from ..services.print_service import build_doc_print_html
+    from ..services.print_service import build_doc_print_html, parse_signers
 
     inv = _scoped_or_403(db, Invoice, invoice_id, user)
-    return HTMLResponse(content=build_doc_print_html(db, inv))
+    # 与单据打印同一 `signers` 口径（只收姓名文本，渲染层转义）
+    return HTMLResponse(content=build_doc_print_html(db, inv, signers=parse_signers(signers)))

@@ -30,6 +30,11 @@ const props = withDefaults(defineProps<{
   fields: MasterField[]
   /** 额外枚举（如组织类型列表），以 meta 键注入表单 */
   metaOptions?: Record<string, { label: string; value: string }[]>
+  /**
+   * 异步字段选项（响应式）：键为 `MasterField.prop`。组织架构的「部门负责人」
+   * 这类候选来自登录即可的下拉接口，父页面拉取后填进来；优先级高于字段自带 options。
+   */
+  fieldOptions?: Record<string, { label: string; value: string | number }[]>
 }>(), { subtitle: '', metaOptions: () => ({}) })
 
 const auth = useAuthStore()
@@ -173,6 +178,8 @@ function filterNode(value: string, data: Dict) {
 
 function fieldOptions(f: MasterField) {
   if (f.type === 'select' && props.metaOptions[f.prop]) return props.metaOptions[f.prop]
+  // 异步选项（如负责人下拉）优先；字段自带 options 兜底
+  if (props.fieldOptions?.[f.prop]?.length) return props.fieldOptions[f.prop]
   return f.options || []
 }
 
@@ -235,7 +242,7 @@ onMounted(async () => {
                                  :disabled="!canEdit" style="width: 100%" />
                 <el-switch v-else-if="f.type === 'switch'" v-model="form[f.prop]" :disabled="!canEdit" />
                 <el-select v-else-if="f.type === 'select'" v-model="form[f.prop]" :disabled="!canEdit"
-                           style="width: 100%">
+                           clearable filterable style="width: 100%">
                   <el-option v-for="o in fieldOptions(f)" :key="o.value" :label="o.label" :value="o.value" />
                 </el-select>
               </el-form-item>

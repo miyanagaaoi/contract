@@ -15,6 +15,7 @@ V2.2（BR-V2.2-02）：版面不再硬编码，改由**打印模板**（`print_t
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from html import escape
 
@@ -379,7 +380,49 @@ def _split_sign_rows(labels: list[str], per_row: int = SIGN_PER_ROW) -> list[lis
     return rows
 
 
-def _render_sign(doc, cfg: dict) -> str:
+#: 预填姓名后保留的手写签名留白（下划线个数）；无预填时通用版式不带下划线（保持旧版面）
+PREFILL_BLANKS = 8
+
+
+def parse_signers(raw) -> dict[str, str]:
+    """解析打印接口的 `signers` 查询参数（JSON：`{"库管员": "张三"}`）。
+
+    安全口径：**只收姓名文本**（前端从系统账号下拉选出的 real_name），不解析用户 ID、
+    不回库反查 —— 后端无需为一次打印多做查询；HTML 转义由渲染层统一 `escape`。
+    非法输入（非 JSON / 非对象 / 空值）一律回落为空 dict，打印照常进行。
+    """
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, str] = {}
+    for key, value in data.items():
+        if not isinstance(key, str):
+            continue
+        name = str(value or "").strip()[:24]      # 与签字标签同长度上限，防超长撑破版面
+        if name:
+            out[key] = name
+    return out
+
+
+def _sign_cell(name: str, signers: dict[str, str], blanks: int = 0) -> str:
+    """签字位单元格：`角色：` / `角色：姓名________`（预填姓名 + 手写留白）。
+
+    预填时下划线缩短（`PREFILL_BLANKS`），让姓名与留白的总宽与纯下划线版面接近；
+    姓名来自前端账号下拉，但仍按不可信文本 `escape`。
+    """
+    label = escape(str(name))
+    picked = (signers or {}).get(str(name))
+    if picked:
+        return f"{label}：{escape(picked)}{'_' * PREFILL_BLANKS}"
+    return f"{label}：{'_' * blanks}"
+
+
+def _render_sign(doc, cfg: dict, signers: dict[str, str] | None = None) -> str:
     parts: list[str] = []
     if cfg.get("show_approval", True):
         approval = (
@@ -396,10 +439,10 @@ def _render_sign(doc, cfg: dict) -> str:
         parts.append(f'<p class="void">作废原因：{_e(getattr(doc, "void_reason", None))}'
                      f"（{_dt(getattr(doc, 'voided_at', None))}）</p>")
     labels = cfg.get("signature_labels") or print_template_service.DEFAULT_SIGN_LABELS
-    # V2.6：每行 3 个签字位，超过自动换行（每行都是 `签字名：____` 样式）
+    # V2.6：每行 3 个签字位，超过自动换行；选中系统账号的签字位预填姓名（B 需求）
     sign_html = ""
     for group in _split_sign_rows(list(labels)):
-        cells = "".join(f"<td>{escape(str(name))}：</td>" for name in group)
+        cells = "".join(f"<td>{_sign_cell(name, signers or {})}</td>" for name in group)
         sign_html += f"<tr>{cells}</tr>"
     parts.append(f'<table class="sign">{sign_html}</table>')
     return f'<div class="sign">{"".join(parts)}</div>'
@@ -452,7 +495,8 @@ def _pay_value(value) -> str:
     return f'<span class="v">{_e(text)}</span>' if text else "&nbsp;"
 
 
-def _render_payment_application(doc, cfg: dict, db=None) -> str:
+def _render_payment_application(doc, cfg: dict, db=None,
+                               signers: dict[str, str] | None = None) -> str:
     """《付款申请单》12 行 × 7 列（A~G）固定网格；行列与尺寸不随模板配置漂移。
 
     组成部分显示开关（V2.5+）在**固定网格内部**分段生效 —— 付款单没有通用的四个区块，
@@ -492,7 +536,7 @@ def _render_payment_application(doc, cfg: dict, db=None) -> str:
         group = list(group) + [""] * (SIGN_PER_ROW - len(group))
         idx = min(10 + r_i, len(heights) - 1)
         cells = "".join(
-            f'<td colspan="{span}" style="text-align:center">{escape(str(name))}：{"_" * 14}</td>'
+            f'<td colspan="{span}" style="text-align:center">{_sign_cell(name, signers or {}, blanks=14)}</td>'
             for name, span in zip(group, (3, 3, 1)))
         sign_rows += f'<tr class="sign" style="height:{heights[idx]}pt">{cells}</tr>'
 
@@ -549,10 +593,13 @@ def _render_payment_application(doc, cfg: dict, db=None) -> str:
     return grid + extra
 
 
-def build_doc_print_html(db: Session, doc, config: dict | None = None) -> str:
+def build_doc_print_html(db: Session, doc, config: dict | None = None,
+                         signers: dict[str, str] | None = None) -> str:
     """生成单据 A4 打印 HTML（纯字符串，无模板引擎依赖）。
 
     `config` 可显式传入模板（预览用）；缺省时按单据类型读取已保存模板。
+    `signers`（可选）：`{签字位名称: 预填姓名}`，选了系统账号的签字位打印真实姓名，
+    冒号后留一段下划线作手写签名；不传时签字栏与原先完全一致。
     """
     kind = doc_kind_of(doc)
     if config is None and kind in print_template_service.KIND_LABELS:
@@ -565,7 +612,7 @@ def build_doc_print_html(db: Session, doc, config: dict | None = None) -> str:
         "title": lambda: _render_title(cfg),
         "head": lambda: _render_head(doc, cfg, db),
         "items": lambda: _render_items(doc, cfg),
-        "sign": lambda: _render_sign(doc, cfg),
+        "sign": lambda: _render_sign(doc, cfg, signers),
     }
     sections = []
     for key in cfg["blocks"]:
@@ -580,7 +627,7 @@ def build_doc_print_html(db: Session, doc, config: dict | None = None) -> str:
             sections.append(html)
     if kind == "payment":
         # 《付款申请单》：整版固定网格（行列与尺寸对齐纸质模板），不走通用区块拼装
-        body = _render_payment_application(doc, cfg, db)
+        body = _render_payment_application(doc, cfg, db, signers)
     else:
         body = '<div class="gap"></div>'.join(sections)
     show_footer = cfg.get(print_template_service.SHOW_FOOTER_KEY, True)

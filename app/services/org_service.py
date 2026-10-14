@@ -33,7 +33,19 @@ def _count_users(db: Session, unit_id: int) -> int:
     return int(db.query(func.count(User.id)).filter(User.org_id == unit_id).scalar() or 0)
 
 
-def _fmt(node: OrgUnit, user_count: int = 0) -> dict:
+def _leader_names(db: Session, nodes: list[OrgUnit]) -> dict[int, str]:
+    """批量取负责人姓名（即时 join `User.real_name`，不落快照 —— 负责人变更不走变更历史）。
+
+    列表页每个节点都带 leader，逐条 `db.get` 会产生 N+1，这里一次 `IN` 查询建映射。
+    """
+    ids = {n.leader_user_id for n in nodes if n.leader_user_id}
+    if not ids:
+        return {}
+    rows = db.query(User.id, User.real_name, User.username).filter(User.id.in_(ids)).all()
+    return {uid: (real_name or username) for uid, real_name, username in rows}
+
+
+def _fmt(node: OrgUnit, user_count: int = 0, leader_name: str | None = None) -> dict:
     return {
         "id": node.id,
         "parent_id": node.parent_id,
@@ -41,6 +53,8 @@ def _fmt(node: OrgUnit, user_count: int = 0) -> dict:
         "code": node.code,
         "unit_type": node.unit_type,
         "leader_user_id": node.leader_user_id,
+        # 显示用姓名（即时取，负责人改名单后立刻跟着变）
+        "leader_name": leader_name,
         "phone": node.phone,
         "path": node.path,
         "level": node.level,
@@ -51,7 +65,8 @@ def _fmt(node: OrgUnit, user_count: int = 0) -> dict:
 
 
 def fmt_unit(db: Session, node: OrgUnit) -> dict:
-    return _fmt(node, _count_users(db, node.id))
+    leaders = _leader_names(db, [node])
+    return _fmt(node, _count_users(db, node.id), leaders.get(node.leader_user_id))
 
 
 def build_tree(items: list[dict]) -> list[dict]:
@@ -82,7 +97,8 @@ def list_units(db: Session, keyword: str | None = None,
     nodes = query.order_by(OrgUnit.sort.asc(), OrgUnit.id.asc()).all()
 
     counts = dict(db.query(User.org_id, func.count(User.id)).group_by(User.org_id).all())
-    items = [_fmt(n, counts.get(n.id, 0)) for n in nodes]
+    leaders = _leader_names(db, nodes)
+    items = [_fmt(n, counts.get(n.id, 0), leaders.get(n.leader_user_id)) for n in nodes]
 
     if keyword:
         kw = keyword.strip()

@@ -1,10 +1,14 @@
 <script setup lang="ts">
 /**
  * 入库单列表（T-V2-25）：**审核即过账**，界面对 `posted` 给出提示。
+ * 打印走「选人 → 预填签字」流程：签字位与后端打印模板默认值同口径。
  */
 import DocListPage from '@/components/doc/DocListPage.vue'
 import PostStatusTag from '@/components/doc/PostStatusTag.vue'
 import { fmtDate } from '@/utils/format'
+
+/** 入库单默认签字栏（与后端 print_template_service.STOCK_SIGN_LABELS 同口径） */
+const printSignerLabels = ['库管员', '采购人', '财务', '部门负责人', '部门负责人']
 </script>
 
 <template>
@@ -14,7 +18,8 @@ import { fmtDate } from '@/utils/format'
                form-route="stock-in-form" edit-route="stock-in-edit" list-route="stock-in-orders"
                show-warehouse show-supplier show-subject
                export-path="/api/stock/in-orders/export.xlsx"
-               :extra-cols="['received']">
+               :extra-cols="['received']"
+                :print-signer-labels="printSignerLabels">
     <template #detail-head="{ detail }">
       <el-descriptions-item label="入库类型">{{ detail.in_type || '—' }}</el-descriptions-item>
       <el-descriptions-item label="过账状态">
