@@ -338,6 +338,33 @@ def _create_adjust_doc(db: Session, take: StockTake, direction: str, items, user
     return doc
 
 
+def apply_opening_balance(db: Session, *, product, warehouse, target_qty: Decimal,
+                          unit_price: Decimal | None, user, doc_no: str) -> bool:
+    """期初建账：把 `(物料 × 仓库)` 的结存**设为**目标值（差额走一条流水）。
+
+    - 返回 False 表示差额为 0（重复导入同一份文件时自然幂等：全部跳过、不写流水）；
+    - `biz_type` 用「期初入库」：`biz_type` 在模型上是自由文本，但货品总额度
+      （`routers/stock.py::_inbound_amount_subquery`）按 `like('%入库%')` 且排除
+      调拨入库来聚合，选一个含「入库」的类型才能让 `unit_price` 自然计入/冲减额度，
+      而不必给 Stock 另加总额度列（总额度本就是动态聚合口径，无落库字段）。
+    - 负差额（调减）同样记负数流水，保持 `stocks.qty == SUM(ledger.qty_change)`
+      不变式（AC-V2-26），可被 `/api/stock/recalc` 校验。
+    """
+    stock = _get_stock(db, product.id, warehouse.id)
+    delta = target_qty - (stock.qty or ZERO)
+    if delta == 0:
+        return False
+    stock.qty = target_qty
+    stock.updated_at = datetime.now()
+    db.add(StockLedger(
+        product_id=product.id, warehouse_id=warehouse.id,
+        biz_type="期初入库", doc_type="stock_opening", doc_id=0, doc_no=doc_no,
+        qty_change=delta, qty_after=target_qty, unit_price=unit_price,
+        created_by=getattr(user, "id", None), remark="期初建账导入",
+    ))
+    return True
+
+
 # ==================== 运维校验（AC-V2-26） ====================
 
 def recalc_stocks(db: Session, *, fix: bool = False) -> dict:

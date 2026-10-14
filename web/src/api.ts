@@ -609,6 +609,14 @@ export async function recalcStock(fix = false): Promise<StockRecalcResult> {
   return data as StockRecalcResult
 }
 
+/** 期初库存导入（仅超管）：multipart 上传 xlsx，返回 { total, imported, skipped, merged, errors[] } */
+export async function importOpeningBalances(file: File): Promise<Dict> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await http.post('/stock/balances/import', form, { timeout: 120000 })
+  return data as Dict
+}
+
 // ---------- V2.4：飞书接入（免登 / 自助绑定 / 运维） ----------
 
 export interface FeishuConfig {

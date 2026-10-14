@@ -9,10 +9,19 @@ AC 对应：AC-V2-19~26、27~29。
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+import io
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+from urllib.parse import quote
+
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import StreamingResponse
+from openpyxl import load_workbook
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
+from ..config import MAX_UPLOAD_MB
 from ..database import get_db
 from ..dicts import subject_name_of
 from ..models_auth import User
@@ -28,7 +37,7 @@ from ..models_doc import (
 from ..models_master import Product, ProductType, Warehouse
 from ..models_stock import Stock, StockLedger
 from ..services import audit_service, doc_service, posting_service
-from ..services.permission_service import require_perm
+from ..services.permission_service import require_perm, require_superadmin
 from .doc_routes import _guard, register_doc_routes
 
 router = APIRouter(tags=["stock"])
@@ -472,3 +481,143 @@ def export_ledger(product_id: int = Query(...), warehouse_id: int = Query(...),
             r.remark or "",
         ])
     return build_xlsx_response("库存流水", LEDGER_EXPORT_COLUMNS, rows, "库存流水")
+
+
+# ==================== 期初库存导入（仅超管） ====================
+
+# 模板列保持精简：编码/仓库定位行，数量是期初目标值，单价只影响货品总额度口径
+OPENING_IMPORT_COLUMNS = [
+    ("物料编码*", 16), ("仓库*", 20), ("结存数量*", 12), ("单价", 12),
+]
+OPENING_REQUIRED_HEADERS = ["物料编码", "仓库", "结存数量"]   # 「*」仅是模板里的必填标记
+
+
+@router.get("/api/stock/balances/import-template.xlsx", tags=["stock"],
+            summary="期初库存导入模板（仅超管）")
+def opening_import_template(_user: User = Depends(require_superadmin)):
+    """生成 4 列期初导入模板（表头加粗底色 + 冻结首行，与导出风格一致）。"""
+    from .export import build_xlsx_response
+
+    rows = [["STL0001", "ZC-主仓", 100, 12.5]]
+    return build_xlsx_response("期初库存", OPENING_IMPORT_COLUMNS, rows, "期初库存导入模板")
+
+
+def _clean_cell(v) -> str:
+    return "" if v is None else str(v).strip()
+
+
+def _to_decimal(v, field: str, *, allow_none: bool = False) -> Decimal | None:
+    if v is None or _clean_cell(v) == "":
+        if allow_none:
+            return None
+        raise ValueError(f"{field}必填")
+    try:
+        return Decimal(str(v).replace(",", "").strip())
+    except InvalidOperation:
+        raise ValueError(f"{field}应为数字：{v}")
+
+
+def _resolve_warehouse(db: Session, raw: str):
+    """按名称找仓库：兼容 `ZC-主仓` 显示名（`主体码-仓库名`）与纯仓库名。"""
+    name = _clean_cell(raw)
+    if not name:
+        raise ValueError("仓库必填")
+    wh = db.query(Warehouse).filter(Warehouse.name == name).first()
+    if wh is None:
+        # 显示名去掉「主体码-」前缀后按纯名称再找一次（与列表/导出口径一致）
+        stripped = name.split("-", 1)[1].strip() if "-" in name else name
+        if stripped != name:
+            wh = db.query(Warehouse).filter(Warehouse.name == stripped).first()
+    if wh is None:
+        raise ValueError(f"仓库「{name}」不存在")
+    if not wh.enabled:
+        raise ValueError(f"仓库「{wh.name}」已停用")
+    return wh
+
+
+@router.post("/api/stock/balances/import", tags=["stock"], summary="期初库存导入（仅超管）")
+async def import_opening_balances(request: Request, file: UploadFile = File(...),
+                                  user: User = Depends(require_superadmin),
+                                  db: Session = Depends(get_db)):
+    """上传 xlsx 把 `(物料 × 仓库)` 结存**设为**导入值（期初语义，见下）。
+
+    - 校验口径沿用附件上传（仅 .xlsx、≤ MAX_UPLOAD_MB）；
+    - **错误行跳过、有效行提交**：期初数据常是手工整理的 Excel，一竿子回滚体验差；
+      错误行（物料/仓库不存在、数量非法）逐条返回 `{row, reason}`；
+    - 同一文件中同一 `物料+仓库` 多行**取最后一行**（`merged` 计数提示被合并的行数）；
+    - 幂等：目标值即当前结存时差额为 0 → 跳过且不写流水，重复导入同文件自然无副作用。
+    """
+    # ---- 文件校验（与 attachments 的口径一致）----
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix != ".xlsx":
+        raise HTTPException(status_code=422, detail="仅支持 .xlsx 文件")
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_MB * 1024 * 1024:
+        raise HTTPException(status_code=413, detail=f"文件超过 {MAX_UPLOAD_MB}MB 限制")
+    try:
+        wb = load_workbook(io.BytesIO(content), data_only=True)
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail="无法解析文件，请使用系统模板（.xlsx）")
+    ws = wb.worksheets[0] if wb.worksheets else None
+    if ws is None:
+        raise HTTPException(status_code=422, detail="文件没有工作表")
+
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        raise HTTPException(status_code=422, detail="文件为空")
+    headers = [_clean_cell(h).rstrip("*") for h in rows[0]]
+    for need in OPENING_REQUIRED_HEADERS:
+        if need not in headers:
+            raise HTTPException(status_code=422, detail=f"模板缺少『{need}』列，请先下载导入模板")
+
+    # ---- 逐行解析：错误行记 errors，同 物料+仓库 取最后一行 ----
+    errors: list[dict] = []
+    parsed: dict[tuple[int, int], dict] = {}     # (product_id, warehouse_id) → 最后一行
+    merged = 0
+    total = 0
+    for idx, row in enumerate(rows[1:], start=2):
+        cells = {headers[j]: row[j] for j in range(min(len(headers), len(row)))}
+        if all((v is None or _clean_cell(v) == "") for v in row):
+            continue                              # 空行不计
+        total += 1
+        try:
+            code = _clean_cell(cells.get("物料编码"))
+            if not code:
+                raise ValueError("物料编码必填")
+            product = db.query(Product).filter(Product.code == code).first()
+            if product is None:
+                raise ValueError(f"物料编码「{code}」不存在")
+            if (product.status or "enabled") != "enabled":
+                raise ValueError(f"物料「{product.name}」已停用")
+            warehouse = _resolve_warehouse(db, cells.get("仓库"))
+            qty = _to_decimal(cells.get("结存数量"), "结存数量")
+            if qty < 0:
+                raise ValueError("结存数量不能为负数")
+            price = _to_decimal(cells.get("单价"), "单价", allow_none=True)
+            key = (product.id, warehouse.id)
+            if key in parsed:
+                merged += 1                       # 前面的行被本行覆盖
+            parsed[key] = {"row": idx, "product": product, "warehouse": warehouse,
+                           "qty": qty, "price": price}
+        except ValueError as e:
+            errors.append({"row": idx, "reason": str(e)})
+
+    # ---- 应用差额（同一事务；错误行已在上面剔除，其余全部提交）----
+    doc_no = f"OPENING-{datetime.now():%Y%m%d%H%M%S}"
+    imported = skipped = 0
+    for item in parsed.values():
+        applied = posting_service.apply_opening_balance(
+            db, product=item["product"], warehouse=item["warehouse"],
+            target_qty=item["qty"], unit_price=item["price"], user=user, doc_no=doc_no)
+        if applied:
+            imported += 1
+        else:
+            skipped += 1
+    audit_service.log(db, user, module="stock", action="import_opening",
+                      object_type="stock", object_no=doc_no,
+                      detail=f"期初导入：共 {total} 行，生效 {imported}，跳过 {skipped}，"
+                             f"错误 {len(errors)}，合并重复 {merged}",
+                      request=request)
+    db.commit()
+    return {"total": total, "imported": imported, "skipped": skipped,
+            "merged": merged, "errors": errors}

@@ -15,6 +15,7 @@ import {
   fetchLedger,
   fetchMasterOptions,
   fetchSubjects,
+  importOpeningBalances,
   recalcStock,
   type Dict,
 } from '@/api'
@@ -105,6 +106,52 @@ function balanceParams(): Dict {
 // ---------------- 导出 ----------------
 const exportLoading = ref(false)
 const ledgerExportLoading = ref(false)
+
+// ---------------- 期初导入（仅超管） ----------------
+/**
+ * 期初建账导入：需求明确「仅超级管理员」可用，用 `isSuperadmin` 而非权限点 ——
+ * `hasPerm(...)` 语义是"超管或被授予该权限点的角色"，会把范围放宽到普通角色。
+ */
+const canImportOpening = computed(() => auth.isSuperadmin)
+const importVisible = ref(false)
+const importUploading = ref(false)
+const importResult = ref<Dict | null>(null)
+
+/** 下载后端模板（令牌在请求头，必须走 blob 下载） */
+async function downloadOpeningTemplate() {
+  try {
+    await downloadBlobFile('/stock/balances/import-template.xlsx', {}, '期初库存导入模板.xlsx')
+    ElMessage.success('已开始下载导入模板')
+  } catch {
+    // 拦截器已提示
+  }
+}
+
+/** 选择文件后立即上传（不落暂存列表），并展示后端逐行结果 */
+async function onOpeningFileChange(uploadFile: { raw?: File }) {
+  const raw = uploadFile.raw
+  if (!raw) return
+  if (!raw.name.toLowerCase().endsWith('.xlsx')) {
+    ElMessage.warning('仅支持 .xlsx 文件')
+    return
+  }
+  importUploading.value = true
+  try {
+    importResult.value = await importOpeningBalances(raw)
+    const r = importResult.value
+    ElMessage.success(`导入完成：生效 ${r.imported} 行，跳过 ${r.skipped} 行，错误 ${r.errors?.length ?? 0} 行`)
+    await load()
+  } catch {
+    // 拦截器已提示
+  } finally {
+    importUploading.value = false
+  }
+}
+
+function openImportDialog() {
+  importResult.value = null
+  importVisible.value = true
+}
 
 /** 导出结存（令牌在请求头，必须走 blob 下载） */
 async function exportBalances() {
@@ -238,6 +285,10 @@ onMounted(async () => {
             <span class="subtitle">结存 + 流水下钻；低于安全库存的行会高亮</span>
           </div>
           <div>
+            <!-- 期初导入仅超管可用（见 canImportOpening 注释），放在「导出结存」左侧 -->
+            <el-button v-if="canImportOpening" @click="openImportDialog">
+              <el-icon><Upload /></el-icon>导入期初数据
+            </el-button>
             <el-button v-if="canExportBalance" :loading="exportLoading" @click="exportBalances">
               <el-icon><Download /></el-icon>导出结存
             </el-button>
@@ -439,12 +490,47 @@ onMounted(async () => {
                        @current-change="(p: number) => { ledgerQuery.page = p; loadLedger() }" />
       </div>
     </el-drawer>
+
+    <!-- 期初库存导入（仅超管）：格式说明 + 模板下载 + 立即上传 + 逐行结果 -->
+    <el-dialog v-model="importVisible" title="导入期初数据" width="560px">
+      <el-alert type="info" :closable="false" class="mb" show-icon
+                title="期初语义：导入的结存数量即目标值，系统按差额自动调整并写「期初入库」流水；与当前结存相同的行会跳过（重复导入同一文件无副作用）。" />
+      <ul class="import-tips">
+        <li>共 4 列：物料编码*、仓库*、结存数量*、单价（可选）。</li>
+        <li>物料编码须已建档；仓库填仓库名称，支持「ZC-主仓」显示名或纯仓库名。</li>
+        <li>同一文件中同物料同仓库多行时取最后一行（自动合并）。</li>
+        <li>物料/仓库不存在的行会被跳过并在下方列出原因，其余有效行正常生效。</li>
+      </ul>
+      <div class="mb">
+        <el-button link type="primary" @click="downloadOpeningTemplate">
+          <el-icon><Download /></el-icon>下载导入模板
+        </el-button>
+      </div>
+      <el-upload drag accept=".xlsx" :auto-upload="false" :show-file-list="false"
+                 :disabled="importUploading" :on-change="onOpeningFileChange">
+        <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+        <div class="el-upload__text">拖拽 xlsx 文件到此处，或<em>点击选择</em>（选择后立即上传）</div>
+      </el-upload>
+
+      <div v-if="importResult" class="mt">
+        <el-alert type="success" :closable="false" show-icon
+                  :title="`共 ${importResult.total} 行：生效 ${importResult.imported}，跳过 ${importResult.skipped}，合并重复 ${importResult.merged ?? 0}，错误 ${(importResult.errors ?? []).length}`" />
+        <el-table v-if="(importResult.errors ?? []).length" :data="importResult.errors"
+                  border size="small" class="mt" max-height="220">
+          <el-table-column prop="row" label="行号" width="70" />
+          <el-table-column prop="reason" label="跳过原因" min-width="240" show-overflow-tooltip />
+        </el-table>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
 .mb { margin-bottom: var(--ctms-gap); }
 .ml { margin-left: var(--ctms-gap-sm); }
+.mt { margin-top: var(--ctms-gap); }
+/* 期初导入对话框里的格式说明 */
+.import-tips { margin: 0 0 var(--ctms-gap) 1.2em; padding: 0; color: var(--ctms-text-secondary); font-size: var(--ctms-fs-sm); line-height: 1.8; }
 .head { display: flex; align-items: center; justify-content: space-between; }
 .title { font-weight: 600; font-size: var(--ctms-fs-md); }
 .subtitle { margin-left: 10px; color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }

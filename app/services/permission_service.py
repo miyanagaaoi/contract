@@ -116,6 +116,19 @@ def require_perm(code: str):
     return _dep
 
 
+def require_superadmin(user: User = Depends(get_current_user)) -> User:
+    """接口级**仅超管**校验依赖。
+
+    与 `require_perm` 的区别：后者是"权限点"口径（超管或持有该权限点的角色），
+    部分运维级操作（如期初库存导入）按需求**只允许超级管理员本人**，用权限点
+    表达会把范围放宽到"任何被授予该权限点的角色"，故单独提供本依赖。
+    """
+
+    if not user.is_superadmin:
+        raise HTTPException(403, "仅超级管理员可执行该操作")
+    return user
+
+
 # ---------------- 数据范围 ----------------
 
 def descendant_org_ids(db: Session, org_id: int | None) -> list[int]:
