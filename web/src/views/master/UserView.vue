@@ -4,6 +4,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { http, fetchUserSignatureUrl, uploadUserSignature, deleteUserSignature, type Dict } from '@/api'
+import SignaturePad from '@/components/SignaturePad.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
@@ -164,12 +165,15 @@ const sigVisible = ref(false)
 const sigTarget = ref<Dict | null>(null)
 const sigUrl = ref<string | null>(null)
 const sigUploading = ref(false)
+/** 手写签名画板引用：打开弹窗时清空上一轮笔迹 */
+const sigPadRef = ref<InstanceType<typeof SignaturePad> | null>(null)
 /** 签名按钮：超管/有账号编辑权可维护任何人，普通用户只能维护自己的（后端同口径校验） */
 const canSign = (row: Dict) => auth.user ? (canEdit.value || auth.isSuperadmin || row.id === auth.user.id) : false
 
 function openSignature(row: Dict) {
   sigTarget.value = row
   sigVisible.value = true
+  sigPadRef.value?.reset()   // 重新打开弹窗时清空上一轮笔迹
   void loadSignaturePreview(row)
 }
 
@@ -191,6 +195,24 @@ async function onSignatureChange(file: { raw?: File }) {   // el-upload on-chang
     await loadSignaturePreview({ ...sigTarget.value, has_signature: true })
   } catch {
     // 拦截器已提示（格式/大小/权限）
+  } finally {
+    sigUploading.value = false
+  }
+}
+
+/** 手写保存：画板导出 PNG blob → 包成 File → 复用同一个上传接口（后端零改动） */
+async function onSignatureDrawn(blob: Blob) {
+  if (!sigTarget.value) return
+  sigUploading.value = true
+  try {
+    const file = new File([blob], 'signature.png', { type: 'image/png' })
+    await uploadUserSignature(Number(sigTarget.value.id), file)
+    ElMessage.success('手写签名已保存；打印单据时将在签字位嵌入该图片')
+    sigPadRef.value?.reset()
+    await load()
+    await loadSignaturePreview({ ...sigTarget.value, has_signature: true })
+  } catch {
+    // 拦截器已提示（大小/权限）
   } finally {
     sigUploading.value = false
   }
@@ -471,7 +493,14 @@ onMounted(async () => {
           <img v-if="sigUrl" :src="sigUrl" alt="签名预览" class="sig-preview" />
           <span v-else class="gray">未上传（打印单据时退回「姓名 + 手写留白」）</span>
         </el-form-item>
-        <el-form-item label="上传/更换">
+      </el-form>
+      <!-- 两种方式并存：手写（默认，免扫描件）与上传图片（兼容已有扫描件场景） -->
+      <el-tabs>
+        <el-tab-pane label="手写签名">
+          <div v-if="sigUrl" class="gray mb12">重新手写保存后将覆盖现有签名</div>
+          <SignaturePad ref="sigPadRef" :class="{ 'sig-uploading': sigUploading }" @save="onSignatureDrawn" />
+        </el-tab-pane>
+        <el-tab-pane label="上传图片">
           <!-- auto-upload=false + on-change 手动上传：选完文件立即传，扩展名与大小由后端统一校验 -->
           <el-upload :show-file-list="false" :auto-upload="false" accept=".png,.jpg,.jpeg"
                      :on-change="onSignatureChange" :disabled="sigUploading">
@@ -479,8 +508,8 @@ onMounted(async () => {
               选择图片（PNG/JPG，≤500KB）
             </el-button>
           </el-upload>
-        </el-form-item>
-      </el-form>
+        </el-tab-pane>
+      </el-tabs>
       <template #footer>
         <el-button v-if="sigUrl" type="danger" @click="removeSignature">删除签名</el-button>
         <el-button @click="sigVisible = false">关闭</el-button>
@@ -498,4 +527,5 @@ onMounted(async () => {
 .mr4 { margin-right: 4px; }
 .gray { color: var(--ctms-text-muted); font-size: var(--ctms-fs-sm); }
 .sig-preview { max-height: 64px; max-width: 260px; vertical-align: middle; }
+.sig-uploading { opacity: 0.6; pointer-events: none; }
 </style>
