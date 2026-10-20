@@ -31,7 +31,8 @@ services:
       # CTMS_TAX_SYNC_YX_PASSWORD: ""
       # CTMS_TAX_SYNC_YX_TAX_NO: "91149900MAECLDF33U"
     volumes:
-      # .env（发票同步凭据/飞书配置等）：文件必须先存在，否则群晖会建成目录
-      - /volume2/docker/ctms/.env:/app/.env
-      # 附件/发票 PDF/日志持久化（务必保留）
-      - /volume2/docker/ctms/data:/data
+      # ⚠️ 用**相对路径**（相对项目路径 /docker/ctms），避免 /volume1 vs /volume2 写错
+      # .env 文件必须先存在（File Station 新建空文件即可），否则会被建成目录
+      - ./.env:/app/.env
+      # 附件/发票 PDF/日志持久化（务必保留；./data 会被自动创建）
+      - ./data:/data
