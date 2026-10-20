@@ -90,7 +90,7 @@ _ADD_COLUMNS: list[tuple[str, str, str]] = [
     ("invoices", "buyer_tax_no", "VARCHAR(32)"),
     ("invoices", "our_company_code", "VARCHAR(8)"),
     ("invoices", "our_company_name", "VARCHAR(64)"),
-    ("invoices", "is_red", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("invoices", "is_red", "BOOLEAN NOT NULL DEFAULT FALSE"),  # PG 不接受整数默认值
     # ---- V2.6.1：出库单领用人（可选系统账号或客户）----
     ("stock_out_orders", "issue_party_type", "VARCHAR(16)"),
     ("stock_out_orders", "issue_party_id", "INTEGER"),
