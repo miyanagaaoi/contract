@@ -1,0 +1,43 @@
+# CTMS 仓库根 compose（面向"从 Git 仓库一键构建/部署"的平台）
+#
+# 平台直接读本文件即可：build 上下文 = 仓库根，Dockerfile = 根目录 Dockerfile。
+# 手动：docker compose up -d --build
+#
+# 生产若连外部 PostgreSQL / 用固定宿主机端口，请复制 deploy/docker-compose.prod-server.yml。
+services:
+  ctms:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NPM_REGISTRY: https://registry.npmmirror.com
+        PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
+    image: ctms:2.6.1
+    container_name: ctms
+    restart: unless-stopped
+    ports:
+      - "8080:8000"
+    volumes:
+      # 数据持久化：SQLite / 附件（发票 PDF）/ 日志
+      - ctms_data:/data
+    environment:
+      CTMS_SERVE_STATIC: "1"
+      CTMS_WEB_DIST: /srv/web/dist
+      CTMS_UPLOAD_DIR: /data/uploads
+      CTMS_LOG_DIR: /data/logs
+      # 外部 PostgreSQL（如使用，取消注释并替换）
+      # CTMS_DB_URL: postgresql+psycopg2://ctms:CHANGE_ME@192.168.81.50:5432/ctms
+      # 发票同步凭据（按我方主体码预充）
+      # CTMS_TAX_SYNC_YX_USERNAME: ""
+      # CTMS_TAX_SYNC_YX_PASSWORD: ""
+      # CTMS_TAX_SYNC_YX_TAX_NO: ""
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  ctms_data:
