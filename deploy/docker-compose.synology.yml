@@ -21,7 +21,9 @@ services:
       - "9000:8000"                 # 群晖访问 http://<NAS-IP>:9000
     environment:
       # ---- 沿用旧服务器配置（外部 PostgreSQL）----
-      CTMS_DB_URL: "postgresql+psycopg2://ctms:CHANGE_ME_DB_PASSWORD@192.168.81.50:5432/ctms"
+      # 密码从项目目录的 .env 读取（变量 CTMS_DB_PASSWORD），不要直接写在这里：
+      #   .env 内容示例： CTMS_DB_PASSWORD=你的PG密码
+      CTMS_DB_URL: "postgresql+psycopg2://ctms:${CTMS_DB_PASSWORD:?请在 .env 里设置 CTMS_DB_PASSWORD}@192.168.81.50:5432/ctms"
       CTMS_UPLOAD_DIR: "/data/uploads"
       CTMS_LOG_DIR: "/data/logs"
       CTMS_SERVE_STATIC: "1"
