@@ -1,0 +1,50 @@
+# CTMS V2.6.0 生产服务器配置（由旧版 ctms-1.json 换算）
+#
+# 旧版实际配置（已对齐保留）：
+#   image        ctms:2.5.2            → 新版 ctms:2.6.0（或 -sync 变体）
+#   name         ctms-1
+#   ports        9000:8000
+#   DB           外部 PostgreSQL 192.168.81.50:5432/ctms
+#   env 文件     /docker/ctms/.env  →  容器 /app/.env（发票同步凭据放这里最省事）
+#
+# 启动：docker compose -f docker-compose.prod-server.yml up -d
+# 说明：新版沿用同一容器名 ctms-1，先 docker rm -f ctms-1 再起即完成升级（数据在 PG 里）。
+
+services:
+  ctms:
+    # 二选一：
+    #   ctms:2.6.0       核心包（发票同步走「浏览器桥接 + 上传发票包」）
+    #   ctms:2.6.0-sync  同步包（含 Playwright/Chromium，可服务器自动同步）
+    image: ctms:2.6.0
+    container_name: ctms-1
+    restart: unless-stopped
+    ports:
+      - "9000:8000"                 # 与旧版一致：宿主机 9000 → 容器 8000
+    environment:
+      # ---- 沿用旧版（逐项对应 ctms-1.json）----
+      CTMS_DB_URL: "postgresql+psycopg2://ctms:CHANGE_ME_DB_PASSWORD@192.168.81.50:5432/ctms"
+      CTMS_UPLOAD_DIR: "/data/uploads"
+      CTMS_LOG_DIR: "/data/logs"
+      CTMS_SERVE_STATIC: "1"
+      CTMS_WEB_DIST: "/srv/web/dist"
+      # ---- V2.6 新增（也可写进挂载的 /app/.env，两者等价；env 优先）----
+      # 发票同步凭据：按我方主体码预充（值请填真实账号，密码支持 base64:xxxx）
+      # CTMS_TAX_SYNC_YX_USERNAME: ""
+      # CTMS_TAX_SYNC_YX_PASSWORD: ""
+      # CTMS_TAX_SYNC_YX_TAX_NO: "91149900MAECLDF33U"
+      # CTMS_TAX_SYNC_ZC_USERNAME: ""
+      # CTMS_TAX_SYNC_ZC_PASSWORD: ""
+      # CTMS_TAX_SYNC_ZC_TAX_NO: ""
+      # 同步参数（默认值即可，按需覆盖）
+      # CTMS_TAX_SYNC_ENABLED: "1"
+      # CTMS_TAX_SYNC_SESSION_TTL: "3600"
+      # CTMS_TAX_SYNC_SMS_TIMEOUT: "600"
+      # CTMS_TAX_SYNC_HEADLESS: "1"
+    volumes:
+      # 旧版挂载的 .env（发票同步凭据、飞书配置等都可以写这里）
+      # ⚠️ 若你的 .env 实际在 /volume2/docker/ctms/.env，把下面这行路径也改过去
+      - /docker/ctms/.env:/app/.env
+      # ⚠️ 新增：/data 必须持久化 —— 发票包导入的 PDF、附件、日志都在这里，
+      #    旧版没挂这个卷，容器重建会丢附件（V2.6 发票包挂档后更需要）
+      #    实际宿主机路径：/volume2/docker/ctms/data（先 mkdir -p 建好）
+      - /volume2/docker/ctms/data:/data

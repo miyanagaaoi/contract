@@ -105,7 +105,7 @@ def _sqlite_file_of(url: str, fallback: Path) -> Path:
 DB_FILE = _sqlite_file_of(DB_URL, _DEFAULT_DB_FILE)
 
 APP_NAME = "CTMS"
-APP_VERSION = "2.5.2"  # V2.5.2（签字栏默认值与选人、电子签名在线手绘、库存期初导入、出库 FIFO 与负库存校验）
+APP_VERSION = "2.6.1"  # V2.6.1（合同物料树选+悬停、详情#复制、双部门负责人签字、库存批次配对报表、领用人、零库存显示、签名全屏）
 
 # 附件限制
 MAX_UPLOAD_MB = 20
@@ -141,6 +141,72 @@ FEISHU_SEND_INTERVAL_MS = int(_env("CTMS_FEISHU_SEND_INTERVAL_MS") or 300)
 # 菜单一律为空，必须由管理员在「账号管理 / 飞书接入」里分配角色后才可用（2026-02 业务要求）。
 # 置为 0 即回到"先绑定后免登"（未绑定一律 401），便于万一出现越权争议时一键收紧。
 FEISHU_AUTO_PROVISION = (_env("CTMS_FEISHU_AUTO_PROVISION") or "1") == "1"
+
+
+# ---------- V2.6：发票同步（电子发票服务平台，docs/38） ----------
+# 凭据只从环境变量 / .env 读：不落库、不进 git、不进日志（与 CTMS_JWT_SECRET 同策略）。
+# **多公司**：按我方主体码预充，`CTMS_TAX_SYNC_<主体码>_USERNAME/_PASSWORD/_TAX_NO`，
+# 例如 ZC、QY 两家公司即配两套变量；主体码必须是系统设置「我方公司」字典里的有效值。
+# TAX_SYNC_PASSWORD 支持 base64（前缀 base64:）混淆存储；登录会话保活 TAX_SYNC_SESSION_TTL 秒。
+TAX_SYNC_ENABLED = (_env("CTMS_TAX_SYNC_ENABLED") or "1") == "1"
+TAX_SYNC_BASE_URL = (_env("CTMS_TAX_SYNC_BASE_URL") or "https://dppt.shanxi.chinatax.gov.cn:8443").rstrip("/")
+# 旧版单公司变量：仅作 `DEFAULT` 主体的兜底（新部署请用带主体码的多公司变量）
+TAX_SYNC_USERNAME = (_env("CTMS_TAX_SYNC_USERNAME") or "").strip()
+TAX_SYNC_PASSWORD = (_env("CTMS_TAX_SYNC_PASSWORD") or "").strip()
+TAX_SYNC_TAX_NO = (_env("CTMS_TAX_SYNC_TAX_NO") or "").strip()
+TAX_SYNC_SESSION_TTL = int(_env("CTMS_TAX_SYNC_SESSION_TTL") or 3600)   # 1 小时
+TAX_SYNC_SMS_TIMEOUT = int(_env("CTMS_TAX_SYNC_SMS_TIMEOUT") or 600)    # 验证码等待 10 分钟
+TAX_SYNC_HEADLESS = (_env("CTMS_TAX_SYNC_HEADLESS") or "0") == "1"      # 默认**有头**：人工验证（点字/滑块/短信码）需要在可见窗口操作
+TAX_SYNC_STORAGE_DIR = DATA_DIR / "tax_session"
+
+
+def tax_sync_companies() -> dict[str, dict]:
+    """收集多公司同步凭据：`CTMS_TAX_SYNC_<主体码>_USERNAME`（有 USERNAME 即认为配置了该公司）。
+
+    返回 `{主体码: {code, username, password, tax_no}}`；`DEFAULT` 为旧单公司变量兜底。
+    """
+    import re
+
+    pattern = re.compile(r"^CTMS_TAX_SYNC_([A-Z][A-Z0-9]{0,7})_USERNAME$")
+    out: dict[str, dict] = {}
+    for key, value in os.environ.items():
+        matched = pattern.match(key)
+        if not matched or not value.strip():
+            continue
+        code = matched.group(1)
+        out[code] = {
+            "code": code,
+            "username": value.strip(),
+            "password": (_env(f"CTMS_TAX_SYNC_{code}_PASSWORD") or "").strip(),
+            "tax_no": (_env(f"CTMS_TAX_SYNC_{code}_TAX_NO") or "").strip(),
+        }
+    if TAX_SYNC_USERNAME and "DEFAULT" not in out:
+        out["DEFAULT"] = {"code": "DEFAULT", "username": TAX_SYNC_USERNAME,
+                          "password": TAX_SYNC_PASSWORD, "tax_no": TAX_SYNC_TAX_NO}
+    return out
+
+
+def tax_sync_company(code: str) -> dict | None:
+    """取指定主体码的凭据；未配置返回 None。"""
+    return tax_sync_companies().get((code or "").strip().upper())
+
+
+def tax_sync_password_plain(password: str) -> str:
+    """解出明文密码：`base64:` 前缀走 base64 解码，否则原样返回。
+
+    ⚠️ base64 解码失败时**回退为字面值**（去掉前缀后原样使用）而不是空串——
+    否则一次手写错的编码会让登录"神秘缺密码"（2026-10-17 实测发生过）。
+    """
+    value = password or ""
+    if value.startswith("base64:"):
+        import base64
+
+        payload = value[len("base64:"):]
+        try:
+            return base64.b64decode(payload).decode("utf-8")
+        except Exception:
+            return payload
+    return value
 
 
 def feishu_ready() -> bool:

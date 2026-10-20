@@ -1,0 +1,4 @@
+# V2.6 发票同步 Playwright 通道（docs/38）：仅 ctms sync 变体镜像安装
+# 安装后需 `playwright install chromium`（建议加 PLAYWRIGHT_DOWNLOAD_HOST=npmmirror）
+# V2.6 发票同步（docs/38）：电子发票服务平台登录与抓取；安装后需 `playwright install chromium`
+playwright>=1.45; platform_machine != ""

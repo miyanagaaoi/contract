@@ -11,6 +11,8 @@
  */
 import { computed, onMounted, reactive, ref } from 'vue'
 
+import { ElMessage } from 'element-plus'
+
 import QuickCreateDialog from '@/components/QuickCreateDialog.vue'
 import { fetchMasterOptions, type Dict } from '@/api'
 import type { DocItem } from '@/types/doc'
@@ -87,6 +89,43 @@ function rowKey(row: Record<string, any>, index: number): string {
  */
 function rowClassName({ rowIndex }: { rowIndex: number }): string {
   return props.errorRows.includes(rowIndex) ? 'row-error' : ''
+}
+
+/**
+ * V2.6.1：点 `#` 表头复制整表内容（TSV，可直接粘进 Excel）。
+ *
+ * 复制列：序号 / 物料编码 / 物料名称 / 规格 / 单位 / 数量 / 单价 / 金额 / 仓库 / 备注。
+ * 只复制当前已填写的行（空行跳过），并用 ElMessage 给出反馈。
+ */
+async function copyItemsTable() {
+  const rows = (props.items || []).filter((r) => r && (r.product_id || r.product_code || r.product_name))
+  if (!rows.length) {
+    ElMessage.warning('没有可复制的行项')
+    return
+  }
+  const head = ['序号', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '仓库', '备注']
+  const lines = [head.join('\t')]
+  rows.forEach((r, i) => {
+    lines.push([
+      String(i + 1), r.product_code ?? '', r.product_name ?? '', r.spec ?? '',
+      r.uom_name ?? '', r.qty ?? '', r.unit_price ?? '', r.amount ?? '',
+      r.warehouse_name ?? '', (r.remark ?? '').toString().replace(/\s+/g, ' '),
+    ].join('\t'))
+  })
+  const text = lines.join('\n')
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success(`已复制 ${rows.length} 行到剪贴板（可直接粘贴到 Excel）`)
+  } catch {
+    // 非 https / 无剪贴板权限的兜底：用 textarea + execCommand
+    const ta = document.createElement('textarea')
+    ta.value = text
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+    ElMessage.success(`已复制 ${rows.length} 行到剪贴板`)
+  }
 }
 
 /** 数量精度：未取到单位时默认 2 位 */
@@ -259,7 +298,13 @@ defineExpose({ loadProducts, totalAmount })
   <div class="items">
     <el-table :data="items" border stripe size="small" show-summary :summary-method="summaryMethod"
               :row-class-name="rowClassName">
-      <el-table-column type="index" label="#" width="48" align="center" />
+      <el-table-column type="index" width="64" align="center">
+        <template #header>
+          <el-tooltip content="点击复制整表内容（TSV，可粘到 Excel）" placement="top">
+            <span class="copy-hash" @click="copyItemsTable">#</span>
+          </el-tooltip>
+        </template>
+      </el-table-column>
       <el-table-column label="物料" min-width="230">
         <template #default="{ row }">
           <div v-if="!readonly" class="product-pick">
@@ -352,4 +397,5 @@ defineExpose({ loadProducts, totalAmount })
 :deep(.el-table__row.row-error) td {
   background-color: #fef0f0;
 }
+.copy-hash { cursor: pointer; color: var(--el-color-primary); font-weight: 600 }
 </style>

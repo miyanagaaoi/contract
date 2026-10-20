@@ -758,6 +758,17 @@ export async function voidInvoice(id: number, reason: string): Promise<Dict> {
   return data
 }
 
+/** V2.6.1：库存批次配对报表（入出 FIFO） */
+export async function fetchBatchReport(params: Dict = {}): Promise<Dict> {
+  const { data } = await http.get('/stock/batch-report', { params })
+  return data
+}
+
+/** V2.6.1：批次配对报表导出 */
+export async function exportBatchReport(params: Dict = {}): Promise<void> {
+  await downloadBlobFile('/stock/batch-report.xlsx', params, '库存批次配对.xlsx')
+}
+
 /** 按核销明细重算进度回写（运维动作，需 finance.payment.approve） */
 export async function recalcFinanceProgress(): Promise<Dict> {
   const { data } = await http.post('/finance/recalc')
@@ -780,6 +791,77 @@ export async function fetchRoleOptions(): Promise<Dict[]> {
 export async function assignUserRoles(userId: number, roleIds: number[]): Promise<Dict> {
   const { data } = await http.put(`/system/users/${userId}`, { role_ids: roleIds })
   return data
+}
+
+// ---------- V2.6：发票同步与采购单绑定发票（docs/38） ----------
+
+/** 同步状态概要（上次同步结果 + 登录会话是否保活中） */
+export async function fetchInvoiceSyncInfo(): Promise<Dict> {
+  const { data } = await http.get('/finance/invoices/sync-info')
+  return data
+}
+
+/** 发起同步（电子发票服务平台，按我方主体码区分公司），返回 { sync_id } */
+export async function startInvoiceSync(dateFrom: string, dateTo: string,
+                                       subjectCode: string): Promise<Dict> {
+  const { data } = await http.post('/finance/invoices/sync',
+                                  { date_from: dateFrom, date_to: dateTo,
+                                    subject_code: subjectCode })
+  return data
+}
+
+/** 轮询同步状态 */
+export async function fetchInvoiceSyncStatus(syncId: number): Promise<Dict> {
+  const { data } = await http.get(`/finance/invoices/sync/${syncId}`)
+  return data
+}
+
+/** 提交登录短信验证码 */
+export async function submitInvoiceSyncSms(syncId: number, code: string): Promise<Dict> {
+  const { data } = await http.post(`/finance/invoices/sync/${syncId}/sms`, { code })
+  return data
+}
+
+/** 采购单绑定进项发票（多选） */
+export async function bindInvoices(purchaseOrderId: number, invoiceIds: number[]): Promise<Dict> {
+  const { data } = await http.post('/finance/invoices/bind',
+                                  { purchase_order_id: purchaseOrderId, invoice_ids: invoiceIds })
+  return data
+}
+
+/** 解绑发票（回到未确认，红冲重算） */
+export async function unbindInvoice(invoiceId: number): Promise<Dict> {
+  const { data } = await http.post(`/finance/invoices/${invoiceId}/unbind`)
+  return data
+}
+
+/** 导入「下载发票包」：解压按数电票号挂附件 */
+export async function importInvoicePackage(file: File, subjectCode: string): Promise<Dict> {
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('subject_code', subjectCode)
+  const { data } = await http.post('/finance/invoices/import-package', fd, { timeout: 120000 })
+  return data
+}
+
+/** 发票原始文件列表（打印发票用） */
+export async function fetchInvoiceFiles(invoiceId: number): Promise<Dict[]> {
+  const { data } = await http.get(`/finance/invoices/${invoiceId}/files`)
+  return (data.files || []) as Dict[]
+}
+
+/** 带登录态下载文件（新标签页直链不带 token，必须经 axios 转 blob） */
+export async function downloadWithAuth(path: string): Promise<Blob> {
+  const { data } = await http.get(path.replace(/^\/api/, ''), { responseType: 'blob' })
+  return data as Blob
+}
+
+/** 批量打印发票原始文件（服务端合并 PDF），返回 blob */
+export async function printInvoicePackages(ids: number[]): Promise<Blob> {
+  const { data } = await http.get('/finance/invoices/print-package',
+                                  { params: { ids: ids.join(',') },
+                                    responseType: 'blob', timeout: 120000 })
+  return data as Blob
 }
 
 export type {

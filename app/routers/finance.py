@@ -18,7 +18,7 @@ import json
 
 from datetime import date
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -33,10 +33,13 @@ from ..models_doc import (
     INVOICE_OUT,
     INVOICE_STATUS,
     Invoice,
+    InvoiceSyncLog,
     PaymentOrder,
+    PurchaseOrder,
     ReceiptOrder,
 )
 from ..services import audit_service, doc_service, finance_service, numbering_service
+from ..services import tax_sync_service
 from ..services.permission_service import apply_data_scope, require_perm
 from .doc_routes import _guard, register_doc_routes
 from .export import DOC_EXPORT_LIMIT, build_xlsx_response
@@ -472,17 +475,52 @@ def _invoice_export_row(inv: Invoice) -> list:
 
 def _invoice_query(db: Session, user: User, *, keyword=None, status=None, direction=None,
                    date_from=None, date_to=None, include_voided=False, party_id=None,
-                   contract_id=None, subject_code=None, auth_status=None):
+                   contract_id=None, subject_code=None, auth_status=None,
+                   bind_status=None, is_red=None, has_file=None, invoice_type=None):
+    from ..models import Attachment
+    from sqlalchemy import exists
+
     query = apply_data_scope(db.query(Invoice), Invoice, user, db)
     query = doc_service.apply_doc_filters(
         query, Invoice, keyword=keyword, status=status, date_from=date_from,
         date_to=date_to, include_voided=include_voided or status == "voided")
     for field, value in (("invoice_direction", direction), ("party_id", party_id),
-                         ("contract_id", contract_id), ("subject_code", subject_code),
-                         ("auth_status", auth_status)):
+                         ("contract_id", contract_id),
+                         ("auth_status", auth_status), ("bind_status", bind_status)):
         if value is not None and value != "":
             query = query.filter(getattr(Invoice, field) == value)
+    if subject_code:
+        # V2.6：筛选口径 = 收票单位（我方）。同步票落在 our_company_code、
+        # 手工票落在 subject_code——两者任一命中即算匹配。
+        query = query.filter((Invoice.subject_code == subject_code)
+                             | (Invoice.our_company_code == subject_code))
+    if is_red is not None and is_red != "":
+        query = query.filter(Invoice.is_red == bool(is_red))
+    if invoice_type:
+        query = query.filter(Invoice.invoice_type == invoice_type)
+    if has_file is not None:
+        pdf_exists = exists().where(
+            Attachment.object_type == "invoice", Attachment.object_id == Invoice.id,
+            Attachment.deleted.is_(False), Attachment.file_name.ilike("%.pdf"))
+        query = query.filter(pdf_exists if has_file else ~pdf_exists)
     return query
+
+
+def _annotate_files(db: Session, items: list[dict]) -> None:
+    """给发票列表行补 `has_pdf`（是否有发票包原始文件），一次查询避免 N+1。"""
+    ids = [it["id"] for it in items]
+    if not ids:
+        return
+    from ..models import Attachment
+
+    rows = (db.query(Attachment.object_id)
+            .filter(Attachment.object_type == "invoice", Attachment.object_id.in_(ids),
+                    Attachment.deleted.is_(False),
+                    Attachment.file_name.ilike("%.pdf"))
+            .all())
+    have = {r[0] for r in rows}
+    for it in items:
+        it["has_pdf"] = it["id"] in have
 
 
 @router.get(INVOICE_PREFIX + "/export.xlsx", summary="发票导出（当前筛选）")
@@ -510,6 +548,12 @@ def invoice_list(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le
                  status: str | None = Query(None, description="draft/confirmed/voided"),
                  direction: str | None = Query(None, description="in=进项 / out=销项"),
                  auth_status: str | None = Query(None),
+                 invoice_type: str | None = Query(None, description="票种筛选（V2.6）"),
+                 bind_status: str | None = Query(None, description="unbound/bound（V2.6）"),
+                 is_red: bool | None = Query(None, description="红字发票筛选（V2.6）"),
+                 has_file: bool | None = Query(None, description="已下载原始文件筛选（V2.6）"),
+                 sort: str = Query("invoice_date_desc",
+                                   description="invoice_date_desc/invoice_date_asc/id_desc（V2.6 默认按开票日期倒序）"),
                  date_from: str | None = Query(None), date_to: str | None = Query(None),
                  include_voided: bool = Query(False), party_id: int | None = Query(None),
                  contract_id: int | None = Query(None), subject_code: str | None = Query(None),
@@ -521,11 +565,21 @@ def invoice_list(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le
                            date_from=date_from, date_to=date_to,
                            include_voided=include_voided, party_id=party_id,
                            contract_id=contract_id, subject_code=subject_code,
-                           auth_status=auth_status)
+                           auth_status=auth_status, bind_status=bind_status,
+                           is_red=is_red, has_file=has_file, invoice_type=invoice_type)
     total = int(query.count() or 0)
-    rows = query.order_by(Invoice.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    order = {"invoice_date_desc": (Invoice.invoice_date.desc(), Invoice.id.desc()),
+             "invoice_date_asc": (Invoice.invoice_date.asc(), Invoice.id.asc()),
+             "id_desc": (Invoice.id.desc(),)}.get(sort)
+    if order is None:
+        raise HTTPException(status_code=422, detail=f"无效排序：{sort}")
+    for clause in order:
+        query = query.order_by(clause)
+    rows = query.offset((page - 1) * page_size).limit(page_size).all()
+    items = [doc_service.fmt_doc(db, row, with_items=False) for row in rows]
+    _annotate_files(db, items)
     return {
-        "items": [doc_service.fmt_doc(db, row, with_items=False) for row in rows],
+        "items": items,
         "total": total, "page": page, "page_size": page_size,
         "statuses": [{"code": c, "label": t} for c, t in INVOICE_STATUS.items()],
     }
@@ -564,6 +618,231 @@ def invoice_create(request: Request, payload: dict = Body(...),
                              f"{inv.invoice_no}）", request=request)
     db.commit()
     return doc_service.fmt_doc(db, inv)
+
+
+# ==================== V2.6：发票同步（docs/38） ====================
+# ⚠️ 这些路由必须在 GET /invoices/{invoice_id} **之前**注册，避免 "sync" 被当作 int id 解析。
+
+@router.get(INVOICE_PREFIX + "/sync-info", summary="同步状态概要（已配置公司/上次同步/会话保活）")
+def invoice_sync_info(user: User = Depends(require_perm("finance.invoice.view")),
+                      db: Session = Depends(get_db)):
+    return tax_sync_service.last_sync_info(db)
+
+
+@router.post(INVOICE_PREFIX + "/sync", summary="发起发票同步（电子发票服务平台，按主体码区分公司）")
+def invoice_sync(payload: dict = Body(...), request: Request = None,
+                 user: User = Depends(require_perm("finance.invoice.create")),
+                 db: Session = Depends(get_db)):
+    date_from = doc_service.parse_doc_date(payload.get("date_from"))
+    date_to = doc_service.parse_doc_date(payload.get("date_to")) or date.today()
+    subject_code = str(payload.get("subject_code") or "").strip()
+    if not subject_code:
+        raise HTTPException(status_code=422, detail="请选择要同步的我方公司（主体码）")
+    try:
+        log_id = tax_sync_service.start_sync(date_from, date_to, subject_code)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    audit_service.log(db, user, module="finance", action="sync",
+                      object_type="invoice_sync", object_id=log_id,
+                      detail=f"发起发票同步 {date_from}~{date_to}（主体 {subject_code}）",
+                      request=request)
+    db.commit()
+    return {"sync_id": log_id}
+
+
+@router.get(INVOICE_PREFIX + "/sync/{log_id}", summary="轮询同步状态")
+def invoice_sync_status(log_id: int,
+                        user: User = Depends(require_perm("finance.invoice.view")),
+                        db: Session = Depends(get_db)):
+    log = db.get(InvoiceSyncLog, log_id)
+    if log is None:
+        raise HTTPException(status_code=404, detail="同步任务不存在")
+    return {
+        "id": log.id, "status": log.status,
+        "subject_code": log.subject_code,
+        "date_from": log.date_from.isoformat() if log.date_from else None,
+        "date_to": log.date_to.isoformat() if log.date_to else None,
+        "fetched": log.fetched, "inserted": log.inserted,
+        "skipped_duplicate": log.skipped_duplicate,
+        "message": log.message,
+        "started_at": _fmt_dt(log.started_at), "finished_at": _fmt_dt(log.finished_at),
+    }
+
+
+@router.post(INVOICE_PREFIX + "/sync/{log_id}/sms", summary="提交同步登录短信验证码")
+def invoice_sync_sms(log_id: int, payload: dict = Body(...),
+                     user: User = Depends(require_perm("finance.invoice.create"))):
+    code = str(payload.get("code") or "").strip()
+    if not code:
+        raise HTTPException(status_code=422, detail="验证码不能为空")
+    if not tax_sync_service.submit_sms(log_id, code):
+        raise HTTPException(status_code=404, detail="同步任务不存在或已结束")
+    return {"ok": True}
+
+
+@router.post(INVOICE_PREFIX + "/import-rows",
+             summary="桥接同步：导入浏览器解析的发票行（开发环境通道）")
+def invoice_import_rows(payload: dict = Body(...), request: Request = None,
+                        user: User = Depends(require_perm("finance.invoice.create")),
+                        db: Session = Depends(get_db)):
+    """开发环境同步通道：DSH 浏览器桥从用户已登录的「全量发票查询」页读出行数据
+    （normalize_row 口径的字典），本端点负责幂等入库。行格式：
+    `{invoice_no, invoice_type, invoice_date, amount, tax_amount, total_amount,
+      seller_name?, seller_tax_no?, buyer_name?, buyer_tax_no?}`。"""
+    subject_code = str(payload.get("subject_code") or "").strip()
+    rows = payload.get("rows") or []
+    if not subject_code:
+        raise HTTPException(status_code=422, detail="请选择要同步的我方公司（主体码）")
+    if not isinstance(rows, list) or not rows:
+        raise HTTPException(status_code=422, detail="rows 不能为空")
+    try:
+        result = tax_sync_service.import_platform_rows(db, rows, subject_code)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    audit_service.log(db, user, module="finance", action="import",
+                      object_type="invoice_sync",
+                      detail=f"桥接导入发票 {result['inserted']} 张（主体 {subject_code}，"
+                             f"重复 {result['skipped_duplicate']}，红字 {result['skipped_red']}）",
+                      request=request)
+    db.commit()
+    return result
+
+
+@router.post(INVOICE_PREFIX + "/import-package",
+             summary="导入「下载发票包」：解压并按数电票号挂附件")
+async def invoice_import_package(request: Request, file: UploadFile = File(...),
+                                 subject_code: str = Form(...),
+                                 user: User = Depends(require_perm("finance.invoice.create")),
+                                 db: Session = Depends(get_db)):
+    data = await file.read()
+    try:
+        result = tax_sync_service.import_package(db, data, subject_code)
+    except Exception as exc:  # noqa: BLE001 - 非压缩包等
+        raise HTTPException(status_code=422, detail=f"发票包解析失败：{exc}")
+    audit_service.log(db, user, module="finance", action="import_package",
+                      object_type="invoice",
+                      detail=f"发票包 {file.filename}：匹配 {len(result['attached'])} 张，"
+                             f"未匹配 {len(result['unmatched'])} 个文件", request=request)
+    db.commit()
+    return result
+
+
+@router.get(INVOICE_PREFIX + "/print-package", summary="批量打印发票原始文件（合并 PDF）")
+def invoice_print_package(ids: str = Query(..., description="逗号分隔发票 id"),
+                          user: User = Depends(require_perm("finance.invoice.view")),
+                          db: Session = Depends(get_db)):
+    """把所选发票的**原始 PDF**（发票包下载挂载的附件）按顺序合并成一个 PDF。
+
+    打印的就是税务平台下发的原始版式文件——合规且与纸质票完全一致。
+    """
+    import io
+
+    from fastapi.responses import Response
+    from pypdf import PdfWriter
+
+    try:
+        id_list = [int(x) for x in ids.split(",") if x.strip()]
+    except ValueError:
+        raise HTTPException(status_code=422, detail="ids 格式错误")
+    if not id_list:
+        raise HTTPException(status_code=422, detail="请选择要打印的发票")
+    from ..config import UPLOAD_DIR
+    from ..models import Attachment
+
+    writer = PdfWriter()
+    merged, skipped = 0, []
+    for inv_id in id_list:
+        inv = db.get(Invoice, inv_id)
+        if inv is None:
+            skipped.append(f"#{inv_id} 不存在")
+            continue
+        att = (db.query(Attachment)
+               .filter(Attachment.object_type == "invoice", Attachment.object_id == inv_id,
+                       Attachment.deleted.is_(False), Attachment.file_name.ilike("%.pdf"))
+               .order_by(Attachment.id.desc())
+               .first())
+        if att is None:
+            skipped.append(f"{inv.invoice_no} 未上传原始文件")
+            continue
+        path = UPLOAD_DIR / att.stored_path
+        if not path.is_file():
+            skipped.append(f"{inv.invoice_no} 文件丢失")
+            continue
+        try:
+            writer.append(str(path))
+            merged += 1
+        except Exception as exc:  # noqa: BLE001
+            skipped.append(f"{inv.invoice_no} 读取失败: {exc}")
+    if merged == 0:
+        raise HTTPException(status_code=422,
+                            detail="没有可打印的原始文件：" + "；".join(skipped[:5]))
+    buf = io.BytesIO()
+    writer.write(buf)
+    audit_service.log(db, user, module="finance", action="print",
+                      object_type="invoice", detail=f"批量打印 {merged} 张发票原始文件",
+                      request=None)
+    db.commit()
+    return Response(
+        content=buf.getvalue(), media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="invoice-print.pdf"',
+                 "X-Skipped": "; ".join(skipped)[:400]})
+
+
+@router.get(INVOICE_PREFIX + "/{invoice_id}/files", summary="发票原始文件列表（打印发票用）")
+def invoice_files(invoice_id: int,
+                  user: User = Depends(require_perm("finance.invoice.view")),
+                  db: Session = Depends(get_db)):
+    from ..models import Attachment
+
+    atts = (db.query(Attachment)
+            .filter(Attachment.object_type == "invoice", Attachment.object_id == invoice_id,
+                    Attachment.deleted.is_(False))
+            .order_by(Attachment.id.desc())
+            .all())
+    return {"files": [
+        {"id": a.id, "file_name": a.file_name, "size_bytes": a.size_bytes,
+         "is_pdf": a.file_name.lower().endswith(".pdf"),
+         "preview_url": f"/attachments/{a.id}/download"}
+        for a in atts
+    ]}
+
+
+@router.post(INVOICE_PREFIX + "/bind", summary="采购单绑定进项发票（多选，V2.6 弹窗）")
+def invoice_bind(payload: dict = Body(...), request: Request = None,
+                 user: User = Depends(require_perm("finance.invoice.create")),
+                 db: Session = Depends(get_db)):
+
+    po_id = payload.get("purchase_order_id")
+    invoice_ids = payload.get("invoice_ids") or []
+    if not po_id or not isinstance(invoice_ids, list) or not invoice_ids:
+        raise HTTPException(status_code=422, detail="purchase_order_id 与 invoice_ids 必填")
+    po = db.get(PurchaseOrder, int(po_id))
+    if po is None or po.deleted:
+        raise HTTPException(status_code=404, detail="采购单不存在")
+    result = finance_service.bind_invoices(db, po, [int(i) for i in invoice_ids], user)
+    audit_service.log(db, user, module="finance", action="bind",
+                      object_type="purchase_order", object_id=po.id, object_no=po.doc_no,
+                      detail=f"绑定进项发票 {len(result['bound'])} 张"
+                             + (f"，失败 {len(result['errors'])} 张" if result["errors"] else ""),
+                      request=request)
+    db.commit()
+    return result
+
+
+@router.post(INVOICE_PREFIX + "/{invoice_id}/unbind", summary="解绑发票（回到未确认，V2.6）")
+def invoice_unbind(invoice_id: int, request: Request,
+                   user: User = Depends(require_perm("finance.invoice.create")),
+                   db: Session = Depends(get_db)):
+    inv = _scoped_or_403(db, Invoice, invoice_id, user)
+    try:
+        reverted = finance_service.unbind_invoice(db, inv, user)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    audit_service.log(db, user, module="finance", action="unbind",
+                      object_type="invoice", object_id=inv.id, object_no=inv.invoice_no,
+                      detail=f"解绑红冲 {reverted}", request=request)
+    db.commit()
+    return {"ok": True, "reverted": float(reverted)}
 
 
 @router.get(INVOICE_PREFIX + "/{invoice_id}", summary="发票详情")

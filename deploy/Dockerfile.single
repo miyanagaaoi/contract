@@ -1,6 +1,12 @@
 # CTMS 单容器镜像（含前端 + 后端，多阶段构建）
-# 构建：docker build -t ctms:1.0.0 -f deploy/Dockerfile.single .
-# 导出：docker save -o ctms-image-1.0.0.tar ctms:1.0.0
+# 构建：docker build -t ctms:2.6.0 -f deploy/Dockerfile.single .
+# 导出：docker save -o ctms-image-2.6.0.tar ctms:2.6.0
+#
+# V2.6 分包（2026-10-18）：
+#   - 本文件 = **core 核心包**（不含 Playwright/Chromium，体积小）；
+#     发票同步走「浏览器桥接 + 上传发票包」通道，功能完整。
+#   - 需要**服务器自动同步**（Playwright 通道）时，用 deploy/Dockerfile.sync
+#     在 core 之上叠加浏览器层（FROM ctms:2.6.0）。
 
 # ---------- 阶段 1：构建前端 ----------
 FROM node:20-alpine AS fe

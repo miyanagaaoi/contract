@@ -1,19 +1,32 @@
-# CTMS 单容器快速运行（先构建/导入镜像 ctms:1.0.0）
+# CTMS 单容器：核心包（V2.6）
+# 前置：docker load -i ctms-image-2.6.0-core.tar.gz
+# 启动：docker compose -f deploy/docker-compose.single.yml up -d
+#
+# 本配置**不含** Playwright/Chromium：发票同步走「浏览器桥接 + 上传发票包」通道。
+# 需要服务器端自动同步时改用 deploy/docker-compose.sync.yml（镜像 ctms:2.6.0-sync）。
 services:
   ctms:
-    image: ctms:1.0.0
+    image: ctms:2.6.0
     container_name: ctms
     restart: unless-stopped
     ports:
       - "8080:8000"     # 访问 http://<服务器IP>:8080；如宝塔已占 8080 可改其他端口
     volumes:
       - ctms_data:/data # 持久化 SQLite + 附件 + 日志（删容器数据不丢）
-    # V2.3：镜像已内置 psycopg2，可直接连外部 PostgreSQL；取消注释并替换连接串即可：
-    # environment:
-    #   CTMS_DB_URL: postgresql+psycopg2://postgres:CHANGE_ME@192.168.31.27:5444/ctms
-    # 迁移既有 SQLite 数据（容器内执行，SQLite 文件放 /data）：
-    #   docker exec ctms python -m app.tools.migrate_sqlite_to_pg \
-    #     --sqlite /data/ctms.db --pg-url "postgresql+psycopg2://postgres:CHANGE_ME@192.168.31.27:5444/ctms"
+    environment:
+      # ---- V2.6 发票同步凭据（按我方主体码，可多家；同步走桥接时也用于归属）----
+      # CTMS_TAX_SYNC_ENABLED: "1"
+      # CTMS_TAX_SYNC_ZC_USERNAME: ""
+      # CTMS_TAX_SYNC_ZC_PASSWORD: ""          # 支持 base64:xxxx 混淆
+      # CTMS_TAX_SYNC_ZC_TAX_NO: "91149900MAECLDF33U"
+      # CTMS_TAX_SYNC_YX_USERNAME: ""
+      # CTMS_TAX_SYNC_YX_PASSWORD: ""
+      # CTMS_TAX_SYNC_YX_TAX_NO: ""
+      # ---- 外部 PostgreSQL（镜像已内置 psycopg2）----
+      # CTMS_DB_URL: postgresql+psycopg2://postgres:CHANGE_ME@192.168.31.27:5444/ctms
+      # 迁移既有 SQLite 数据（容器内）：
+      #   docker exec ctms python -m app.tools.migrate_sqlite_to_pg \
+      #     --sqlite /data/ctms.db --pg-url "postgresql+psycopg2://postgres:CHANGE_ME@192.168.31.27:5444/ctms"
 
 volumes:
   ctms_data:

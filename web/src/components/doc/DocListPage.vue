@@ -86,6 +86,8 @@ const props = withDefaults(defineProps<{
   contractSource?: 'purchase' | 'sales'
   /** V2.3：显示「签约公司」列 / 筛选项（我方公司 / 主体码） */
   showSubject?: boolean
+  /** 筛选/列的口径标签（V2.6 发票页为「收票单位」） */
+  subjectLabel?: string
   /**
    * V2.5：进度列（键与后端 `progress` 的键一致，如 `paid_amount` / `received_qty`）。
    * 传了才渲染，且列头名称按单据类型而定（采购单的 `invoiced_amount` 是"收票进度"、
@@ -125,6 +127,7 @@ const props = withDefaults(defineProps<{
   printable: true,
   contractSource: 'purchase',
   showSubject: false,
+  subjectLabel: '',
   progressCols: () => [],
   progressLabels: () => ({}),
   extraFilterParams: () => ({}),
@@ -659,6 +662,8 @@ defineExpose({ load: () => load(false), rows })
             <span v-if="subtitle" class="subtitle">{{ subtitle }}</span>
           </div>
           <div>
+            <!-- V2.6：页面级工具按钮（如发票列表的「同步发票」）由页面注入，置于导出/新增左侧 -->
+            <slot name="toolbar" />
             <el-button v-if="canExport" :loading="exporting" @click="doExport">
               <el-icon><Download /></el-icon>导出
             </el-button>
@@ -692,9 +697,9 @@ defineExpose({ load: () => load(false), rows })
                        :label="(w.display_name as string) || w.name" :value="w.id" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="showSubject" label="签约公司">
+        <el-form-item v-if="showSubject" :label="subjectLabel || '签约公司'">
           <el-select v-model="query.subject_code" clearable filterable style="width: 170px"
-                     placeholder="我方公司" @change="page = 1; load()">
+                     :placeholder="subjectLabel || '我方公司'" @change="page = 1; load()">
             <el-option v-for="s in subjectOptions" :key="s.code"
                        :label="`${s.name}（${s.code}）`" :value="s.code" />
           </el-select>
@@ -735,6 +740,8 @@ defineExpose({ load: () => load(false), rows })
       <!-- 批量操作条（T2-1）：仅在有选择时出现，不占用常规视觉空间 -->
       <div v-if="selected.length" class="bulk-bar">
         <span class="bulk-count">已选 {{ selected.length }} 条</span>
+        <!-- V2.6：页面级批量操作（如发票批量打印原始文件）由页面注入 -->
+        <slot name="bulk-actions" :selected="selected" />
         <el-button v-if="can('submit')" type="primary" size="small" :loading="bulkLoading"
                    @click="doBulk('submit')">批量提交</el-button>
         <el-button v-if="can('approve')" type="primary" size="small" :loading="bulkLoading"
@@ -762,7 +769,7 @@ defineExpose({ load: () => load(false), rows })
         <!-- V2.5：单据特有的附加列（如发票的方向/发票号/认证状态）由页面注入 -->
         <slot name="extra-columns" />
         <!-- V2.3：签约公司（我方主体，显示名称快照；历史单据未填时回退主体码） -->
-        <el-table-column v-if="showSubject" label="签约公司" width="120" show-overflow-tooltip>
+        <el-table-column v-if="showSubject" :label="subjectLabel || '签约公司'" width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.subject_name || row.subject_code || '—' }}</template>
         </el-table-column>
         <!-- V2.4：供货商 / 客户列收窄到 130。此前它是表里**唯一**声明 min-width 的列，
@@ -882,7 +889,7 @@ defineExpose({ load: () => load(false), rows })
           </el-descriptions-item>
           <el-descriptions-item label="单据日期">{{ fmtDate(detail.doc_date) }}</el-descriptions-item>
           <!-- V2.3：签约公司（我方公司名称；历史单据未填时回退主体码） -->
-          <el-descriptions-item v-if="showSubject" label="签约公司">
+          <el-descriptions-item v-if="showSubject" :label="subjectLabel || '签约公司'">
             {{ detail.subject_name || detail.subject_code || '—' }}
           </el-descriptions-item>
           <el-descriptions-item label="经办人">{{ detail.created_by_name || '—' }}</el-descriptions-item>

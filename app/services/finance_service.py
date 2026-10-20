@@ -349,6 +349,7 @@ def void_invoice(db: Session, inv: Invoice, reason: str, user) -> int:
             reverted = len(_write_back(db, inv, -1))
     old = inv.status
     inv.status = "voided"
+    inv.bind_status = "unbound"      # V2.6：作废发票退出确认状态（bind_status 口径见 docs/38）
     inv.voided_by = getattr(user, "id", None)
     inv.voided_at = datetime.now()
     inv.void_reason = reason.strip()
@@ -663,3 +664,94 @@ def aging(db: Session, *, as_of: date | None = None) -> dict:
                         for c, l, _lo, _hi in AGING_BUCKETS],
         }
     return out
+
+
+# ==================== V2.6：采购单绑定发票（docs/38 §4.4） ====================
+
+def bind_invoices(db: Session, purchase_order: PurchaseOrder, invoice_ids: list[int],
+                  user) -> dict:
+    """弹窗绑定：一张采购单绑定一张或多张**未确认**进项发票。
+
+    - 发票校验：进项 / `bind_status=unbound` / 状态 draft（未确认未作废）；
+    - 每张发票登记一条核销明细（`amount=发票价税合计`，目标=采购单），
+      随后走 `confirm_invoice` 记账（draft→confirmed + 回写 `invoiced_amount`）——
+      完全复用 V2.5 记账/红冲机制，进度口径与「确认入账」一致；
+    - `bind_status → bound`（已确认）。
+
+    部分成功语义：逐张处理，单张失败记录原因继续，返回 `{bound:[...], errors:[...]}`。
+    """
+    from ..models_doc import INVOICE_IN
+
+    bound: list[dict] = []
+    errors: list[dict] = []
+    target_ok = purchase_order.status in _TARGET_OK_STATUSES
+    for inv_id in invoice_ids:
+        inv = db.get(Invoice, int(inv_id))
+        if inv is None or inv.deleted:
+            errors.append({"invoice_id": inv_id, "reason": "发票不存在"})
+            continue
+        if inv.invoice_direction != INVOICE_IN:
+            errors.append({"invoice_id": inv_id, "invoice_no": inv.invoice_no,
+                           "reason": "仅进项发票可绑定采购单"})
+            continue
+        if inv.bind_status == "bound" or inv.status != "draft":
+            errors.append({"invoice_id": inv_id, "invoice_no": inv.invoice_no,
+                           "reason": "发票已确认或状态不允许绑定"})
+            continue
+        if inv.is_red:
+            errors.append({"invoice_id": inv_id, "invoice_no": inv.invoice_no,
+                           "reason": "红字发票只做台账，不参与收票进度绑定"})
+            continue
+        if not target_ok:
+            errors.append({"invoice_id": inv_id, "invoice_no": inv.invoice_no,
+                           "reason": "采购单未审核/未完成，不能核销"})
+            continue
+        try:
+            inv.allocations = list(inv.allocations or [])
+            inv.allocations.append(InvoiceAllocation(
+                target_type="purchase_order", target_id=purchase_order.id,
+                target_no=purchase_order.doc_no,
+                amount=inv.total_amount or ZERO, tax_amount=inv.tax_amount or ZERO,
+            ))
+            confirm_invoice(db, inv, user)
+            inv.bind_status = "bound"
+            db.commit()
+            bound.append({"invoice_id": inv.id, "invoice_no": inv.invoice_no,
+                          "amount": float(inv.total_amount or ZERO)})
+        except Exception as exc:  # noqa: BLE001 - 单张失败不拖垮整批
+            db.rollback()
+            errors.append({"invoice_id": inv_id, "reason": str(exc)})
+    if bound or errors:
+        doc_service.log(db, purchase_order, "_finance", None,
+                        str(sum(b["amount"] for b in bound)),
+                        note=f"绑定进项发票 {len(bound)} 张"
+                             + (f"，失败 {len(errors)} 张" if errors else ""))
+        db.commit()
+    return {"bound": bound, "errors": errors}
+
+
+def unbind_invoice(db: Session, invoice: Invoice, user) -> Decimal:
+    """解绑（V2.6）：删除核销明细并红冲已记账金额，发票回到「未确认」。
+
+    与作废不同：发票本身仍有效（可再次绑定），故 `status → draft`、`posted → False`。
+    返回红冲金额。
+    """
+    if invoice.bind_status != "bound":
+        raise ValueError("发票未绑定采购单，无需解绑")
+    reverted = ZERO
+    if invoice.posted:
+        if _claim(db, invoice, on=False):
+            _write_back(db, invoice, -1)
+    reverted = allocations_total(invoice)
+    removed = len(invoice.allocations or [])
+    for alloc in list(invoice.allocations or []):
+        db.delete(alloc)
+    invoice.status = "draft"
+    invoice.posted = False
+    invoice.bind_status = "unbound"
+    invoice.approved_by = None
+    invoice.approved_at = None
+    doc_service.log(db, invoice, "status", "confirmed", "draft",
+                    note=f"解绑采购单：删除核销 {removed} 行，红冲 {reverted}（V2.6 弹窗解绑）")
+    db.commit()
+    return reverted

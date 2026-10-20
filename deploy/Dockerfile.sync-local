@@ -1,0 +1,42 @@
+# CTMS 同步镜像（服务器本地组装，V2.6 分功能打包方案）
+#
+# 思路：Chromium 在固定底座 ctms-browser:1 里、**永不重传**；
+#       业务代码/依赖/前端从业务镜像 ctms:<版本> 里 COPY 过来。全程离线、秒级完成。
+#
+# 首次：
+#   docker load -i ctms-browser-1.tar.gz          # 固定底座（一次性，~600MB gz）
+#   docker load -i ctms-image-2.6.0-core.tar.gz    # 业务核心包（每次更新，~71MB gz）
+#   docker build -t ctms:2.6.0-sync \
+#     --build-arg CORE=ctms:2.6.0 -f deploy/Dockerfile.sync-local .
+#
+# 以后每次业务更新（仍然只传核心包）：
+#   docker load -i ctms-image-2.6.1-core.tar.gz
+#   docker build -t ctms:2.6.1-sync \
+#     --build-arg CORE=ctms:2.6.1 -f deploy/Dockerfile.sync-local .
+#   docker rm -f ctms && docker run -d --name ctms -p 8080:8000 -v ctms_data:/data ctms:2.6.1-sync
+#
+# 说明：底座与业务镜像必须是同一 Python 次版本（当前均 3.13），否则 site-packages 不匹配。
+ARG CORE=ctms:2.6.0
+# 中间 stage：把业务镜像声明为一个 FROM 阶段（COPY --from 不支持变量展开）
+FROM ${CORE} AS core
+FROM ctms-browser:1
+
+# 业务依赖（fastapi/sqlalchemy/pypdf/psycopg2…）：从业务镜像整目录复制，含 playwright 之外的一切
+COPY --from=core /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY --from=core /app/app /app/app
+COPY --from=core /srv/web/dist /srv/web/dist
+
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1 \
+    CTMS_DB_URL=sqlite:////data/ctms.db \
+    CTMS_UPLOAD_DIR=/data/uploads \
+    CTMS_LOG_DIR=/data/logs \
+    CTMS_SERVE_STATIC=1 \
+    CTMS_WEB_DIST=/srv/web/dist
+
+VOLUME ["/data"]
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=4)" || exit 1
+
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

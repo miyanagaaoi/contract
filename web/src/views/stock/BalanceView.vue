@@ -11,7 +11,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import {
   downloadBlobFile,
+  exportBatchReport,
   fetchBalances,
+  fetchBatchReport,
   fetchLedger,
   fetchMasterOptions,
   fetchSubjects,
@@ -46,6 +48,8 @@ const query = reactive({
   qty_max: null as number | null,
   // V2.3 / N3：按公司筛选（仓库所属公司，我方主体码）
   subject_code: null as string | null,
+  // V2.6.1：显示零结存（默认隐藏）
+  include_zero: false,
 })
 
 const warehouses = ref<Dict[]>([])
@@ -66,6 +70,7 @@ async function load() {
       qty_min: query.qty_min ?? undefined,
       qty_max: query.qty_max ?? undefined,
       subject_code: query.subject_code || undefined,
+      include_zero: query.include_zero || undefined,
       page: page.value,
       page_size: pageSize.value,
     })
@@ -100,6 +105,7 @@ function balanceParams(): Dict {
     qty_min: query.qty_min ?? undefined,
     qty_max: query.qty_max ?? undefined,
     subject_code: query.subject_code || undefined,
+    include_zero: query.include_zero || undefined,
   }
 }
 
@@ -151,6 +157,48 @@ async function onOpeningFileChange(uploadFile: { raw?: File }) {
 function openImportDialog() {
   importResult.value = null
   importVisible.value = true
+}
+
+/** V2.6.1：库存批次配对报表（入出 FIFO） */
+const batchVisible = ref(false)
+const batchLoading = ref(false)
+const batchRows = ref<Dict[]>([])
+const batchTotal = ref(0)
+const batchPage = ref(1)
+const batchPageSize = ref(50)
+const batchColumns = ref<{ key: string, label: string }[]>([])
+
+function batchParams(): Dict {
+  return { ...balanceParams() }
+}
+
+async function loadBatch() {
+  batchLoading.value = true
+  try {
+    const data = await fetchBatchReport({
+      ...batchParams(), page: batchPage.value, page_size: batchPageSize.value,
+    })
+    batchRows.value = (data.items || []) as Dict[]
+    batchTotal.value = data.total ?? 0
+    batchColumns.value = (data.columns || []) as { key: string, label: string }[]
+  } catch {
+    // 拦截器已提示
+  } finally {
+    batchLoading.value = false
+  }
+}
+
+function openBatchReport() {
+  batchVisible.value = true
+  batchPage.value = 1
+  loadBatch()
+}
+
+async function exportBatch() {
+  try {
+    await exportBatchReport(batchParams())
+    ElMessage.success('已开始导出批次配对报表')
+  } catch { /* 拦截器已提示 */ }
 }
 
 /** 导出结存（令牌在请求头，必须走 blob 下载） */
@@ -292,6 +340,8 @@ onMounted(async () => {
             <el-button v-if="canExportBalance" :loading="exportLoading" @click="exportBalances">
               <el-icon><Download /></el-icon>导出结存
             </el-button>
+            <!-- V2.6.1：批次配对报表（入库批次 → 出库 FIFO 配对） -->
+            <el-button v-if="canExportBalance" @click="openBatchReport">批次配对报表</el-button>
             <el-button v-if="canRecalc" :loading="recalcLoading" @click="doRecalc(false)">库存重算</el-button>
           </div>
         </div>
@@ -333,6 +383,10 @@ onMounted(async () => {
         </el-form-item>
         <el-form-item label="仅低于安全库存">
           <el-switch v-model="query.below_safety" @change="page = 1; load()" />
+        </el-form-item>
+        <!-- V2.6.1：显示零结存（默认只看有货的） -->
+        <el-form-item label="显示零库存">
+          <el-switch v-model="query.include_zero" @change="page = 1; load()" />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="page = 1; load()">查询</el-button>
@@ -523,7 +577,29 @@ onMounted(async () => {
       </div>
     </el-dialog>
   </div>
+
+  <!-- V2.6.1：批次配对报表弹窗 -->
+  <el-dialog v-model="batchVisible" title="库存批次配对报表" width="96%" top="4vh">
+    <div class="batch-bar">
+      <span class="subtitle">入库批次 → 出库 FIFO 配对；库存数量/金额为该批次剩余；资产编号=物料编码；出库项目=出库单备注；领用方=出库单领用人</span>
+      <span style="flex: 1"></span>
+      <el-button @click="exportBatch"><el-icon><Download /></el-icon>导出 Excel</el-button>
+    </div>
+    <el-table v-loading="batchLoading" :data="batchRows" border stripe size="small" height="60vh">
+      <el-table-column v-for="c in batchColumns" :key="c.key" :prop="c.key" :label="c.label"
+                       :width="c.key === 'product_name' ? 200 : c.key === 'out_project' ? 180 : 130"
+                       :align="['qty','price','amount','out_qty','out_amount','stock_qty','stock_amount'].includes(c.key) ? 'right' : 'left'"
+                       show-overflow-tooltip />
+      <template #empty>暂无批次数据（请先入库并产生出库流水）</template>
+    </el-table>
+    <el-pagination class="pager" background layout="total, prev, pager, next, sizes"
+                   :total="batchTotal" :current-page="batchPage" :page-size="batchPageSize"
+                   :page-sizes="[20, 50, 100, 200]"
+                   @current-change="(p: number) => { batchPage = p; loadBatch() }"
+                   @size-change="(s: number) => { batchPageSize = s; batchPage = 1; loadBatch() }" />
+  </el-dialog>
 </template>
+
 
 <style scoped>
 .mb { margin-bottom: var(--ctms-gap); }

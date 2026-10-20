@@ -2,14 +2,16 @@
 /**
  * 采购单列表（T-V2-24，AC-V2-18）：审核通过后可下推生成入库单。
  *
- * V2.5 新增：收货/付款/收票三列进度，以及「更多 → 发起付款单 / 登记进项发票」
- * 快速入口（预填供应商、签约公司、未付/未收票金额与来源单号）。
+ * V2.5 新增：收货/付款/收票三列进度，以及「更多 → 发起付款单 / 登记进项发票」快速入口。
+ * V2.6 改造：「登记进项发票」由跳转表单改为**弹窗多选绑定**已有进项发票
+ * （默认筛选未确认；绑定后状态→已确认，收票进度按价税合计累计，docs/38）。
  */
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import DocListPage from '@/components/doc/DocListPage.vue'
 import PushDialog from '@/components/doc/PushDialog.vue'
+import InvoiceBindDialog from '@/components/finance/InvoiceBindDialog.vue'
 import { fetchMasterOptions, type Dict } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import type { DocRecord } from '@/types/doc'
@@ -19,6 +21,8 @@ const router = useRouter()
 const auth = useAuthStore()
 const listRef = ref<InstanceType<typeof DocListPage> | null>(null)
 const pushRef = ref<InstanceType<typeof PushDialog> | null>(null)
+const bindVisible = ref(false)
+const bindTarget = ref<DocRecord | null>(null)
 
 /** V2.5：财务发起入口按权限显隐（后端仍强制校验，前端只决定"看不看得见"） */
 const canInitPayment = computed(() => auth.hasPerm('finance.payment.create'))
@@ -34,16 +38,20 @@ function onPushed(doc: DocRecord) {
   router.push({ name: 'stock-in-edit', params: { id: String(doc.id) } })
 }
 
-/** V2.5：「更多」里的财务动作（DocListPage 不认识的命令统一走 `more` 事件） */
+/** V2.5/V2.6：「更多」里的财务动作 */
 function onMore({ command, row }: { command: string; row: DocRecord }) {
   if (command === 'pay') {
     router.push({ name: 'finance-payment-form',
                   query: { source_type: 'purchase_order', source_id: String(row.id) } })
   } else if (command === 'invoice-in') {
-    router.push({ name: 'finance-invoice-form',
-                  query: { source_type: 'purchase_order', source_id: String(row.id),
-                           direction: 'in' } })
+    bindTarget.value = row
+    bindVisible.value = true
   }
+}
+
+/** 绑定/解绑成功后刷新列表（收票进度列实时反映） */
+function onBindChanged() {
+  listRef.value?.load()
 }
 
 /** 只有已审核/已完成的单据才能发起下游财务动作（与"下推"的显隐口径一致） */
@@ -122,5 +130,9 @@ onMounted(async () => {
 
   <PushDialog ref="pushRef" api="/api/purchase/orders" dest-type="stock"
               dest-label="入库单" @done="onPushed" />
+
+  <!-- V2.6：弹窗多选绑定进项发票（替代跳转表单） -->
+  <InvoiceBindDialog v-model="bindVisible" :purchase-order="bindTarget"
+                     @changed="onBindChanged" />
 </template>
 

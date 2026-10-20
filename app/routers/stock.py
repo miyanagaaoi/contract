@@ -97,6 +97,26 @@ def _apply_out_fields(db: Session, doc: StockOutOrder, payload: dict) -> None:
             doc.customer_id, doc.customer_name = customer.id, customer.name
         else:
             doc.customer_id, doc.customer_name = None, None
+    # V2.6.1：领用人（系统账号或客户档案，二选一；清空传空串）
+    if "issue_party_type" in payload or "issue_party_id" in payload:
+        ptype = str(payload.get("issue_party_type") or "").strip()
+        pid = payload.get("issue_party_id") or None
+        if not ptype or not pid:
+            doc.issue_party_type, doc.issue_party_id, doc.issue_party_name = None, None, None
+        elif ptype == "user":
+            from ..models_auth import User as _User
+
+            user = db.get(_User, int(pid))
+            if user is None:
+                raise ValueError("领用人（系统账号）不存在")
+            doc.issue_party_type, doc.issue_party_id = "user", user.id
+            doc.issue_party_name = user.real_name or user.username
+        elif ptype == "customer":
+            customer = doc_service.require_customer(db, int(pid))
+            doc.issue_party_type, doc.issue_party_id = "customer", customer.id
+            doc.issue_party_name = customer.name
+        else:
+            raise ValueError("领用人类型只能是：系统账号 / 客户")
 
 
 register_doc_routes(router, prefix=OUT_PREFIX, kind="stock_out", model=StockOutOrder,
@@ -271,7 +291,7 @@ def _balances_query(db: Session, *, keyword: str | None = None, warehouse_id: in
                     product_id: int | None = None,
                     product_type_id: int | None = None, below_safety: bool = False,
                     qty_min: float | None = None, qty_max: float | None = None,
-                    subject_code: str | None = None):
+                    subject_code: str | None = None, include_zero: bool = False):
     """库存结存查询（列表与导出共用，保证"导出口径与页面一致"，R7）。
 
     V2.1（N11）：同时 LEFT JOIN 出「货品总额度」，返回 `(Stock, inbound_amount)` 行；
@@ -284,7 +304,10 @@ def _balances_query(db: Session, *, keyword: str | None = None, warehouse_id: in
              .join(Product, Stock.product_id == Product.id)
              .outerjoin(sub, and_(sub.c.product_id == Stock.product_id,
                                   sub.c.warehouse_id == Stock.warehouse_id))
-             .filter(Stock.qty != 0))
+             )
+    if not include_zero:
+        # 默认隐藏零结存（V2.6.1：页面可勾选"显示零库存"，见 include_zero）
+        query = query.filter(Stock.qty != 0)
     if subject_code:
         query = query.filter(Stock.warehouse.has(Warehouse.subject_code == subject_code))
     if warehouse_id:
@@ -319,13 +342,15 @@ def stock_balances(keyword: str | None = Query(None, description="物料编码/�
                    below_safety: bool = Query(False, description="仅看低于安全库存（T-V2-34）"),
                    qty_min: float | None = Query(None, description="结存数量下限（V2.1/N12）"),
                    qty_max: float | None = Query(None, description="结存数量上限（V2.1/N12）"),
+                   include_zero: bool = Query(False, description="显示零结存（V2.6.1）"),
                    page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
                    _user: User = Depends(require_perm("stock.balance.view")),
                    db: Session = Depends(get_db)):
     query = _balances_query(db, keyword=keyword, warehouse_id=warehouse_id,
                             product_id=product_id, product_type_id=product_type_id,
                             below_safety=below_safety,
-                            qty_min=qty_min, qty_max=qty_max, subject_code=subject_code)
+                            qty_min=qty_min, qty_max=qty_max, subject_code=subject_code,
+                            include_zero=include_zero)
     total = int(query.count() or 0)
     rows = (query.order_by(Product.code.asc())
             .offset((page - 1) * page_size).limit(page_size).all())
@@ -414,6 +439,7 @@ def export_balances(keyword: str | None = Query(None), warehouse_id: int | None 
                     subject_code: str | None = Query(None, description="按仓库所属公司筛选（V2.3）"),
                     below_safety: bool = Query(False),
                     qty_min: float | None = Query(None), qty_max: float | None = Query(None),
+                    include_zero: bool = Query(False, description="含零结存（V2.6.1）"),
                     _user: User = Depends(require_perm("stock.balance.view")),
                     db: Session = Depends(get_db)):
     """导出当前筛选的结存清单（与列表同一查询构建，条数与内容一致）。
@@ -426,7 +452,8 @@ def export_balances(keyword: str | None = Query(None), warehouse_id: int | None 
     rows = []
     stocks = (_balances_query(db, keyword=keyword, warehouse_id=warehouse_id,
                               product_type_id=product_type_id, below_safety=below_safety,
-                              qty_min=qty_min, qty_max=qty_max, subject_code=subject_code)
+                              qty_min=qty_min, qty_max=qty_max, subject_code=subject_code,
+                              include_zero=include_zero)
               .order_by(Product.code.asc()).limit(DOC_EXPORT_LIMIT).all())
     for s, amount in stocks:
         product = s.product
@@ -621,3 +648,79 @@ async def import_opening_balances(request: Request, file: UploadFile = File(...)
     db.commit()
     return {"total": total, "imported": imported, "skipped": skipped,
             "merged": merged, "errors": errors}
+
+
+# ==================== V2.6.1：出库单领用人选项 ====================
+
+@router.get("/api/stock/issue-options", tags=["stock"], summary="领用人选项（系统账号 / 客户）")
+def issue_options(_user: User = Depends(require_perm("stock.out.view")),
+                  db: Session = Depends(get_db)):
+    """出库单「领用人」下拉：系统启用账号 + 客户档案。
+
+    只返回展示所需的最小字段（id/名称），不暴露账号敏感信息。
+    """
+    from ..models_auth import User as _User
+    from ..models_master import Customer
+
+    users = (db.query(_User.id, _User.real_name, _User.username)
+             .filter(_User.status == "enabled").order_by(_User.id).all())
+    customers = (db.query(Customer.id, Customer.name)
+                 .filter(Customer.deleted.is_(False)).order_by(Customer.name).all())
+    return {
+        "users": [{"id": u.id, "name": u.real_name or u.username} for u in users],
+        "customers": [{"id": c.id, "name": c.name} for c in customers],
+    }
+
+
+# ==================== V2.6.1：库存批次配对报表 ====================
+
+@router.get("/api/stock/batch-report", tags=["stock"], summary="库存批次配对报表（入出FIFO）")
+def stock_batch_report(keyword: str | None = Query(None, description="物料编码/名称/规格"),
+                       warehouse_id: int | None = Query(None),
+                       subject_code: str | None = Query(None, description="按仓库所属公司"),
+                       product_id: int | None = Query(None),
+                       date_from: str | None = Query(None), date_to: str | None = Query(None),
+                       page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=500),
+                       _user: User = Depends(require_perm("stock.balance.view")),
+                       db: Session = Depends(get_db)):
+    """库存批次配对（入库批次 → 出库 FIFO 配对）明细，列口径见 docs/41。"""
+    from ..services import stock_report_service as svc
+
+    wh_ids = None
+    if subject_code:
+        wh_ids = [r[0] for r in db.query(Warehouse.id)
+                  .filter(Warehouse.subject_code == subject_code).all()] or [-1]
+    rows = svc.build_batches(db, warehouse_id=warehouse_id, product_id=product_id,
+                             warehouse_ids=wh_ids, date_from=date_from, date_to=date_to,
+                             keyword=keyword)
+    total = len(rows)
+    start = (page - 1) * page_size
+    return {
+        "items": rows[start:start + page_size], "total": total,
+        "page": page, "page_size": page_size,
+        "columns": [{"key": k, "label": l} for (l, _w), k in
+                    zip(svc.BATCH_COLUMNS, svc.BATCH_KEYS)],
+    }
+
+
+@router.get("/api/stock/batch-report.xlsx", tags=["stock"], summary="批次配对报表导出")
+def stock_batch_report_export(keyword: str | None = Query(None),
+                              warehouse_id: int | None = Query(None),
+                              subject_code: str | None = Query(None),
+                              product_id: int | None = Query(None),
+                              date_from: str | None = Query(None),
+                              date_to: str | None = Query(None),
+                              _user: User = Depends(require_perm("stock.ledger.export")),
+                              db: Session = Depends(get_db)):
+    from .export import DOC_EXPORT_LIMIT, build_xlsx_response
+    from ..services import stock_report_service as svc
+
+    wh_ids = None
+    if subject_code:
+        wh_ids = [r[0] for r in db.query(Warehouse.id)
+                  .filter(Warehouse.subject_code == subject_code).all()] or [-1]
+    rows = svc.build_batches(db, warehouse_id=warehouse_id, product_id=product_id,
+                             warehouse_ids=wh_ids, date_from=date_from, date_to=date_to,
+                             keyword=keyword)[:DOC_EXPORT_LIMIT]
+    data = [[r[k] for k in svc.BATCH_KEYS] for r in rows]
+    return build_xlsx_response("库存批次配对", svc.BATCH_COLUMNS, data, "批次配对")

@@ -410,6 +410,49 @@ async function ensureProducts() {
   }
 }
 
+/** V2.6.1：物料树（商品类型分组 → 物料），供行项树形选择 */
+const productTree = computed(() => {
+  const groups = new Map<string, Dict[]>()
+  for (const p of productOptions.value) {
+    const key = (p.product_type_name as string) || '未分类'
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push({
+      id: `t:${key}`, // 组节点用字符串 id，避免与物料数字 id 冲突
+      label: `${key}（${groups.get(key)!.length}）`,
+      disabled: true,
+      children: [],
+      isGroup: true,
+    })
+  }
+  const tree: Dict[] = []
+  for (const [key, list] of groups) {
+    const children = (productOptions.value.filter(
+      (p) => ((p.product_type_name as string) || '未分类') === key)).map((p) => ({
+        id: p.id,
+        label: `${p.name}（${p.code}）`,
+        raw: p,
+      }))
+    tree.push({
+      id: `t:${key}`, label: `${key}（${children.length}）`, disabled: true,
+      children, isGroup: true,
+    })
+  }
+  return tree
+})
+
+/** 悬停信息（第 2 条需求：档案基础信息辅助选料） */
+function productTip(p: Dict | undefined): string {
+  if (!p) return ''
+  return [
+    `编码：${p.code ?? '—'}`,
+    `名称：${p.name ?? '—'}`,
+    `规格：${p.spec || '—'}`,
+    `单位：${p.uom_name || '—'}`,
+    `默认单价：${p.default_price ?? '—'}`,
+    `类型：${p.product_type_name || '未分类'}`,
+  ].join(' ｜ ')
+}
+
 /** 选中物料 → 带出名称/规格/单位/默认单价（用户仍可覆盖） */
 function onItemProductChange(row: Dict, id: number | null) {
   const hit = productOptions.value.find((p) => p.id === id)
@@ -1197,13 +1240,23 @@ onMounted(async () => {
           <el-table-column label="物料" min-width="180">
             <!-- V2.1 / N4：合同行项必须绑定系统物料档案（选中后带出名称/规格/默认单价） -->
             <template #default="{ row }">
-              <el-select v-model="row.product_id" size="small" filterable clearable
-                         placeholder="必选" style="width: 100%"
-                         @visible-change="ensureProducts"
-                         @change="(v: number) => onItemProductChange(row, v)">
-                <el-option v-for="p in productOptions" :key="p.id"
-                           :label="`${p.name}（${p.code}）`" :value="p.id" />
-              </el-select>
+              <!-- V2.6.1：树形展开选取（商品类型 → 物料）；悬停显示档案信息辅助选料 -->
+              <el-tree-select v-model="row.product_id" size="small" clearable filterable
+                              placeholder="必选（可按编码/名称搜索）" style="width: 100%"
+                              :data="productTree" :render-after-expand="false"
+                              :props="{ value: 'id', label: 'label', children: 'children', disabled: 'disabled' }"
+                              @visible-change="(v: boolean) => v && ensureProducts()"
+                              @change="(v: number) => onItemProductChange(row, v)">
+                <template #default="{ data }">
+                  <el-tooltip v-if="!data.isGroup" :content="productTip(data.raw)"
+                              placement="right" :show-after="200" raw-content>
+                    <span>{{ data.label }}</span>
+                  </el-tooltip>
+                  <span v-else style="font-weight: 600; color: var(--ctms-text-muted)">
+                    {{ data.label }}
+                  </span>
+                </template>
+              </el-tree-select>
             </template>
           </el-table-column>
           <el-table-column label="名称" min-width="150">

@@ -80,6 +80,21 @@ _ADD_COLUMNS: list[tuple[str, str, str]] = [
     ("sales_orders", "invoiced_amount", "NUMERIC(16,2) NOT NULL DEFAULT 0"),
     # ---- V2.5+：合同「累计已收」（销售/收入类合同，收款单审核增量回写；列表按类型取数） ----
     ("contracts", "received_amount", "NUMERIC(14,2) NOT NULL DEFAULT 0"),
+    # ---- V2.6：发票同步（docs/38；invoices 新列，invoice_sync_logs 新表由 create_all 建） ----
+    ("invoices", "sync_source", "VARCHAR(16)"),
+    ("invoices", "synced_at", "TIMESTAMP"),
+    ("invoices", "bind_status", "VARCHAR(16) NOT NULL DEFAULT 'unbound'"),
+    ("invoices", "seller_name", "VARCHAR(128)"),
+    ("invoices", "seller_tax_no", "VARCHAR(32)"),
+    ("invoices", "buyer_name", "VARCHAR(128)"),
+    ("invoices", "buyer_tax_no", "VARCHAR(32)"),
+    ("invoices", "our_company_code", "VARCHAR(8)"),
+    ("invoices", "our_company_name", "VARCHAR(64)"),
+    ("invoices", "is_red", "BOOLEAN NOT NULL DEFAULT 0"),
+    # ---- V2.6.1：出库单领用人（可选系统账号或客户）----
+    ("stock_out_orders", "issue_party_type", "VARCHAR(16)"),
+    ("stock_out_orders", "issue_party_id", "INTEGER"),
+    ("stock_out_orders", "issue_party_name", "VARCHAR(64)"),
 ]
 
 _ADD_INDEXES: list[tuple[str, str, str]] = [
@@ -97,6 +112,10 @@ _ADD_INDEXES: list[tuple[str, str, str]] = [
     ("ix_sales_orders_subject_code", "sales_orders", "subject_code"),
     ("ix_stock_in_orders_subject_code", "stock_in_orders", "subject_code"),
     ("ix_stock_out_orders_subject_code", "stock_out_orders", "subject_code"),
+    # V2.6：发票同步来源与确认状态筛选
+    ("ix_invoices_sync_source", "invoices", "sync_source"),
+    ("ix_invoices_bind_status", "invoices", "bind_status"),
+    ("ix_invoices_is_red", "invoices", "is_red"),
 ]
 
 

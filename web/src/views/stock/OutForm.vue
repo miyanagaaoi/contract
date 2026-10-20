@@ -12,7 +12,7 @@
  *    数量（同单多行同物料同仓库先合计），不足时给出中文提示并中止保存。
  */
 import { watch } from 'vue'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import DocFormPage from '@/components/doc/DocFormPage.vue'
@@ -24,9 +24,42 @@ const extra = ref<Dict>({
   warehouse_id: null,
   out_type: '销售出库',
   customer_id: null,
+  // V2.6.1：领用人（系统账号 / 客户，二选一）
+  issue_party_type: null,
+  issue_party_id: null,
+  issue_party_name: null,
 })
 
 const OUT_TYPES = ['销售出库', '领用出库', '其他出库']
+// V2.6.1：领用人选项（系统账号 + 客户）
+const issueOptions = ref<Dict>({ users: [], customers: [] })
+let issueLoaded = false
+async function ensureIssueOptions() {
+  if (issueLoaded) return
+  try {
+    const { data } = await http.get('/stock/issue-options')
+    issueOptions.value = data
+    issueLoaded = true
+  } catch { /* 拦截器已提示 */ }
+}
+const issueKey = computed<string>({
+  get: () => (extra.value.issue_party_type && extra.value.issue_party_id
+    ? `${extra.value.issue_party_type}:${extra.value.issue_party_id}` : ''),
+  set: (v: string) => {
+    if (!v) {
+      extra.value.issue_party_type = null
+      extra.value.issue_party_id = null
+      extra.value.issue_party_name = null
+      return
+    }
+    const [type, id] = v.split(':')
+    const list = type === 'user' ? issueOptions.value.users : issueOptions.value.customers
+    const hit = (list || []).find((x: Dict) => String(x.id) === id)
+    extra.value.issue_party_type = type
+    extra.value.issue_party_id = Number(id)
+    extra.value.issue_party_name = hit ? (hit.name as string) : ''
+  },
+})
 const warehouses = ref<Dict[]>([])
 const customers = ref<Dict[]>([])
 
@@ -179,6 +212,21 @@ async function checkBalance(): Promise<boolean> {
         <el-form-item label="出库类型" required>
           <el-select v-model="extra.out_type" style="width: 100%">
             <el-option v-for="t in OUT_TYPES" :key="t" :label="t" :value="t" />
+          </el-select>
+        </el-form-item>
+      </el-col>
+      <el-col :span="12">
+        <el-form-item label="领用人">
+          <el-select v-model="issueKey" filterable clearable placeholder="领用出库建议填写"
+                     style="width: 100%" @visible-change="ensureIssueOptions">
+            <el-option-group label="系统账号">
+              <el-option v-for="u in issueOptions.users" :key="`u${u.id}`"
+                         :label="u.name" :value="`user:${u.id}`" />
+            </el-option-group>
+            <el-option-group label="客户">
+              <el-option v-for="c in issueOptions.customers" :key="`c${c.id}`"
+                         :label="c.name" :value="`customer:${c.id}`" />
+            </el-option-group>
           </el-select>
         </el-form-item>
       </el-col>

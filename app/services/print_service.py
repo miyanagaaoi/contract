@@ -439,7 +439,7 @@ def resolve_signers(db, parsed: dict[str, str | int] | None) -> dict[str, tuple[
     return resolved
 
 
-def _sign_cell(name: str, signers: dict, blanks: int = 0) -> str:
+def _sign_cell(name: str, signers: dict, blanks: int = 0, shown: str | None = None) -> str:
     """签字位单元格：`角色：` / `角色：姓名________` / `角色：<img 签名图>`。
 
     签名值三种形态（`resolve_signers` 产物或旧格式裸字符串）：
@@ -448,7 +448,7 @@ def _sign_cell(name: str, signers: dict, blanks: int = 0) -> str:
     - 空：只印角色，整段下划线（付款单固定网格 `blanks=14`）。
     姓名仍按不可信文本 `escape`（alt 里同样转义）。
     """
-    label = escape(str(name))
+    label = escape(str(shown if shown is not None else name))
     picked = (signers or {}).get(str(name))
     if picked:
         if isinstance(picked, tuple):
@@ -479,9 +479,13 @@ def _render_sign(doc, cfg: dict, signers: dict[str, str] | None = None) -> str:
                      f"（{_dt(getattr(doc, 'voided_at', None))}）</p>")
     labels = cfg.get("signature_labels") or print_template_service.DEFAULT_SIGN_LABELS
     # V2.6：每行 3 个签字位，超过自动换行；选中系统账号的签字位预填姓名（B 需求）
+    # V2.6.1：签字位内部键可带 `#n` 后缀（如两个「部门负责人」分开选人），
+    #         渲染标题时去掉后缀，打印文字保持“部门负责人”。
     sign_html = ""
     for group in _split_sign_rows(list(labels)):
-        cells = "".join(f"<td>{_sign_cell(name, signers or {})}</td>" for name in group)
+        cells = "".join(
+            f"<td>{_sign_cell(name, signers or {}, shown=print_template_service.display_sign_label(name))}</td>"
+            for name in group)
         sign_html += f"<tr>{cells}</tr>"
     parts.append(f'<table class="sign">{sign_html}</table>')
     return f'<div class="sign">{"".join(parts)}</div>'

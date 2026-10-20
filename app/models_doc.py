@@ -334,6 +334,10 @@ class StockOutOrder(Base, DocMixin):
     out_type: Mapped[str] = mapped_column(String(24), nullable=False, default="销售出库")
     customer_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     customer_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # V2.6.1：领用人（领用出库时记录；可选系统账号或客户档案）
+    issue_party_type: Mapped[str | None] = mapped_column(String(16), nullable=True)   # user/customer
+    issue_party_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    issue_party_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
     total_amount: Mapped[Decimal] = mapped_column(
         Numeric(16, 2), nullable=False, default=Decimal("0")
     )
@@ -615,6 +619,26 @@ class Invoice(Base, DocMixin):
     party_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     auth_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
 
+    # ---- V2.6：发票同步（docs/38）----
+    # sync_source：tax_platform = 电子发票服务平台同步；NULL = 手工录入。
+    # bind_status：unbound（未确认）→ 绑定采购单后 bound（已确认）；解绑/作废回 unbound。
+    sync_source: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    bind_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="unbound", index=True
+    )
+    # 同步落库的票面四要素快照（开票单位=销方 / 收票单位=购方）；手工录入为空，沿用 party_*
+    seller_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    seller_tax_no: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    buyer_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    buyer_tax_no: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # 签约公司（我方）快照：按 buyer_tax_no 匹配我方公司字典后落 code/name
+    our_company_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    our_company_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # V2.6：红冲标记（同步时平台状态含"冲红"或价税合计为负 → is_red=True；
+    # 红字票只做台账展示，不参与收票进度绑定）
+    is_red: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+
     allocations: Mapped[list["InvoiceAllocation"]] = relationship(
         back_populates="invoice", cascade="all, delete-orphan",
         order_by="InvoiceAllocation.id", lazy="selectin",
@@ -642,6 +666,29 @@ class InvoiceAllocation(Base):
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     invoice: Mapped[Invoice] = relationship(back_populates="allocations")
+
+
+class InvoiceSyncLog(Base):
+    """V2.6 发票同步日志（docs/38 §2.2）：一次「同步发票」操作一条记录。
+
+    `status`：running → waiting_sms → success / failed。
+    `tax_no` 是本次同步登录账号对应的纳税人识别号（同步主体快照）。
+    """
+
+    __tablename__ = "invoice_sync_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    date_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    date_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    subject_code: Mapped[str | None] = mapped_column(String(8), nullable=True)   # 我方主体码（V2.6 多公司）
+    tax_no: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running", index=True)
+    fetched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    inserted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    skipped_duplicate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 # 供通用服务/路由使用的注册表

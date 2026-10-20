@@ -461,7 +461,13 @@ def fmt_doc(db: Session, doc, *, with_items: bool = True) -> dict:
                   "belong_period", "bank_purpose", "pay_reason", "plan_type",
                   "invoiced_amount", "invoice_direction", "invoice_code", "invoice_no",
                   "invoice_type", "invoice_date", "tax_rate", "amount", "tax_amount",
-                  "party_id", "party_name", "auth_status", "allocated_amount"):
+                  "party_id", "party_name", "auth_status", "allocated_amount",
+                  # V2.6：发票同步与确认状态
+                  "sync_source", "synced_at", "bind_status",
+                  "seller_name", "seller_tax_no", "buyer_name", "buyer_tax_no",
+                  "our_company_code", "our_company_name", "is_red",
+                  # V2.6.1：出库单领用人
+                  "issue_party_type", "issue_party_id", "issue_party_name"):
         if hasattr(doc, field):
             value = getattr(doc, field)
             data[field] = value.isoformat() if isinstance(value, date) else value

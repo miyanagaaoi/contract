@@ -10,8 +10,10 @@ import { onMounted, ref } from 'vue'
 
 const emit = defineEmits<{ (e: 'save', blob: Blob): void }>()
 
-const W = 400          // CSS 逻辑宽度（px）
-const H = 160          // CSS 逻辑高度（px）
+// V2.6.1：宽高改为响应式（全屏书写时按视口尺寸重算）
+const W = ref(400)     // CSS 逻辑宽度（px）
+const H = ref(160)     // CSS 逻辑高度（px）
+const fullscreen = ref(false)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const hasInk = ref(false)   // 是否已落笔（空画板禁用保存按钮）
 const drawing = ref(false)
@@ -24,8 +26,8 @@ onMounted(() => {
   const canvas = canvasRef.value
   if (!canvas) return
   const dpr = window.devicePixelRatio || 1
-  canvas.width = W * dpr
-  canvas.height = H * dpr
+  canvas.width = W.value * dpr
+  canvas.height = H.value * dpr
   ctx = canvas.getContext('2d')
   if (!ctx) return
   ctx.scale(dpr, dpr)
@@ -83,10 +85,51 @@ function onTouchEnd(e: TouchEvent) {
   if (e.touches.length === 0) drawing.value = false
 }
 
+/** 按目标逻辑尺寸重建画板，并把已有笔迹等比保留（V2.6.1 全屏切换用） */
+function resizeCanvas(w: number, h: number) {
+  const canvas = canvasRef.value
+  if (!canvas) return
+  const snapshot = hasInk.value ? canvas.toDataURL('image/png') : ''
+  W.value = w
+  H.value = h
+  const dpr = window.devicePixelRatio || 1
+  canvas.width = w * dpr
+  canvas.height = h * dpr
+  const next = canvas.getContext('2d')
+  if (!next) return
+  ctx = next
+  ctx.scale(dpr, dpr)
+  ctx.lineWidth = 3
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.strokeStyle = '#1a1a1a'
+  if (snapshot) {
+    const img = new Image()
+    img.onload = () => { ctx?.drawImage(img, 0, 0, w, h) }
+    img.src = snapshot
+  }
+}
+
+/** 进入全屏书写（手机端小屏书写体验，V2.6.1） */
+function enterFullscreen() {
+  fullscreen.value = true
+  // 视口尺寸减去顶部工具区与底部按钮区，留出书写空间
+  const w = Math.max(320, window.innerWidth - 24)
+  const h = Math.max(200, window.innerHeight - 160)
+  // 等遮罩渲染完成后再重设，避免读到旧尺寸
+  setTimeout(() => resizeCanvas(w, h), 30)
+}
+
+/** 退出全屏，恢复默认画板尺寸 */
+function exitFullscreen() {
+  fullscreen.value = false
+  setTimeout(() => resizeCanvas(400, 160), 30)
+}
+
 /** 清空画板（供按钮和父组件 reset 调用） */
 function reset() {
   if (!ctx) return
-  ctx.clearRect(0, 0, W, H)
+  ctx.clearRect(0, 0, W.value, H.value)
   hasInk.value = false
 }
 
@@ -103,7 +146,7 @@ defineExpose({ reset })
 </script>
 
 <template>
-  <div class="sigpad">
+  <div class="sigpad" :class="{ 'sigpad--fullscreen': fullscreen }">
     <canvas
       ref="canvasRef"
       class="sigpad-canvas"
@@ -118,6 +161,10 @@ defineExpose({ reset })
     <div class="sigpad-tip gray">鼠标拖动或手指书写；保存后生成 PNG 并上传为该账号的电子签名</div>
     <div class="sigpad-actions">
       <el-button size="small" @click="reset">清空重写</el-button>
+      <el-button v-if="!fullscreen" size="small" @click="enterFullscreen">
+        全屏书写
+      </el-button>
+      <el-button v-else size="small" @click="exitFullscreen">退出全屏</el-button>
       <el-button type="primary" size="small" :disabled="!hasInk" @click="save">
         保存手写签名
       </el-button>
@@ -126,6 +173,25 @@ defineExpose({ reset })
 </template>
 
 <style scoped>
+/* V2.6.1：全屏书写模式（移动端重点，桌面端也可用） */
+.sigpad--fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: #fff;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sigpad--fullscreen .sigpad-canvas {
+  width: 100% !important;
+  max-width: none;
+  height: calc(100vh - 150px) !important;
+  flex: 1;
+  border-radius: 0;
+}
+.sigpad--fullscreen .sigpad-actions { margin-top: auto; }
 .sigpad-canvas {
   width: 400px;
   max-width: 100%;

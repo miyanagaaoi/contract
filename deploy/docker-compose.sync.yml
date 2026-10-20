@@ -1,0 +1,35 @@
+# CTMS 单容器：同步扩展包（V2.6，core + Playwright/Chromium）
+# 前置：docker load -i ctms-image-2.6.0-sync.tar.gz（已含核心层，无需单独 load core）
+# 启动：docker compose -f deploy/docker-compose.sync.yml up -d
+#
+# ⚠️ 与 docker-compose.single.yml **使用同一个数据卷 ctms_data**、同一个容器名 ctms，
+#    二者是"二选一"的同一套系统：切换只会换镜像，/data 里的库与附件保持不变。
+# ⚠️ 容器内是无头浏览器：点字验证码/短信验证码无法人工操作——
+#    生产同步请在会话保活（1 小时）窗口内发起，或把开发机的
+#    app/data/tax_session/state_<主体码>.json 复制进容器复用会话：
+#      docker cp state_YX.json ctms:/app/app/data/tax_session/
+services:
+  ctms:
+    image: ctms:2.6.0-sync
+    container_name: ctms
+    restart: unless-stopped
+    ports:
+      - "8080:8000"
+    volumes:
+      - ctms_data:/data
+    environment:
+      # 发票同步凭据（按主体码预充；缺一家就只同步一家）
+      # CTMS_TAX_SYNC_ENABLED: "1"
+      # CTMS_TAX_SYNC_ZC_USERNAME: ""
+      # CTMS_TAX_SYNC_ZC_PASSWORD: ""
+      # CTMS_TAX_SYNC_ZC_TAX_NO: ""
+      # CTMS_TAX_SYNC_YX_USERNAME: ""
+      # CTMS_TAX_SYNC_YX_PASSWORD: ""
+      # CTMS_TAX_SYNC_YX_TAX_NO: ""
+      # 会话保活与验证码等待（秒）
+      # CTMS_TAX_SYNC_SESSION_TTL: "3600"
+      # CTMS_TAX_SYNC_SMS_TIMEOUT: "600"
+      # CTMS_TAX_SYNC_HEADLESS: "1"
+
+volumes:
+  ctms_data:

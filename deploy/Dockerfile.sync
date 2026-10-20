@@ -1,0 +1,21 @@
+# CTMS 同步扩展镜像（V2.6）：在 core 之上叠加 Playwright + Chromium + 中文字体
+# 前置：ctms:2.6.0 核心镜像已构建/已 load
+# 构建：docker build -t ctms:2.6.0-sync -f deploy/Dockerfile.sync .
+# 导出：docker save -o ctms-image-2.6.0-sync.tar ctms:2.6.0-sync
+#
+# 适用：服务器**自动同步**（Playwright 通道）场景。仅需桥接/上传发票包时用 core 即可。
+# ⚠️ 容器为无头浏览器，点字/滑块/短信验证无法人工操作：
+#    生产同步请在登录会话保活（1 小时）窗口内发起，或把开发机的
+#    app/data/tax_session/state_<主体码>.json 复制进容器 /app/app/data/tax_session/ 复用会话。
+FROM ctms:2.6.0
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+COPY app/requirements-sync.txt /app/
+# 国内网络：apt 与 playwright 均走镜像源
+RUN sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/debian.sources \
+    || sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list || true
+RUN pip install --no-cache-dir -r /app/requirements-sync.txt \
+    && apt-get update && apt-get install -y --no-install-recommends fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/* \
+    && PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/ \
+       python -m playwright install --with-deps chromium

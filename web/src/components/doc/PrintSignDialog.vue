@@ -36,8 +36,13 @@ const userOptions = ref<Dict[]>([])
 /** orgId → 负责人账号 id（组织下拉附带 leader_user_id，登录即可取） */
 const leaderByOrg = ref<Record<number, number>>({})
 
-/** 展示用签字位（保持顺序去重：两个「部门负责人」共用一个下拉与一个预填） */
+/** 展示用签字位（去重；V2.6.1 起两个部门负责人用 `#1/#2` 区分，各自独立选人） */
 const uniqLabels = computed(() => [...new Set(props.labels || [])])
+
+/** 内部键 → 显示文字（去掉 `#n` 后缀；与后端打印渲染同口径） */
+function shownLabel(label: string): string {
+  return String(label).split('#')[0]
+}
 
 /** 签字值 = 账号 id：打印接口按 id 回库取姓名，有签名图片则直接嵌图 */
 const signers = reactive<Record<string, number | undefined>>({})
@@ -47,7 +52,11 @@ function resetSelection() {
   // 部门负责人默认选中：单据部门在组织架构里指定了负责人才带出，否则留空（手写）
   const deptLeader = props.orgId ? leaderByOrg.value[props.orgId] : undefined
   for (const label of uniqLabels.value) {
-    if (label === '部门负责人' && deptLeader) signers[label] = deptLeader
+    // V2.6.1：`部门负责人#1` = 单据所属部门负责人（组织架构默认带出）；
+    //          `部门负责人#2` = 另一部门负责人（手选，不预填）
+    if (shownLabel(label) === '部门负责人' && label.endsWith('#1') && deptLeader) {
+      signers[label] = deptLeader
+    }
   }
 }
 
@@ -92,7 +101,7 @@ function onConfirm() {
     <p class="tip">选中的签字位打印账号姓名并保留手写签名空间；预存过签名图片的账号
       （标注「已签名」）将直接嵌入签名图片；留空则只印签字位名称。</p>
     <el-form label-width="110px">
-      <el-form-item v-for="label in uniqLabels" :key="label" :label="label">
+      <el-form-item v-for="label in uniqLabels" :key="label" :label="shownLabel(label)">
         <el-select v-model="signers[label]" clearable filterable placeholder="不预填（手写）"
                    style="width: 100%">
           <el-option v-for="u in userOptions" :key="u.id"

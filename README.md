@@ -2,10 +2,13 @@
 
 > 内网版合同台账与履约跟踪系统：采购 / 财务 / 项目管理 3~4 人使用。
 > 开发方法：SDD（Specification-Driven Development，规格驱动开发）。
-> 当前阶段：**V2.0（ERP 进销存）开发完成并进入 UAT；V2.2 界面迭代、V2.3 多公司维度 + PostgreSQL 迁移均已交付**。
+> 当前阶段：**V2.0（ERP 进销存）已完成并进入 UAT；V2.2 界面迭代、V2.3 多公司维度 + PostgreSQL 迁移、
+> V2.4 飞书接入、V2.5 财务模块（付款单/收款单/发票 + 六条进度列）、
+> V2.6 发票同步（电子发票服务平台桥接/Playwright 双通道 + 发票包导入 + 批量打印）、
+> V2.6.1 体验与报表增强均已交付**。
 > 里程碑：`v2.0-m1`（权限与主数据）、`v2.0-m2`（采购线与库存过账）、`v2.0-m3`（销售、盘点、导出、打印）已打标签；
 > `v2.0` 发布标签待 UAT 通过后打。
-> 验证基线：`pytest` 329 passed；前端 E2E 81 passed；
+> 验证基线：`pytest` **516 passed**；前端 E2E 81 passed；
 > 端到端冒烟 M1 15/15 + M2 11/11 + M3 11/11（**已切 PostgreSQL 运行**）+ V2.3 专项 11/11；
 > 权限矩阵与备份恢复演练均通过
 > —— 详见 [20-v2-acceptance-summary.md](docs/20-v2-acceptance-summary.md)（AC 逐条证据映射）、
@@ -13,6 +16,22 @@
 > 与 [26-v2.3-adjustments.md](docs/26-v2.3-adjustments.md)（V2.3：仓库/单据公司维度、库存按公司筛选、调拨出入单位、PG 迁移）。
 > 下一步：业务用户按 [17-uat-plan.md](docs/17-uat-plan.md) 逐条演示并签字；上线按
 > [19-go-live-checklist.md](docs/19-go-live-checklist.md) 执行。
+
+## 最新版本要点
+
+**V2.6.1（当前）**
+- 合同行项物料**树形选择**（商品类型 → 物料），悬停显示档案信息（编码/规格/单位/默认单价/类型）辅助选料；
+- 采购单详情行项表 `#` 点击**复制整表**（TSV，可直粘 Excel）；
+- 出入库打印签字栏两个「部门负责人」**分开选人**（`#1` 按组织架构自动带出、`#2` 手选，打印文字不变）；
+- 库存明细新增**批次配对报表**（入库批次 → 出库 FIFO 配对，19 列，支持导出）；
+- 出库单新增**领用人**字段（系统账号或客户档案）；
+- 库存明细支持**显示零结存**；
+- 手写签名支持**手机全屏书写**。
+
+**V2.6.0**
+- 发票管理改造：同步（电子发票服务平台，桥接 / Playwright 双通道）、发票包导入（自动解压挂原始 PDF）、
+  多选绑定采购单、红字发票标记、收票单位与文件状态筛选、批量打印（合并原始 PDF）；
+- 分包 Docker 交付：核心包 71MB / 浏览器固定底座 + 离线组装同步镜像（详见 `39`）。
 
 ## 文档导航
 
@@ -41,6 +60,17 @@
 | [20-v2-acceptance-summary.md](docs/20-v2-acceptance-summary.md) | **V2.0 验收报告（汇总）**：AC-V2-01~42 逐条证据映射、总体结果、人工确认项与签字页 | 全体、业务用户 |
 | [25-v2.2-adjustments.md](docs/25-v2.2-adjustments.md) | **V2.2 迭代记录**：操作列可读性、供货商详情与简称必填、库存明细命名、**打印模板**（升级/回滚注意） | 全体 |
 | [26-v2.3-adjustments.md](docs/26-v2.3-adjustments.md) | **V2.3 迭代记录**：仓库所属公司、单据签约公司、库存按公司筛选、调拨出入单位、**PostgreSQL 启动与数据迁移**、Docker 发布 | 全体、运维 |
+| [27-feishu-integration-plan.md](docs/27-feishu-integration-plan.md) | **V2.4 飞书接入方案**：免登、通知推送、账号绑定与自动建号口径 | 全体、运维 |
+| [28-v2.5-finance-module-plan.md](docs/28-v2.5-finance-module-plan.md) | **V2.5 财务模块讨论稿**：范围、口径冻结结论 | 需求方、开发 |
+| [29-v2.5-finance-requirements.md](docs/29-v2.5-finance-requirements.md) | **V2.5 需求规格**：付款单/收款单/发票 + 六条进度列（AC-V2.5-01~20） | 全体 |
+| [30-v2.5-finance-system-design.md](docs/30-v2.5-finance-system-design.md) | **V2.5 详细设计**：模型、核销/记账/红冲、接口清单 | 开发 |
+| [31-v2.5-finance-development-plan.md](docs/31-v2.5-finance-development-plan.md) | **V2.5 开发计划**：里程碑与任务分解 | 项目经理、开发 |
+| [32-v2.5-acceptance.md](docs/32-v2.5-acceptance.md) | **V2.5 验收报告**：AC 逐条证据、复现命令 | 全体 |
+| [33-payment-application-print-template.md](docs/33-payment-application-print-template.md) | **付款申请单打印模板**：版式与字段口径（对齐纸质模板） | 财务、开发 |
+| [34-postgresql-production-setup.md](docs/34-postgresql-production-setup.md) | **生产 PostgreSQL 部署**：安装、参数、备份与迁移 | 运维 |
+| [35-release-v2.5.0.md](docs/35-release-v2.5.0.md) / [36](docs/36-release-v2.5.1.md) / [37](docs/37-release-v2.5.2.md) | **V2.5.x 发行说明**：各批次增量内容 | 全体 |
+| [38-v2.6-invoice-sync-plan.md](docs/38-v2.6-invoice-sync-plan.md) | **V2.6 开发计划**：发票同步（双通道）、绑定弹窗、红字口径、分包发布 | 全体、运维 |
+| [39-v2.6-deploy.md](docs/39-v2.6-deploy.md) | **V2.6 联动部署指南**：核心包/同步扩展包/浏览器底座、离线组装、桥接与升级 | 运维、决策人 |
 
 ## 关键决策记录（本轮已确认）
 

@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>V2.6 页面设计 — 发票同步 / 发票管理 / 采购单绑定发票</title>
+<style>
+  :root{
+    --el-primary:#409eff; --el-success:#67c23a; --el-warning:#e6a23c;
+    --el-danger:#f56c6c; --el-info:#909399;
+    --el-text-1:#303133; --el-text-2:#606266; --el-text-3:#909399;
+    --el-border:#dcdfe6; --el-border-light:#e4e7ed; --el-fill:#f5f7fa;
+    --el-bg:#fff; --page-bg:#f0f2f5;
+    --font: "Helvetica Neue",Helvetica,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--font);background:var(--page-bg);color:var(--el-text-1);font-size:14px;padding:24px}
+  h1{font-size:20px;margin-bottom:4px}
+  .sub{color:var(--el-text-3);font-size:13px;margin-bottom:20px}
+  .section{background:var(--el-bg);border-radius:6px;padding:20px;margin-bottom:28px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+  .section>h2{font-size:16px;margin-bottom:4px}
+  .section>.desc{color:var(--el-text-3);font-size:13px;margin-bottom:16px}
+
+  /* ---- 通用 element 风格 ---- */
+  .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  .btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--el-border);border-radius:4px;
+       padding:7px 14px;background:#fff;color:var(--el-text-2);cursor:pointer;font-size:13px;line-height:1;white-space:nowrap}
+  .btn:hover{color:var(--el-primary);border-color:#c6e2ff;background:#ecf5ff}
+  .btn.primary{background:var(--el-primary);border-color:var(--el-primary);color:#fff}
+  .btn.primary:hover{background:#66b1ff}
+  .btn.danger-plain{color:var(--el-danger);border-color:#fbc4c4}
+  .btn.mini{padding:5px 10px;font-size:12px}
+  .input{border:1px solid var(--el-border);border-radius:4px;padding:7px 10px;font-size:13px;color:var(--el-text-1);outline:none;min-width:150px;background:#fff}
+  .input:focus{border-color:var(--el-primary)}
+  .select{appearance:none;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='%23909399'%3E%3Cpath d='M12 16l-6-6h12z'/%3E%3C/svg%3E") no-repeat right 8px center;padding-right:28px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{background:var(--el-fill);color:var(--el-text-2);font-weight:600;text-align:left;padding:9px 10px;border-bottom:1px solid var(--el-border-light);white-space:nowrap}
+  td{padding:9px 10px;border-bottom:1px solid var(--el-border-light);color:var(--el-text-1);white-space:nowrap}
+  tr:hover td{background:var(--el-fill)}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  th.num{text-align:right}
+  .tag{display:inline-block;padding:2px 8px;border-radius:3px;font-size:12px;line-height:1.5}
+  .tag.success{background:#f0f9eb;color:var(--el-success);border:1px solid #e1f3d8}
+  .tag.info{background:#f4f4f5;color:var(--el-info);border:1px solid #e9e9eb}
+  .tag.warning{background:#fdf6ec;color:var(--el-warning);border:1px solid #faecd8}
+  .link{color:var(--el-primary);cursor:pointer}
+  .link + .link{margin-left:10px}
+  .muted{color:var(--el-text-3);font-size:12px}
+  .pager{display:flex;justify-content:flex-end;gap:6px;margin-top:14px;align-items:center;font-size:13px;color:var(--el-text-2)}
+  .pager .pg{border:1px solid var(--el-border);border-radius:3px;min-width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;background:#fff}
+  .pager .pg.on{background:var(--el-primary);border-color:var(--el-primary);color:#fff}
+  .sort-arrow{font-size:10px;color:var(--el-primary)}
+  .checkbox{width:14px;height:14px;accent-color:var(--el-primary)}
+  .progress-cell{display:flex;align-items:center;gap:8px;min-width:110px}
+  .bar{flex:1;height:6px;border-radius:3px;background:#ebeef5;overflow:hidden}
+  .bar>i{display:block;height:100%;background:var(--el-primary);border-radius:3px}
+  .bar.full>i{background:var(--el-success)}
+
+  /* ---- 弹窗 ---- */
+  .overlay{background:#f0f2f5;border:1px dashed var(--el-border);border-radius:8px;padding:24px;position:relative;margin-top:16px}
+  .overlay .label{position:absolute;top:-10px;left:14px;background:var(--el-warning);color:#fff;font-size:12px;padding:2px 10px;border-radius:3px}
+  .dialog{max-width:860px;margin:0 auto;background:#fff;border-radius:8px;box-shadow:0 4px 24px rgba(0,0,0,.14);overflow:hidden}
+  .dialog.narrow{max-width:560px}
+  .dialog .hd{padding:16px 20px;border-bottom:1px solid var(--el-border-light);font-size:16px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+  .dialog .bd{padding:20px;max-height:420px;overflow:auto}
+  .dialog .ft{padding:12px 20px;border-top:1px solid var(--el-border-light);display:flex;justify-content:flex-end;gap:10px;align-items:center}
+  .x{color:var(--el-text-3);cursor:pointer;font-size:18px;line-height:1}
+
+  /* 步骤条 */
+  .steps{display:flex;margin-bottom:22px}
+  .step{flex:1;text-align:center;position:relative}
+  .step .dot{width:26px;height:26px;border-radius:50%;background:#e4e7ed;color:var(--el-text-3);display:inline-flex;align-items:center;justify-content:center;font-size:13px;margin-bottom:6px}
+  .step.done .dot{background:var(--el-success);color:#fff}
+  .step.on .dot{background:var(--el-primary);color:#fff}
+  .step .t{font-size:13px;color:var(--el-text-3)}
+  .step.on .t,.step.done .t{color:var(--el-text-1);font-weight:600}
+  .step:not(:last-child)::after{content:"";position:absolute;top:13px;left:calc(50% + 20px);width:calc(100% - 40px);height:2px;background:#e4e7ed}
+  .step.done:not(:last-child)::after{background:var(--el-success)}
+
+  /* 同步中状态条 */
+  .sync-box{border:1px solid var(--el-border-light);border-radius:6px;padding:16px;background:var(--el-fill)}
+  .sync-row{display:flex;justify-content:space-between;padding:6px 0;font-size:13px}
+  .sms-input{display:flex;gap:10px;margin-top:12px}
+  .sms-input .input{letter-spacing:6px;font-size:16px;text-align:center;max-width:180px}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid #dcdfe6;border-top-color:var(--el-primary);border-radius:50%;animation:r 0.8s linear infinite;vertical-align:-2px;margin-right:6px}
+  @keyframes r{to{transform:rotate(360deg)}}
+  .result-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:6px}
+  .result-card{border:1px solid var(--el-border-light);border-radius:6px;padding:14px;text-align:center}
+  .result-card b{font-size:24px;display:block;margin-bottom:4px}
+  .result-card span{font-size:12px;color:var(--el-text-3)}
+
+  .alert{border-radius:4px;padding:9px 14px;font-size:13px;margin-bottom:14px;line-height:1.6}
+  .alert.info{background:#ecf5ff;color:#3a8ee6;border:1px solid #d9ecff}
+  .alert.warn{background:#fdf6ec;color:#b88230;border:1px solid #faecd8}
+
+  .kv{display:flex;gap:18px;font-size:13px;margin-bottom:14px;flex-wrap:wrap}
+  .kv b{color:var(--el-text-2);font-weight:400}
+  .kv span{color:var(--el-text-1);font-weight:600}
+  .callout{background:#fffce8;border:1px solid #ffe58f;border-radius:4px;padding:10px 14px;font-size:13px;color:#8c6d1f;margin-top:16px;line-height:1.7}
+  .anno{position:absolute;background:#fff7e6;border:1px solid #ffd591;color:#874d00;font-size:12px;padding:4px 10px;border-radius:4px;z-index:5;line-height:1.5;box-shadow:0 2px 6px rgba(0,0,0,.06)}
+</style>
+</head>
+<body>
+
+<h1>V2.6 页面设计 — 发票同步与管理改造</h1>
+<p class="sub">CTMS · 与现有 Element Plus 风格保持一致 · 三处界面：① 发票管理列表（改造）② 同步发票向导（新增）③ 采购单绑定发票弹窗（改造）。黄底虚线区域 = 弹窗层示意。</p>
+
+<!-- ══════════════ 1. 发票管理列表 ══════════════ -->
+<div class="section">
+  <h2>① 发票管理列表（改造后）</h2>
+  <p class="desc">列顺序按需求调整：开票日期为默认排序键；「签约公司」「开票单位」「收票单位」替代原「往来单位」；税率列新增（由税额÷金额换算）；金额移到税额后。顶部新增「同步发票」入口与上次同步时间。</p>
+
+  <div class="toolbar">
+    <button class="btn primary">⟳ 同步发票</button>
+    <span class="muted">上次同步：2026-10-16 09:41（取得发票 2026-09-30 ~ 2026-10-16，新增 4 张）</span>
+    <span style="flex:1"></span>
+    <input class="input" placeholder="发票号码 / 开票单位" style="min-width:180px">
+    <select class="input select">
+      <option>票种：全部</option><option>数电票（增值税专用发票）</option><option>数电票（普通发票）</option>
+    </select>
+    <select class="input select">
+      <option>状态：全部</option><option>已认证</option><option>待认证</option><option>未确认</option><option>已确认</option>
+    </select>
+    <button class="btn">搜索</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>发票号码</th>
+        <th>票种</th>
+        <th>开票日期 <span class="sort-arrow">▼</span></th>
+        <th>签约公司</th>
+        <th>开票单位</th>
+        <th>收票单位</th>
+        <th class="num">税率</th>
+        <th class="num">税额</th>
+        <th class="num">金额</th>
+        <th class="num">价税合计</th>
+        <th>状态</th>
+        <th>同步时间</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="link">26142000001496803711</td>
+        <td>数电票（专票）</td>
+        <td>2026-10-09</td>
+        <td>伟业地产</td>
+        <td>山西伟业房地产开发有限公司</td>
+        <td>我司（ZC）</td>
+        <td class="num">13%</td>
+        <td class="num">3,745.84</td>
+        <td class="num">28,814.16</td>
+        <td class="num">32,560.00</td>
+        <td><span class="tag success">已认证</span> <span class="tag info">未确认</span></td>
+        <td class="muted">10-16 09:41</td>
+        <td><span class="link">详情</span><span class="link">绑定</span></td>
+      </tr>
+      <tr>
+        <td class="link">26142000001462483321</td>
+        <td>数电票（普票）</td>
+        <td>2026-09-30</td>
+        <td>忻州热力</td>
+        <td>忻州市热力有限公司</td>
+        <td>我司（ZC）</td>
+        <td class="num">13%</td>
+        <td class="num">267,823.01</td>
+        <td class="num">2,060,176.99</td>
+        <td class="num">2,328,000.00</td>
+        <td><span class="tag success">已认证</span> <span class="tag success">已确认</span></td>
+        <td class="muted">10-16 09:41</td>
+        <td><span class="link">详情</span><span class="link">解绑</span></td>
+      </tr>
+      <tr>
+        <td class="link">26142000001460941141</td>
+        <td>数电票（专票）</td>
+        <td>2026-09-30</td>
+        <td>融欣科技</td>
+        <td>山西融欣科技有限公司</td>
+        <td>我司（ZC）</td>
+        <td class="num">6%</td>
+        <td class="num">36,679.25</td>
+        <td class="num">611,320.75</td>
+        <td class="num">648,000.00</td>
+        <td><span class="tag success">已认证</span> <span class="tag info">未确认</span></td>
+        <td class="muted">10-16 09:41</td>
+        <td><span class="link">详情</span><span class="link">绑定</span></td>
+      </tr>
+      <tr>
+        <td class="link">041299900411</td>
+        <td>增值税专票</td>
+        <td>2026-09-18</td>
+        <td>鑫汇瑞</td>
+        <td>山西鑫汇瑞信息科技有限公司</td>
+        <td>我司（ZC）</td>
+        <td class="num">6%</td>
+        <td class="num">8,603.77</td>
+        <td class="num">143,396.23</td>
+        <td class="num">152,000.00</td>
+        <td><span class="tag warning">待认证</span> <span class="tag success">已确认</span></td>
+        <td class="muted">—（手工）</td>
+        <td><span class="link">详情</span><span class="link">解绑</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="pager">
+    <span>共 37 条</span>
+    <span class="pg">‹</span><span class="pg on">1</span><span class="pg">2</span><span class="pg">›</span>
+  </div>
+
+  <div class="callout">
+    <b>口径说明</b>：开票单位 = 销方（对方）；收票单位 = 购方（我方，自动按纳税人识别号匹配系统「我方公司」并显示其简称作为签约公司）。手工录入的发票保持原字段，同步时间为「—（手工）」。开票日期支持点击切换升/降序。
+  </div>
+</div>
+
+<!-- ══════════════ 2. 同步发票向导 ══════════════ -->
+<div class="section">
+  <h2>② 同步发票向导（新增弹窗，四步）</h2>
+  <p class="desc">由发票列表「⟳ 同步发票」唤起。会话 1 小时内有效时自动跳过登录步骤；短信验证码需人工输入；全程状态可轮询展示。</p>
+
+  <!-- 步骤1：选区间 -->
+  <div class="overlay"><span class="label">步骤 1 / 4 — 选择区间</span>
+    <div class="dialog narrow">
+      <div class="hd">同步发票 <span class="x">×</span></div>
+      <div class="bd">
+        <div class="steps">
+          <div class="step done"><span class="dot">1</span><div class="t">选择区间</div></div>
+          <div class="step"><span class="dot">2</span><div class="t">平台登录</div></div>
+          <div class="step"><span class="dot">3</span><div class="t">抓取发票</div></div>
+          <div class="step"><span class="dot">4</span><div class="t">完成</div></div>
+        </div>
+        <div class="kv">
+          <div><b>登录账号：</b><span>91149900MAECLDF33U</span></div>
+          <div><b>会话状态：</b><span style="color:var(--el-danger)">未登录 / 已过期</span></div>
+        </div>
+        <div class="toolbar" style="margin-bottom:0">
+          <label class="muted">开票日期区间</label>
+          <input class="input" type="date" value="2026-09-30"> ~
+          <input class="input" type="date" value="2026-10-16">
+          <span class="muted">默认：上次同步日 ~ 今天</span>
+        </div>
+        <div class="alert info" style="margin-top:14px">仅同步「查询类型 = 取得发票、状态 = 正常」的进项发票；重复发票号自动跳过。</div>
+      </div>
+      <div class="ft"><button class="btn">取消</button><button class="btn primary">开始同步</button></div>
+    </div>
+  </div>
+
+  <!-- 步骤2：验证码 -->
+  <div class="overlay"><span class="label">步骤 2 / 4 — 等待短信验证码</span>
+    <div class="dialog narrow">
+      <div class="hd">同步发票 — 平台登录 <span class="x">×</span></div>
+      <div class="bd">
+        <div class="steps">
+          <div class="step done"><span class="dot">✓</span><div class="t">选择区间</div></div>
+          <div class="step on"><span class="dot">2</span><div class="t">平台登录</div></div>
+          <div class="step"><span class="dot">3</span><div class="t">抓取发票</div></div>
+          <div class="step"><span class="dot">4</span><div class="t">完成</div></div>
+        </div>
+        <div class="sync-box">
+          <div class="sync-row"><span>账号密码自动填写</span><span class="tag success">已完成</span></div>
+          <div class="sync-row"><span>平台已向手机号 138****6721 下发验证码</span><span class="tag warning">等待输入</span></div>
+          <div class="sms-input">
+            <input class="input" placeholder="- - - -" maxlength="6">
+            <button class="btn primary">提交验证码</button>
+          </div>
+          <div class="muted" style="margin-top:10px">验证码 5 分钟内有效；超时本次同步自动终止，可重新发起。</div>
+        </div>
+      </div>
+      <div class="ft"><button class="btn">取消同步</button></div>
+    </div>
+  </div>
+
+  <!-- 步骤4：完成 -->
+  <div class="overlay"><span class="label">步骤 4 / 4 — 同步完成</span>
+    <div class="dialog narrow">
+      <div class="hd">同步发票 — 完成 <span class="x">×</span></div>
+      <div class="bd">
+        <div class="steps">
+          <div class="step done"><span class="dot">✓</span><div class="t">选择区间</div></div>
+          <div class="step done"><span class="dot">✓</span><div class="t">平台登录</div></div>
+          <div class="step done"><span class="dot">✓</span><div class="t">抓取发票</div></div>
+          <div class="step done"><span class="dot">✓</span><div class="t">完成</div></div>
+        </div>
+        <div class="result-grid">
+          <div class="result-card"><b style="color:var(--el-primary)">4</b><span>拉取发票</span></div>
+          <div class="result-card"><b style="color:var(--el-success)">3</b><span>新增入库</span></div>
+          <div class="result-card"><b style="color:var(--el-info)">1</b><span>重复跳过</span></div>
+        </div>
+        <div class="alert info" style="margin-top:14px">已同步发票均标记「已认证 / 未确认」，可在下方列表或采购单绑定弹窗中确认。会话已保活，<b>1 小时内</b>再次同步免登录。</div>
+      </div>
+      <div class="ft"><button class="btn">查看同步日志</button><button class="btn primary">完成</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ 3. 采购单绑定发票弹窗 ══════════════ -->
+<div class="section">
+  <h2>③ 采购单「更多 → 登记进项发票」绑定弹窗（改造）</h2>
+  <p class="desc">原跳转表单改为弹窗多选：默认筛选「未确认」发票；支持跨页勾选多张，确认后状态变更为已确认，收票进度按价税合计自动累计。</p>
+
+  <div class="toolbar" style="margin-top:4px">
+    <span class="muted">上下文示意 — 采购单 CG-2026-0908-012（山西鑫汇瑞 · 含税 152,000.00）</span>
+    <span style="flex:1"></span>
+    <span class="muted">收票进度：</span>
+    <div class="progress-cell" style="width:130px"><div class="bar full"><i style="width:100%"></i></div><b>100%</b></div>
+  </div>
+
+  <div class="overlay"><span class="label">弹窗 — 选择进项发票（多选）</span>
+    <div class="dialog">
+      <div class="hd">登记进项发票 — CG-2026-0908-012 <span class="x">×</span></div>
+      <div class="bd">
+        <div class="toolbar">
+          <select class="input select" style="min-width:130px">
+            <option>确认状态：未确认</option><option>全部</option><option>未确认</option><option>已确认</option>
+          </select>
+          <select class="input select" style="min-width:150px">
+            <option>开票单位：全部</option><option>山西鑫汇瑞信息科技有限公司</option>
+          </select>
+          <input class="input" placeholder="发票号码" style="min-width:140px">
+          <button class="btn">筛选</button>
+          <span class="muted">默认仅显示「未确认」发票</span>
+        </div>
+        <table>
+          <thead>
+            <tr><th style="width:36px"></th>
+              <th>发票号码</th><th>开票日期</th><th>开票单位</th>
+              <th class="num">税率</th><th class="num">税额</th><th class="num">金额</th><th class="num">价税合计</th><th>状态</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><input type="checkbox" class="checkbox" checked></td>
+              <td class="link">26142000001460159156</td><td>2026-09-30</td><td>山西鑫汇瑞信息科技有限公司</td>
+              <td class="num">6%</td><td class="num">8,603.77</td><td class="num">143,396.23</td><td class="num">152,000.00</td>
+              <td><span class="tag info">未确认</span></td>
+            </tr>
+            <tr>
+              <td><input type="checkbox" class="checkbox"></td>
+              <td class="link">26142000001496803711</td><td>2026-10-09</td><td>山西伟业房地产开发有限公司</td>
+              <td class="num">13%</td><td class="num">3,745.84</td><td class="num">28,814.16</td><td class="num">32,560.00</td>
+              <td><span class="tag info">未确认</span></td>
+            </tr>
+            <tr>
+              <td><input type="checkbox" class="checkbox"></td>
+              <td class="link">26142000001460941141</td><td>2026-09-30</td><td>山西融欣科技有限公司</td>
+              <td class="num">6%</td><td class="num">36,679.25</td><td class="num">611,320.75</td><td class="num">648,000.00</td>
+              <td><span class="tag info">未确认</span></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="alert warn" style="margin-top:14px">
+          已选 1 张 · 价税合计 <b>152,000.00</b>；采购单未收票余额 <b>152,000.00</b>。若勾选金额超过未收票余额，收票进度将显示超额（红色 100%+），确认前会二次提示。
+        </div>
+      </div>
+      <div class="ft">
+        <span class="muted" style="margin-right:auto">绑定后发票状态 → 已确认；可在发票详情解绑并自动重算进度</span>
+        <button class="btn">取消</button>
+        <button class="btn primary">确认绑定（1）</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <b>采购单列表效果</b>：绑定成功后，该采购单行「收票进度」列由 0% 变为 152,000 / 152,000 = 100%（绿色满条）；「更多」菜单中「登记进项发票」入口保留，重复点击进入同一弹窗可继续绑定或查看已绑定发票并解绑。
+  </div>
+</div>
+
+</body>
+</html>

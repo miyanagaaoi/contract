@@ -57,10 +57,14 @@ def test_stock_default_signature_labels_two_rows():
     """入库/出库/调拨/盘点：默认签字栏 5 项，按每行 3 个分成 3 + 2 两行。"""
     for kind in ("stock_in", "stock_out", "stock_transfer", "stock_take"):
         cfg = print_template_service.default_config(kind)
+        # V2.6.1：两个「部门负责人」用 #1/#2 内部键区分选人，显示文字不变
         assert cfg["signature_labels"] == [
-            "库管员", "采购人", "财务", "部门负责人", "部门负责人"], kind
+            "库管员", "采购人", "财务", "部门负责人#1", "部门负责人#2"], kind
         rows = print_service._split_sign_rows(cfg["signature_labels"])
-        assert rows == [["库管员", "采购人", "财务"], ["部门负责人", "部门负责人"]], kind
+        from app.services.print_template_service import display_sign_label as _d
+        assert rows == [["库管员", "采购人", "财务"],
+                        ["部门负责人#1", "部门负责人#2"]], kind
+        assert [_d(x) for x in rows[1]] == ["部门负责人", "部门负责人"], kind
 
 
 def test_other_kinds_default_labels_unchanged():

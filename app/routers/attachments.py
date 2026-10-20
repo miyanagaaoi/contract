@@ -41,6 +41,8 @@ OBJECT_PERMS: dict[str, tuple[str, str]] = {
     "stock_in": ("stock.in.view", "stock.in.edit"),
     "stock_out": ("stock.out.view", "stock.out.edit"),
     "stock_take": ("stock.take.view", "stock.take.edit"),
+    # V2.6：发票原始文件（发票包导入的 PDF/OFD/XML）
+    "invoice": ("finance.invoice.view", "finance.invoice.create"),
 }
 
 

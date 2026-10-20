@@ -50,3 +50,10 @@ ctms-image-*.tar.gz
 
 # Office 临时锁文件（打开 xlsx/docx 时生成，形如 ~$xxx.xlsx，勿入库）
 ~$*
+
+# V2.6：浏览器底座与发布包目录（体积大，随发布包单独分发，不入库）
+ctms-browser-1.tar.gz
+deploy-release-*/
+# pip 安装临时目录
+pip-metadata-*/
+pip-unpack-*/
