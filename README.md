@@ -1,230 +1,36 @@
-# 合同管理与跟踪系统（CTMS）— 文档索引
+# CTMS · 合同管理与跟踪系统
 
-> 内网版合同台账与履约跟踪系统：采购 / 财务 / 项目管理 3~4 人使用。
-> 开发方法：SDD（Specification-Driven Development，规格驱动开发）。
-> 当前阶段：**V2.0（ERP 进销存）已完成并进入 UAT；V2.2 界面迭代、V2.3 多公司维度 + PostgreSQL 迁移、
-> V2.4 飞书接入、V2.5 财务模块（付款单/收款单/发票 + 六条进度列）、
-> V2.6 发票同步（电子发票服务平台桥接/Playwright 双通道 + 发票包导入 + 批量打印）、
-> V2.6.1 体验与报表增强均已交付**。
-> 里程碑：`v2.0-m1`（权限与主数据）、`v2.0-m2`（采购线与库存过账）、`v2.0-m3`（销售、盘点、导出、打印）已打标签；
-> `v2.0` 发布标签待 UAT 通过后打。
-> 验证基线：`pytest` **516 passed**；前端 E2E 81 passed；
-> 端到端冒烟 M1 15/15 + M2 11/11 + M3 11/11（**已切 PostgreSQL 运行**）+ V2.3 专项 11/11；
-> 权限矩阵与备份恢复演练均通过
-> —— 详见 [20-v2-acceptance-summary.md](docs/20-v2-acceptance-summary.md)（AC 逐条证据映射）、
-> [25-v2.2-adjustments.md](docs/25-v2.2-adjustments.md)（V2.2 迭代记录）
-> 与 [26-v2.3-adjustments.md](docs/26-v2.3-adjustments.md)（V2.3：仓库/单据公司维度、库存按公司筛选、调拨出入单位、PG 迁移）。
-> 下一步：业务用户按 [17-uat-plan.md](docs/17-uat-plan.md) 逐条演示并签字；上线按
-> [19-go-live-checklist.md](docs/19-go-live-checklist.md) 执行。
+内网合同台账 + 采购/销售/库存/财务的轻量 ERP。后端 FastAPI + SQLAlchemy（SQLite / PostgreSQL），
+前端 Vue3 + Element Plus，单容器 Docker 部署。
 
-## 最新版本要点
+## 当前状态
 
-**V2.6.1（当前）**
-- 合同行项物料**树形选择**（商品类型 → 物料），悬停显示档案信息（编码/规格/单位/默认单价/类型）辅助选料；
-- 采购单详情行项表 `#` 点击**复制整表**（TSV，可直粘 Excel）；
-- 出入库打印签字栏两个「部门负责人」**分开选人**（`#1` 按组织架构自动带出、`#2` 手选，打印文字不变）；
-- 库存明细新增**批次配对报表**（入库批次 → 出库 FIFO 配对，19 列，支持导出）；
-- 出库单新增**领用人**字段（系统账号或客户档案）；
-- 库存明细支持**显示零结存**；
-- 手写签名支持**手机全屏书写**。
+- **版本**：`2.6.1`（`app/config.py: APP_VERSION`）
+- **质量基线**：`pytest` **519 passed**；前端 `vite build` 通过
+- **部署**：Docker 单容器，外部 PostgreSQL（`192.168.81.50:5432/ctms`），群晖 Container Manager；端口 9000
+- **在跑的能力**：合同台账与履约、采购/销售/库存过账、财务（付款/收款/发票）、
+  发票同步（桥接 / Playwright）、发票包归档、批次配对报表、打印与电子签名
 
-**V2.6.0**
-- 发票管理改造：同步（电子发票服务平台，桥接 / Playwright 双通道）、发票包导入（自动解压挂原始 PDF）、
-  多选绑定采购单、红字发票标记、收票单位与文件状态筛选、批量打印（合并原始 PDF）；
-- 分包 Docker 交付：核心包 71MB / 浏览器固定底座 + 离线组装同步镜像（详见 `39`）。
+## 已知问题
 
-## 文档导航
+- 容器内 Playwright 无头运行，**无法人工过点字/滑块验证码** → 生产首次登录需借办公机会话（TODO-001）
+- 飞书 App Secret、PG 密码曾进 git 历史（已清理）→ **待轮换**（TODO-002）
+- 群晖等面板只能导入镜像、不能从 Git build → 用 `deploy/docker-compose.synology.yml`（TODO-003）
+- 库存金额为「剩余数量 × 批次入库单价」的近似口径，非移动加权成本（见 PRD CR-011）
 
-| 文档 | 内容 | 读者 |
-|---|---|---|
-| [00-sdd-process.md](docs/00-sdd-process.md) | SDD 流程说明：规格先行 → 实现 → 按验收场景验证 | 全体 |
-| [01-requirements.md](docs/01-requirements.md) | **需求规格说明书**：功能/业务规则 BR/验收场景 AC/遗留问题 | 需求方、开发 |
-| [02-system-design.md](docs/02-system-design.md) | **系统设计**：架构、ER 图、状态机、页面、API、备份 | 开发 |
-| [03-development-plan.md](docs/03-development-plan.md) | **开发计划**：里程碑、任务分解、甘特、风险 | 项目经理、开发 |
-| [04-tech-route.md](docs/04-tech-route.md) | **技术路线推介**：选型论证、部署两方案、演进路线 | 决策人 |
-| [05-prototype-acceptance.md](docs/05-prototype-acceptance.md) | **原型验收报告**：AC-01~AC-11 全绿、复现命令、演示建议 | 全体 |
-| [06-mvp2-adjustments.md](docs/06-mvp2-adjustments.md) | **MVP2 调整记录**：行项/导入/导出配置/框架标签/框架树的口径、实现与验收要点 | 全体 |
-| [07-mvp3-adjustments.md](docs/07-mvp3-adjustments.md) | **MVP3 迭代记录**：自动编号/类型与主体字典/类型标签/系统设置页 | 全体 |
-| [08-deployment.md](docs/08-deployment.md) | **正式版部署手册**：Linux Docker / Windows NSSM、PostgreSQL 切换、备份恢复演练 | 运维、决策人 |
-| [09-baota-deploy.md](docs/09-baota-deploy.md) | **宝塔面板部署步骤**：环境/代码/前端构建/Supervisor/Nginx 反代/HTTPS/计划任务备份/升级 | 运维、决策人 |
-| [10-docker-single.md](docs/10-docker-single.md) | **单容器 Docker**：build/save 成单个 tar → load 启动；/data 持久化与升级 | 运维、决策人 |
-| [11-erp-requirements.md](docs/11-erp-requirements.md) | **V2.0 需求规格（ERP 进销存）**：账号角色权限、采购/销售/库存、盘点、验收场景 AC-V2-01~42 | 全体 |
-| [12-erp-system-design.md](docs/12-erp-system-design.md) | **V2.0 详细设计**：权限模型、数据模型、过账与下推服务、接口清单、前端结构 | 开发 |
-| [13-m1-acceptance.md](docs/13-m1-acceptance.md) | **V2.0 · M1 验收报告**：任务完成情况、交付物、验收证据、缺陷修复、人工验收清单 | 全体 |
-| [14-m2-acceptance.md](docs/14-m2-acceptance.md) | **V2.0 · M2 验收报告**：采购线与库存过账（单据/下推/过账/盘点）的验收证据与清单 | 全体 |
-| [15-backup-drill.md](docs/15-backup-drill.md) | **备份与恢复演练记录**：实测证据、备份机制、Windows/Docker 恢复步骤、运维建议 | 运维、决策人 |
-| [16-permission-matrix.md](docs/16-permission-matrix.md) | **权限矩阵复核记录**：8 个内置角色的权限点、菜单裁剪与接口 200/403 实测矩阵 | 全体 |
-| [17-uat-plan.md](docs/17-uat-plan.md) | **UAT 计划与验收记录**：三类用户按 AC 逐条演示的场景清单、异议记录与签字页 | 全体、业务用户 |
-| [18-m3-acceptance.md](docs/18-m3-acceptance.md) | **V2.0 · M3 验收报告**：销售线、盘点、导出与打印的验收证据与交付物 | 全体 |
-| [19-go-live-checklist.md](docs/19-go-live-checklist.md) | **V2.0 上线清单**：里程碑与 tag、升级步骤（含迁移动作）、上线后验证、回滚与运维 | 运维、决策人 |
-| [20-v2-acceptance-summary.md](docs/20-v2-acceptance-summary.md) | **V2.0 验收报告（汇总）**：AC-V2-01~42 逐条证据映射、总体结果、人工确认项与签字页 | 全体、业务用户 |
-| [25-v2.2-adjustments.md](docs/25-v2.2-adjustments.md) | **V2.2 迭代记录**：操作列可读性、供货商详情与简称必填、库存明细命名、**打印模板**（升级/回滚注意） | 全体 |
-| [26-v2.3-adjustments.md](docs/26-v2.3-adjustments.md) | **V2.3 迭代记录**：仓库所属公司、单据签约公司、库存按公司筛选、调拨出入单位、**PostgreSQL 启动与数据迁移**、Docker 发布 | 全体、运维 |
-| [27-feishu-integration-plan.md](docs/27-feishu-integration-plan.md) | **V2.4 飞书接入方案**：免登、通知推送、账号绑定与自动建号口径 | 全体、运维 |
-| [28-v2.5-finance-module-plan.md](docs/28-v2.5-finance-module-plan.md) | **V2.5 财务模块讨论稿**：范围、口径冻结结论 | 需求方、开发 |
-| [29-v2.5-finance-requirements.md](docs/29-v2.5-finance-requirements.md) | **V2.5 需求规格**：付款单/收款单/发票 + 六条进度列（AC-V2.5-01~20） | 全体 |
-| [30-v2.5-finance-system-design.md](docs/30-v2.5-finance-system-design.md) | **V2.5 详细设计**：模型、核销/记账/红冲、接口清单 | 开发 |
-| [31-v2.5-finance-development-plan.md](docs/31-v2.5-finance-development-plan.md) | **V2.5 开发计划**：里程碑与任务分解 | 项目经理、开发 |
-| [32-v2.5-acceptance.md](docs/32-v2.5-acceptance.md) | **V2.5 验收报告**：AC 逐条证据、复现命令 | 全体 |
-| [33-payment-application-print-template.md](docs/33-payment-application-print-template.md) | **付款申请单打印模板**：版式与字段口径（对齐纸质模板） | 财务、开发 |
-| [34-postgresql-production-setup.md](docs/34-postgresql-production-setup.md) | **生产 PostgreSQL 部署**：安装、参数、备份与迁移 | 运维 |
-| [35-release-v2.5.0.md](docs/35-release-v2.5.0.md) / [36](docs/36-release-v2.5.1.md) / [37](docs/37-release-v2.5.2.md) | **V2.5.x 发行说明**：各批次增量内容 | 全体 |
-| [38-v2.6-invoice-sync-plan.md](docs/38-v2.6-invoice-sync-plan.md) | **V2.6 开发计划**：发票同步（双通道）、绑定弹窗、红字口径、分包发布 | 全体、运维 |
-| [39-v2.6-deploy.md](docs/39-v2.6-deploy.md) | **V2.6 联动部署指南**：核心包/同步扩展包/浏览器底座、离线组装、桥接与升级 | 运维、决策人 |
+## 下一步
 
-## 关键决策记录（本轮已确认）
+1. 轮换 PG 密码与飞书 App Secret，并同步群晖 `.env`（TODO-002）
+2. 群晖上完成 2.6.1 部署验证：`/api/health` 返回 `2.6.1`、发票筛选与批次报表可用
+3. 生产发票同步策略定稿：桥接（办公机）为主，还是同步镜像 + 会话文件复用（TODO-001）
+4. 待确认想法：物料拼音搜索（TODO-004）、批次报表按出库单汇总打印（TODO-005）
 
-1. **SDD 定义**：Specification-Driven Development——行为规格化为开发与验收唯一依据。
-2. **交付形态**：先做原型验证（P0 闭环），再决定正式路线；而非一步到位。
-3. **部署**：公司内网单服务器、纯内网使用；服务器 OS 未定 → 提供 Linux/Docker 与 Windows 两套方案。
-4. **附件**：初版仅上传/下载/预览，不做 OCR 与正文检索。
-5. **进度**：经办人手动更新状态 + 全程留变更历史，不做审批流。
-6. **框架合同**：一对多，1 框架挂 N 子合同。
-7. **质保金**：跟踪生效日期、期限与到期提醒（站内看板），不跟踪释放审批。
-8. **提醒**：站内首页看板（即将到期/已到期），不做邮件/IM 推送。
-9. ~~**登录与角色**：不做登录功能、不区分角色（纯内网信任模型，打开即用）~~ → **V2.0 已推翻**：
-   引入账号 + 角色 + 菜单/按钮权限 + 数据范围（见 `11`/`12`，M1 已交付）。
-10. **存量**：从零录入，不做历史批量迁移。
-11. **导出**：支持将当前筛选结果导出 Excel。
-12. **付款**：仅维护"累计已付"单一字段，付款比例自动计算。
-13. **版本纪律**：每完成一个功能（对应验收场景全绿）保存一次 Git 版本（见 `03-development-plan.md` §3.1）。
-14. **业务口径**：Q1~Q8 全部按默认值确认并冻结 V1.0（付款比例=已付/合同金额、质保到期取当月最后一天、增加"已终止"状态、软删除+30 天内可恢复等，明细见 `01-requirements.md` §9）。
-15. **术语澄清（prompt0.3）**："交付版本" = 正式版交付（即当前 P3）；"便签管理" = 标签管理（已并入系统设置页）。
-16. **打印版面（V2.2）**：单据打印的 A4 版面不再是代码里的硬编码，改为**按单据类型落库的模板**
-    （标题/副标题/页脚、区块顺序、表头字段与行项列的显隐·顺序·标签、签字栏文字），
-    管理员在「资料库 → 打印模板」可视化调整并实时预览；数据库无记录时使用出厂默认值
-    （与旧版版面逐项一致）。见 `25-v2.2-adjustments.md` §5。
-17. **供货商简称（V2.2）**：简称由选填改为**必填**（仅供应商，客户不变），
-    并被单据列表、下拉与打印统一用作默认显示名；存量无简称档案不自动改写，按全称回退显示。
-18. **多公司维度（V2.3）**：以系统设置的「我方公司（主体码）」为唯一取值源 ——
-    仓库新增**所属公司**（选填），单据（采购申请/采购单/销售申请/销售订单/入库单/出库单）
-    新增**签约公司**（必填，落名称快照，下推继承）；仓库默认显示名统一为 `主体码-仓库名`
-    （如 `ZC-主仓`）；库存明细可按公司筛选；调拨单的调出/调入单位由两端仓库所属公司自动带出。
-    见 `26-v2.3-adjustments.md` §2~§5。
-19. **运行库（V2.3）**：正式/开发库改用 **PostgreSQL**（`192.168.31.27:5444/ctms`），
-    由迁移工具 `app/tools/migrate_sqlite_to_pg.py` 一次性搬运并校验行数，存量公司字段由
-    `app/tools/backfill_subject_v23.py` 回填；发布镜像内置 `psycopg2`，
-    `deploy/docker-compose.yml` 默认一键起 PostgreSQL。SQLite 仍受支持（不设 `CTMS_DB_URL` 即回退）。
+## 文档入口
 
-## 当前阶段与下一步
-
-1. ✅ 需求规格 V1.0 冻结（Q1~Q8）；P1 原型 MVP（AC-01~AC-11 全绿）；
-2. ✅ MVP2 / MVP3 迭代（行项、导入导出、自动编号、类型与主体字典、系统设置页）；
-3. ✅ P3 正式版准备（pytest、env 配置、备份脚本、部署手册）、Docker 单容器与宝塔部署文档；
-4. ✅ **V2.0 M1（权限与主数据地基，T-V2-01~16）**：登录/令牌/权限/数据范围、组织·角色·账号、
-   客户/供应商/商品类型/物料/计量单位/仓库、系统管理整合、合同甲乙方档案化与历史档案迁移；
-   验收见 `13-m1-acceptance.md`；
-5. ✅ **V2.0 M2 / M3 与 UAT 准备**：采购线与库存过账、销售/盘点/导出/打印、
-   验收报告（`14`/`18`/`20`）与上线清单（`19`）；
-6. ✅ **V2.2 小版本迭代（界面反馈四条）**：操作列可读性与对齐、供货商可点击详情与**简称必填**、
-   库存明细「商品类型-物料名称」、**单据打印模板**（版面与文字可视化配置）；
-   口径与升级注意事项见 `25-v2.2-adjustments.md`；
-7. ✅ **V2.3 迭代（多公司维度 + PostgreSQL）**：仓库所属公司、六类单据签约公司（必填）、
-   库存明细按公司筛选、调拨调出/调入单位自动带出；
-   启动 PostgreSQL（`192.168.31.27:5444/ctms`）并迁移 24 表 / 5320 行数据，
-   存量字段回填完成；发布镜像与编排已内置 PG 支持。
-   口径、迁移步骤与回滚见 `26-v2.3-adjustments.md`；
-8. ▶ 下一步：① 业务用户按 `17-uat-plan.md` 逐条演示并签字；
-   ② 打 tag `v2.0` 并按 `19-go-live-checklist.md` 上线。
-
-## 开发快速开始（原型阶段）
-
-### 方式一：双击脚本（推荐）
-
-| 脚本 | 用途 |
+| 文档 | 用途 |
 |---|---|
-| `setup.bat` | 首次初始化：创建 venv、安装前后端依赖、建库并写入演示数据（可重复执行） |
-| `start-all.bat` | 一键启动：后端 `:8000` + 前端 `:5173`（`--host 0.0.0.0`，局域网可访问），随后自动打开浏览器 |
-
-说明：若某端口已被占用（如已有实例在跑），脚本会跳过并直接复用；停止 = 关闭弹出的两个命令行窗口。
-
-### 方式二：命令行（开发调试）
-
-```bash
-# 1) 首次（任选）
-app\.venv\Scripts\python -m pip install -r app\requirements.txt   # 依赖
-app\.venv\Scripts\python -m app.init_db --demo                    # 建库+演示数据（幂等）
-
-# 2) 后端（FastAPI；默认 SQLite，可用 CTMS_DB_URL 切 PostgreSQL）
-app\.venv\Scripts\python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
-#   → API 文档 http://127.0.0.1:8000/docs  健康检查 /api/health
-#
-# 2b) 切到 PostgreSQL（V2.3；迁移与回填各执行一次，SQLite 原文件保留可回退）
-#   set CTMS_DB_URL=postgresql+psycopg2://postgres:good789good@192.168.31.27:5444/ctms
-#   app\.venv\Scripts\python -m app.tools.migrate_sqlite_to_pg --pg-url "%CTMS_DB_URL%"
-#   app\.venv\Scripts\python -m app.tools.backfill_subject_v23 --dry-run
-#   app\.venv\Scripts\python -m app.tools.backfill_subject_v23
-#   详见 docs\26-v2.3-adjustments.md §6（含 Docker 发布编排）
-
-# 3) 前端（Vue3 + Vite + Element Plus，/api 已代理到 8000）
-cd web
-npm install                          # 首次
-npm run dev -- --host 0.0.0.0        # → http://localhost:5173
-```
-
-- 代码位置：`app/`（后端）、`web/`（前端）；数据文件 `app/data/ctms.db`、附件 `app/uploads/`（均已 gitignore）；
-- **版本纪律**：每完成一个功能（验收场景全绿）提交一次 Git，格式 `feat: [AC-xx] 功能名`（见 `docs/03-development-plan.md` §3.1）；
-- 登录与角色：V2.0 起已启用「账号 + 角色 + 菜单/按钮权限 + 数据范围」，
-  内置角色与权限矩阵见 `docs/11-erp-requirements.md`、`docs/16-permission-matrix.md`，演示账号见 `docs/17-uat-plan.md` §4。
-
-### 方式三：前端 E2E 测试（Playwright）
-
-端到端用例位于 `web/tests/e2e/`，**直接调用本机已安装的 Google Chrome**
-（`channel: 'chrome'`，无需 `npx playwright install` 下载浏览器）；
-覆盖登录与登录态、首页看板、主数据 CRUD、权限裁剪与 403、合同台账全生命周期、
-采购「录入 → 审核 → 下推」、库存「入库 → 过账 → 结存」、系统管理与销售线。
-
-```bash
-cd web
-npm install                    # 首次（含 @playwright/test）
-npm run test:e2e               # 自动拉起 8000/5173（已在运行则复用），串行执行
-npm run test:e2e -- --headed   # 需要看到浏览器界面时
-npm run test:e2e:report        # 打开 HTML 报告
-```
-
-- 测试账号由 `app/tools/seed_e2e_users.py` **幂等**创建/重置
-  （`e2e_admin` / `e2e_viewer` / `e2e_buyer` / `e2e_keeper` / `e2e_seller`，密码统一 `e2e12345`），
-  不新增、不修改、不删除任何既有业务账号；
-- 用例共享同一个 SQLite 演示库，因此固定 `workers: 1` 串行执行，避免互相干扰；
-- 报告、失败截图与 trace 输出在 `web/tests/e2e-report/`、`web/test-results/`（均已 gitignore）；
-- 用例默认跑在演示库 `app/data/ctms.db` 上，会在其中留下 `E2E…` 前缀的档案与新建单据；
-  如需完全隔离，改用独立库后再启动（后端支持 `CTMS_DB_URL`）：
-  `set CTMS_DB_URL=sqlite:///D:/tmp/ctms_e2e.db` → `python -m app.init_db --demo` → `python app\tools\seed_e2e_users.py`；
-- 注意 `web/vite.config.ts` 的 `server.watch.ignored` **必须**排除 `.tmpdir` 临时目录：
-  编辑器 / 测试框架 / 文件工具在**原子写**时会生成 `.Foo.vue.<pid>.<uuid>.tmpdir/Foo.vue.tmp`
-  这类中间文件（可出现在任意源码目录下），写入方在 rename 前占住该文件，
-  chokidar 一旦 watch 到它就抛 `Error: EBUSY: resource busy or locked`，
-  该错误是 FSWatcher 的 `error` 事件且无人接管 —— `npm run dev` 的 Node 进程会直接退出。
-
-## 目录结构
-
-```
-D:\dsh\hetong\
-├── README.md / .env.example / setup.bat / start-all.bat
-├── prompt*.txt            (需求补充文件/占位)
-├── docs\
-│   ├── 00-sdd-process.md  01-requirements.md  02-system-design.md
-│   ├── 03-development-plan.md  04-tech-route.md
-│   └── 05-prototype-acceptance.md  06-mvp2-adjustments.md
-│       07-mvp3-adjustments.md  08-deployment.md
-├── app\                    (后端 FastAPI；.venv/data/uploads/backups 不入库)
-│   ├── main.py  config.py  database.py  models.py  dicts.py  numbering.py
-│   ├── db_migrate.py  init_db.py
-│   ├── tools\ (build_import_template.py · seed_demo_v2.py · seed_e2e_users.py E2E 账号)
-│   ├── routers\ (health/meta/tags/settings/dashboard/contracts/attachments/export/imports
-│   │             auth/master/system/purchase/sales/stock/doc_routes)
-│   ├── tests\ (smoke_*.py 端到端冒烟 · test_v2_*.py pytest 单测)
-│   └── requirements.txt  requirements-dev.txt  requirements-pg.txt
-├── scripts\backup.ps1     (每日备份: SQLite+uploads, 30天保留)
-├── deploy\                (Dockerfile / docker-compose.yml / nginx.conf)
-├── import_template\       (导入模板样例.xlsx)
-├── preview-mvp2.html      (MVP2 概念预览，可留存参考)
-└── web\                    (前端 Vue3 + Vite + Element Plus)
-    ├── package.json  vite.config.ts  index.html
-    ├── playwright.config.ts        (E2E 配置：调用本机 Chrome)
-    ├── tests\e2e\ (Playwright 用例 01-auth … 09-sales + helpers.ts)
-    └── src\main.ts  App.vue  router\  api.ts  views\
-```
-
-> 代码随规格演进：完成的功能对应一次 Git 提交，规格文档变更同步提交。
-> 生产部署见 `docs/08-deployment.md`；备份见 `scripts/backup.ps1`。
+| [docs/PRD.md](docs/PRD.md) | 现行需求、口径、变更状态（`CR-xxx`）——**唯一真源** |
+| [TODO.md](TODO.md) | 新想法、暂缓事项、已知限制（`TODO-xxx`） |
+| [AGENTS.md](AGENTS.md) | AI/协作规则：信息地图、工作流、收尾规矩 |
+| [docs/](docs/) | 历史规格与验收证据（**已冻结**，仅溯源） |
+| [docs/39-v2.6-deploy.md](docs/39-v2.6-deploy.md) | 部署与发布包（核心包 / 同步镜像 / 离线组装） |
