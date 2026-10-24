@@ -149,6 +149,39 @@
 - **状态**：已实现（V2.6.1）
 - **证据**：`web/src/components/SignaturePad.vue`（`enterFullscreen / resizeCanvas`）。
 
+### CR-015 浏览器桥插件适配 DSH 0.2.1-rc.2
+
+- **问题**：`@yuxianglin/dsh-bridge-browser@0.0.7` 的 peerDependencies 精确锁定 `0.2.0-rc.2`，
+  宿主升级到 `0.2.1-rc.2` 后 peer 校验失败 → bundle 被跳过：`/ext/bridge-config` 返回 404、
+  工具集无 `browser_*`（2026-10-24 实测；此前在 0.2.0-rc.2 下可正常读取税局页面）。
+- **规则**：不改插件业务代码，仅将本地清单（`~/.dsh/profiles/desktop/.dsh-browser-source/package.json`，
+  即 `~/.dsh/dsh-browser/packages/browser/bridge-browser`）中 13 处 `0.2.0-rc.2` 改为 `0.2.1-rc.2`；
+  修改前备份 `package.json.bak-<时间戳>`。上游仍为 0.0.7，待其正式适配后可回退为上游版本。
+- **状态**：实现中（已改清单，待重启 DSH 桌面验证 `/ext/bridge-config` 与 `browser_*` 工具）
+- **证据**：插件清单 peer 版本；验证记录见本条备注及 README「已知问题」。
+- **关联**：TODO-001（容器内无头验证码限制与此插件无关，勿混用）
+
+### CR-016 启动脚本健壮性修复
+
+- **问题**（2026-10-24 检查发现）：
+  `setup.bat` 结尾提示仍是 5173（实际单进程 8000）、不装 Playwright Chromium、默认灌演示数据、pip 无镜像、不检查 Node；
+  `start-all.bat` 用 `timeout /t`（非交互环境报错）、端口占用只判断 LISTEN 不校验是否 CTMS、前端源码更新后不会重建；
+  `restart-backend.bat` 路径未规范化、kill 失败无提示；缺 `stop-backend.bat`。
+- **规则**：
+  1. `setup.bat`：检查 python/node → venv → pip（清华源，可用 `PIP_INDEX_URL` 覆盖）→
+     `playwright install chromium`（npmmirror，失败仅告警不中断）→ 建库（**默认不带演示数据**，`setup.bat demo` 才灌）→ 提示 `:8000`；
+     另支持 `setup.bat check` 只做前置检查。
+  2. `start-all.bat`：等待改 `ping`；8000 被占用时用 `/api/health` 校验是否为 CTMS，非 CTMS 则明确报错退出；
+     新增 `--rebuild` 强制重建前端、`--no-open` 不自动开浏览器。
+  3. `restart-backend.bat`：`pushd` 规范化路径；kill 后轮询确认端口释放；健康检查重试至多 30 秒。
+  4. 新增 `stop-backend.bat`：按端口停后端并确认端口已释放。
+- **状态**：已实现（2026-10-24）
+- **证据**：`setup.bat`、`start-all.bat`、`scripts/restart-backend.bat`、`scripts/stop-backend.bat`；
+  实测 7 项——setup check 全绿；空端口 stop 提示 nothing；start-all 首次启动 health OK；
+  已运行时 start-all 正确 `[skip]`；restart 识别 CTMS 后停/起/health OK；stop 释放端口；
+  **非 CTMS 占用 8000 时 stop/restart 拒绝执行**（需 `--force`）
+- **备注**：`.bat` 内含中文会导致 cmd 解析异常（实测），脚本一律**纯 ASCII**，说明放文档
+
 ## 历史版本索引（已冻结，仅溯源，不再更新）
 
 | 版本 | 规格 / 验收文档 | 说明 |
@@ -167,3 +200,5 @@
 | 日期 | 事项 | 涉及条目 | 说明 |
 |---|---|---|---|
 | 2026-10-20 | 建立开发文档体系 | — | PRD/TODO/AGENTS/CLAUDE 首次落地；回填 V2.6.0（CR-001~007）与 V2.6.1（CR-008~014），状态均「已实现」 |
+| 2026-10-24 | 桥插件 peer 版本适配宿主 0.2.1-rc.2 | CR-015 | 本地插件清单 13 处 peer 由 `0.2.0-rc.2` 改为 `0.2.1-rc.2`；重启后 `/ext/bridge-config` 已返回 wsUrl、`browser_*` 工具已注册（扩展侧待填新端口） |
+| 2026-10-24 | 启动脚本健壮性修复 | CR-016 | setup 不灌演示数据/装 Chromium/检查 node；start-all 端口身份校验+`--rebuild`+`--no-open`；restart/stop 只在确认是 CTMS 时才杀进程；新增 stop-backend.bat |

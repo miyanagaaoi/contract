@@ -10,9 +10,13 @@
 - **部署**：Docker 单容器，外部 PostgreSQL（`192.168.81.50:5432/ctms`），群晖 Container Manager；端口 9000
 - **在跑的能力**：合同台账与履约、采购/销售/库存过账、财务（付款/收款/发票）、
   发票同步（桥接 / Playwright）、发票包归档、批次配对报表、打印与电子签名
+- **本机脚本**：`setup.bat`（`check`/`demo`）、`start-all.bat`（`--rebuild`/`--no-open`）、
+  `scripts/restart-backend.bat`、`scripts/stop-backend.bat`（仅操作 CTMS，拒绝误杀其它程序）
 
 ## 已知问题
 
+- dsh 浏览器桥插件（`dsh-bridge-browser@0.0.7`）原锁定 DSH `0.2.0-rc.2`，宿主已升到 `0.2.1-rc.2`；
+  **本地清单 peer 已改为 0.2.1-rc.2，待重启桌面验证**（PRD CR-015）
 - 容器内 Playwright 无头运行，**无法人工过点字/滑块验证码** → 生产首次登录需借办公机会话（TODO-001）
 - 飞书 App Secret、PG 密码曾进 git 历史（已清理）→ **待轮换**（TODO-002）
 - 群晖等面板只能导入镜像、不能从 Git build → 用 `deploy/docker-compose.synology.yml`（TODO-003）
