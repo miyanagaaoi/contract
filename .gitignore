@@ -57,3 +57,6 @@ deploy-release-*/
 # pip 安装临时目录
 pip-metadata-*/
 pip-unpack-*/
+
+# 临时脚本目录
+.tmp/
