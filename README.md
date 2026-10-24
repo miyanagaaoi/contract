@@ -12,7 +12,7 @@
 - **部署**：Docker 单容器，外部 PostgreSQL（`192.168.81.50:5432/ctms`），群晖 Container Manager；端口 9000
 - **在跑的能力**：合同台账与履约、采购/销售/库存过账、财务（付款/收款/发票）、
   发票同步（桥接 / Playwright）、发票包归档、批次配对报表（正常匹配 / 红冲 / 无批次出库分类）、
-  全单据行项物料树形选择（含悬停档案信息）、打印与电子签名
+  全单据行项物料树形选择（含悬停档案信息）、出库单退库、打印与电子签名
 - **本机脚本**：`setup.bat`（`check`/`demo`）、`start-all.bat`（`--rebuild`/`--no-open`）、
   `scripts/restart-backend.bat`、`scripts/stop-backend.bat`（仅操作 CTMS，拒绝误杀其它程序）；
   演示数据 `python -m app.tools.seed_stock_demo [--report|--purge]`

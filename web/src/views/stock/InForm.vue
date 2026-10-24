@@ -16,7 +16,7 @@ const extra = ref<Dict>({
   supplier_id: null,
 })
 
-const IN_TYPES = ['采购入库', '退货入库', '其他入库']
+const IN_TYPES = ['采购入库', '退货入库', '退库入库', '其他入库']
 const warehouses = ref<Dict[]>([])
 const suppliers = ref<Dict[]>([])
 

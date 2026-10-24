@@ -36,7 +36,7 @@ from ..models_doc import (
 )
 from ..models_master import Product, ProductType, Warehouse
 from ..models_stock import Stock, StockLedger
-from ..services import audit_service, doc_service, posting_service
+from ..services import audit_service, doc_service, numbering_service, posting_service
 from ..services.permission_service import require_perm, require_superadmin
 from .doc_routes import _guard, register_doc_routes
 
@@ -744,3 +744,135 @@ def stock_batch_report_export(keyword: str | None = Query(None),
             vals.append(svc.ROW_KIND_LABELS.get(v, v) if k == "row_kind" else v)
         data.append(vals)
     return build_xlsx_response("库存批次配对", svc.BATCH_COLUMNS, data, "批次配对")
+
+
+# ==================== V2.6.1：出库单「更多 → 退库」（CR-022） ====================
+
+def _returned_qty_map(db: Session, out_id: int) -> dict[int, Decimal]:
+    """来源为指定出库单、且未作废的入库单行已退数量：{出库行 item_id: 累计已退}。"""
+    from ..models_doc import StockInOrderItem
+
+    rows = (db.query(StockInOrderItem.src_item_id, func.coalesce(func.sum(StockInOrderItem.qty), 0))
+            .join(StockInOrder, StockInOrder.id == StockInOrderItem.doc_id)
+            .filter(StockInOrder.source_doc_type == "stock_out",
+                    StockInOrder.source_doc_id == out_id,
+                    StockInOrder.deleted.is_(False),
+                    StockInOrder.status != "voided",
+                    StockInOrderItem.src_item_id.isnot(None))
+            .group_by(StockInOrderItem.src_item_id)
+            .all())
+    return {int(r[0]): Decimal(str(r[1] or 0)) for r in rows}
+
+
+def _require_returnable_out(db: Session, out_id: int, user: User) -> StockOutOrder:
+    doc = db.get(StockOutOrder, out_id)
+    if doc is None or doc.deleted:
+        raise HTTPException(status_code=404, detail="出库单不存在")
+    if doc.status != "approved":
+        raise HTTPException(status_code=422, detail="只有已审核的出库单可以退库")
+    return doc
+
+
+@router.get("/api/stock/out-orders/{out_id}/return-preview", tags=["stock"],
+            summary="退库预览（已出/已退/可退）")
+def return_preview(out_id: int, _user: User = Depends(require_perm("stock.out.view")),
+                   db: Session = Depends(get_db)):
+    """返回该出库单每行的 已出/已退/可退 数量与物料快照，供退库弹窗使用。"""
+    doc = _require_returnable_out(db, out_id, _user)
+    returned = _returned_qty_map(db, out_id)
+    rows = []
+    for it in (doc.items or []):
+        qty = Decimal(str(it.qty or 0))
+        done = returned.get(it.id, Decimal("0"))
+        rows.append({
+            "item_id": it.id,
+            "seq": it.seq,
+            "product_id": it.product_id,
+            "product_code": it.product_code,
+            "product_name": it.product_name,
+            "spec": it.spec,
+            "uom_name": it.uom_name,
+            "uom_decimals": it.uom_decimals,
+            "qty": float(qty),
+            "returned_qty": float(done),
+            "returnable_qty": float(max(Decimal("0"), qty - done)),
+            "unit_price": float(it.unit_price or 0),
+        })
+    return {
+        "doc_id": doc.id, "doc_no": doc.doc_no,
+        "warehouse_id": doc.warehouse_id, "warehouse_name": doc.warehouse_name,
+        "out_type": doc.out_type, "rows": rows,
+    }
+
+
+@router.post("/api/stock/out-orders/{out_id}/return", tags=["stock"],
+             summary="按出库单生成退库入库单（支持部分退）")
+def create_return(out_id: int, request: Request, payload: dict = Body(...),
+                  user: User = Depends(require_perm("stock.in.create")),
+                  db: Session = Depends(get_db)):
+    """按勾选行与数量生成一张**草稿**「退库入库单」，来源指向原出库单。
+
+    校验：出库单须已审核；退库数量 > 0 且 ≤ 可退（已出 − 已退，含草稿/已提交的退库单，
+    防止重复超退）。返回新建入库单详情。
+    """
+    from ..models_doc import StockInOrderItem
+
+    doc = _require_returnable_out(db, out_id, user)
+    items = {int(it.id): it for it in (doc.items or [])}
+    returned = _returned_qty_map(db, out_id)
+    req_rows = payload.get("rows") or []
+    if not isinstance(req_rows, list) or not req_rows:
+        raise HTTPException(status_code=422, detail="请至少选择一行退库")
+
+    picked: list[tuple] = []
+    for r in req_rows:
+        try:
+            item_id = int(r.get("item_id"))
+            qty = Decimal(str(r.get("qty")))
+        except Exception:
+            raise HTTPException(status_code=422, detail="退库行格式错误")
+        src = items.get(item_id)
+        if src is None:
+            raise HTTPException(status_code=422, detail=f"出库行不存在：{item_id}")
+        if qty <= 0:
+            continue
+        available = Decimal(str(src.qty or 0)) - returned.get(item_id, Decimal("0"))
+        if qty > available:
+            raise HTTPException(
+                status_code=422,
+                detail=f"物料 {src.product_name} 退库数量 {qty} 超过可退数量 {available}")
+        picked.append((src, qty))
+    if not picked:
+        raise HTTPException(status_code=422, detail="退库数量必须大于 0")
+
+    day = doc_service.parse_doc_date(payload.get("doc_date")) or datetime.now().date()
+    ret = StockInOrder(
+        doc_no=numbering_service.next_doc_no(db, "stock_in", day),
+        doc_date=day, status="draft",
+        org_id=getattr(user, "org_id", None),
+        created_by=getattr(user, "id", None),
+        created_by_name=getattr(user, "real_name", None),
+        subject_code=doc.subject_code, subject_name=doc.subject_name,
+        warehouse_id=doc.warehouse_id, warehouse_name=doc.warehouse_name,
+        in_type="退库入库",
+        source_doc_type="stock_out", source_doc_id=doc.id, source_doc_no=doc.doc_no,
+        remark=(payload.get("remark") or f"由出库单 {doc.doc_no} 退库").strip()[:500],
+    )
+    db.add(ret)
+    db.flush()
+    for seq, (src, qty) in enumerate(picked, start=1):
+        price = Decimal(str(src.unit_price or 0))
+        ret.items.append(StockInOrderItem(
+            seq=seq, product_id=src.product_id, product_code=src.product_code,
+            product_name=src.product_name, spec=src.spec,
+            uom_name=src.uom_name, uom_decimals=src.uom_decimals,
+            qty=qty, unit_price=price, amount=(qty * price),
+            warehouse_id=doc.warehouse_id, src_item_id=src.id,
+        ))
+    db.commit()
+    audit_service.log(db, user, module="stock", action="create",
+                      object_type="stock_in", object_id=ret.id, object_no=ret.doc_no,
+                      detail=f"退库：来源出库单 {doc.doc_no}，共 {len(picked)} 行",
+                      request=request)
+    db.commit()
+    return doc_service.fmt_doc(db, ret)

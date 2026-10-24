@@ -13,7 +13,7 @@ const printSignerLabels = ['库管员', '采购人', '财务', '部门负责人'
 
 <template>
   <DocListPage title="入库单" api="/api/stock/in-orders"
-               subtitle="审核即过账（写入库存流水）；入库类型：采购入库 / 退货入库 / 其他入库"
+               subtitle="审核即过账（写入库存流水）；入库类型：采购入库 / 退货入库 / 退库入库 / 其他入库"
                perm-prefix="stock.in" kind-label="入库单"
                form-route="stock-in-form" edit-route="stock-in-edit" list-route="stock-in-orders"
                show-warehouse show-supplier show-subject

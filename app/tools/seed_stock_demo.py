@@ -202,6 +202,23 @@ def purge(prefix: str = PREFIX) -> dict:
         prod_ids = [r[0] for r in db.execute(
             select(Product.id).where(Product.code.like(f"{prefix}-%"))).all()]
 
+        # 先删该演示仓库下的所有出入库单据（含非 DEMO 前缀的派生退库单），避免外键残留
+        wh_ids0 = [r[0] for r in db.execute(
+            select(Warehouse.id).where(Warehouse.code.like(f"{prefix}-%"))).all()]
+        if wh_ids0:
+            in_ids0 = [r[0] for r in db.execute(
+                select(StockInOrder.id).where(StockInOrder.warehouse_id.in_(wh_ids0))).all()]
+            out_ids0 = [r[0] for r in db.execute(
+                select(StockOutOrder.id).where(StockOutOrder.warehouse_id.in_(wh_ids0))).all()]
+            if in_ids0:
+                db.execute(_delete(StockInOrderItem).where(
+                    StockInOrderItem.doc_id.in_(in_ids0)))
+                db.execute(_delete(StockInOrder).where(StockInOrder.id.in_(in_ids0)))
+            if out_ids0:
+                db.execute(_delete(StockOutOrderItem).where(
+                    StockOutOrderItem.doc_id.in_(out_ids0)))
+                db.execute(_delete(StockOutOrder).where(StockOutOrder.id.in_(out_ids0)))
+            db.commit()
         if prod_ids:
             removed["ledger"] = db.execute(
                 _delete(StockLedger).where(StockLedger.product_id.in_(prod_ids))).rowcount
@@ -217,9 +234,16 @@ def purge(prefix: str = PREFIX) -> dict:
                 _delete(StockOutOrderItem).where(StockOutOrderItem.doc_id.in_(out_ids))).rowcount
             removed["out_docs"] = db.execute(
                 _delete(StockOutOrder).where(StockOutOrder.id.in_(out_ids))).rowcount
+        def _try_delete(key: str, stmt):
+            try:
+                removed[key] = db.execute(stmt).rowcount
+                db.commit()
+            except Exception as exc:  # noqa: BLE001
+                db.rollback()
+                print(f"[WARN] purge {key} 跳过: {exc}")
+
         if prod_ids:
-            removed["products"] = db.execute(
-                _delete(Product).where(Product.id.in_(prod_ids))).rowcount
+            _try_delete("products", _delete(Product).where(Product.id.in_(prod_ids)))
         wh_ids = [r[0] for r in db.execute(
             select(Warehouse.id).where(Warehouse.code.like(f"{prefix}-%"))).all()]
         if wh_ids:

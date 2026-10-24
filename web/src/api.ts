@@ -758,6 +758,18 @@ export async function voidInvoice(id: number, reason: string): Promise<Dict> {
   return data
 }
 
+/** V2.6.1 / CR-022：退库预览（已出/已退/可退） */
+export async function fetchStockReturnPreview(outId: number): Promise<Dict> {
+  const { data } = await http.get(`/stock/out-orders/${outId}/return-preview`)
+  return data
+}
+
+/** V2.6.1 / CR-022：按出库单生成退库入库单（草稿） */
+export async function createStockReturn(outId: number, payload: Dict): Promise<Dict> {
+  const { data } = await http.post(`/stock/out-orders/${outId}/return`, payload)
+  return data
+}
+
 /** V2.6.1：库存批次配对报表（入出 FIFO） */
 export async function fetchBatchReport(params: Dict = {}): Promise<Dict> {
   const { data } = await http.get('/stock/batch-report', { params })

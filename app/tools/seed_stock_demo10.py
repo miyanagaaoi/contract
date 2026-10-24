@@ -97,9 +97,31 @@ def _ensure_masters(db):
     return warehouse, products
 
 
+def _purge_derived_returns() -> int:
+    """清理由演示出库单派生出的入库单（退库单号不以 DEMO 开头，需按来源单号清）。"""
+    from sqlalchemy import delete as _delete
+
+    from app.models_doc import StockInOrderItem
+
+    removed = 0
+    with SessionLocal() as db:
+        ids = [r[0] for r in db.execute(
+            select(StockInOrder.id).where(
+                StockInOrder.source_doc_no.like(f"{PREFIX}-%")
+                | StockInOrder.source_doc_no.like("DEMO26-%"))).all()]
+        if ids:
+            db.execute(_delete(StockInOrderItem).where(StockInOrderItem.doc_id.in_(ids)))
+            removed = int(db.execute(_delete(StockInOrder).where(
+                StockInOrder.id.in_(ids))).rowcount or 0)
+            db.commit()
+    return removed
+
+
 def purge_all() -> dict:
-    """清理脚本生成的全部演示数据（两个数据集前缀）。"""
-    return {"DEMO26": demo.purge("DEMO26"), "DEMO27": demo.purge("DEMO27")}
+    """清理脚本生成的全部演示数据（两个数据集前缀 + 由其派生的退库入库单）。"""
+    derived = _purge_derived_returns()
+    return {"derived_returns": derived,
+            "DEMO26": demo.purge("DEMO26"), "DEMO27": demo.purge("DEMO27")}
 
 
 def seed_ten(abnormal: bool = True) -> dict:
