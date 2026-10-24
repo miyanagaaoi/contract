@@ -198,6 +198,25 @@
 - **证据**：`app/services/stock_report_service.py`、`app/tools/seed_stock_demo.py`、
   `app/tests/test_v2_6_3_batch_report.py`；演示数据 7 行、剩余 70 / 金额 1040 与库存结存一致
 
+### CR-018 批次报表：红冲单独标记 + 无批次出库单独区域
+
+- **问题**（2026-10-24 验收 CR-011/CR-017 提出）：当前报表把所有流水按正负号机械处理——
+  ① 反审核产生的「红冲-*」流水被当作正常入库/出库参与 FIFO，看不出这是红冲；
+  ② 负库存/期初缺失导致的「出库无入库批次」行混在正常配对行里，不易识别。
+- **规则**：
+  1. 每行增加 `row_kind`：`normal`（正常配对）/ `reversal`（红冲）/ `orphan`（无入库批次出库）；
+  2. **红冲**：`biz_type` 以「红冲-」开头的流水单独成行并标记——红冲入库（冲减）回减原批次剩余，
+     红冲出库（恢复）按该出库单的消耗记录 LIFO 归还批次；红冲行不计入正常出库量统计；
+  3. **无批次出库**：入库列为空的行统一归入 `orphan`，不再混在正常行；
+  4. 接口返回 `summary`（三类行数与金额）；列表弹窗把正常行作为主表，
+     红冲、无批次行分别在下方「异常区」单独成表；导出增加「行类型」列。
+- **状态**：已实现（2026-10-24）
+- **证据**：`app/services/stock_report_service.py`（`row_kind` + 红冲归还入队修复）、
+  `app/routers/stock.py`（`summary` 与 `row_kind` 过滤、导出「行类型」列）、
+  `web/src/views/stock/BalanceView.vue`（统计标签 + 红冲/无批次两个独立异常区）、
+  `app/tests/test_v2_6_3_batch_report.py`（异常行拆分与导出标签 2 条用例；全量 523 passed）；
+  演示数据：`seed_stock_demo --abnormal` → normal 8 / reversal 1 / orphan 1
+
 ## 历史版本索引（已冻结，仅溯源，不再更新）
 
 | 版本 | 规格 / 验收文档 | 说明 |
@@ -217,5 +236,6 @@
 |---|---|---|---|
 | 2026-10-20 | 建立开发文档体系 | — | PRD/TODO/AGENTS/CLAUDE 首次落地；回填 V2.6.0（CR-001~007）与 V2.6.1（CR-008~014），状态均「已实现」 |
 | 2026-10-24 | 桥插件 peer 版本适配宿主 0.2.1-rc.2 | CR-015 | 本地插件清单 13 处 peer 由 `0.2.0-rc.2` 改为 `0.2.1-rc.2`；重启后 `/ext/bridge-config` 已返回 wsUrl、`browser_*` 工具已注册（扩展侧待填新端口） |
+| 2026-10-24 | 批次报表异常行拆分 | CR-018 | 新增 `row_kind`（正常/红冲/无批次）；红冲行单独标记并归还批次剩余（修复"已耗尽批次归还后丢失"缺陷）；无批次出库单列；前端两个异常区；523 passed |
 | 2026-10-24 | 批次报表剩余口径修复 + 演示数据 | CR-017 | 出库行不再带剩余快照（避免重复计数）；新增 seed_stock_demo（含 --report/--purge）与 2 条回归测试；全量 521 passed |
 | 2026-10-24 | 启动脚本健壮性修复 | CR-016 | setup 不灌演示数据/装 Chromium/检查 node；start-all 端口身份校验+`--rebuild`+`--no-open`；restart/stop 只在确认是 CTMS 时才杀进程；新增 stop-backend.bat |

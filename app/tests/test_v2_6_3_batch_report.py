@@ -68,3 +68,35 @@ def test_batch_report_matches_stock_balances():
             actual = (db.query(func.coalesce(func.sum(Stock.qty), 0))
                       .filter(Stock.product.has(code=code)).scalar())
             assert float(actual) == by_key.get(code, 0.0) == expect, (code, actual)
+
+
+def test_abnormal_rows_split_and_marked():
+    """CR-018：红冲行与无批次出库行必须单独标记，且不混入正常出库统计。"""
+    seed_stock_demo.seed(abnormal=True)
+    with SessionLocal() as db:
+        rows = svc.build_batches(db, keyword=seed_stock_demo.PREFIX)
+
+    kinds = {r["row_kind"] for r in rows}
+    assert kinds == {"normal", "reversal", "orphan"}
+
+    rev = [r for r in rows if r["row_kind"] == "reversal"]
+    assert len(rev) == 1 and rev[0]["out_no"].endswith("OUT-A3") and rev[0]["out_qty"] == 10.0
+
+    orphan = [r for r in rows if r["row_kind"] == "orphan"]
+    assert len(orphan) == 1 and orphan[0]["in_no"] == "" and orphan[0]["out_qty"] == 15.0
+    assert orphan[0]["product_code"] == "DEMO26-C"
+
+    # 红冲恢复的 10 个归还到 A 批次2 → 剩余合计 80（A2 10 + A3 60 + B 10）
+    leftovers = [r for r in rows if r["stock_qty"]]
+    assert sum(r["stock_qty"] for r in leftovers) == 80.0
+    # 正常出库量不含红冲/异常行（A:120+50+10, B:40 = 220）
+    assert sum(r["out_qty"] for r in rows if r["row_kind"] == "normal") == 220.0
+
+
+def test_export_row_kind_labels():
+    """导出列包含「行类型」且中文可读。"""
+    from app.services.stock_report_service import BATCH_KEYS, BATCH_COLUMNS, ROW_KIND_LABELS
+
+    labels = [c[0] for c in BATCH_COLUMNS]
+    assert labels[0] == "行类型" and BATCH_KEYS[0] == "row_kind"
+    assert ROW_KIND_LABELS["reversal"] == "红冲"

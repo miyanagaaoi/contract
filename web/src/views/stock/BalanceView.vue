@@ -167,6 +167,12 @@ const batchTotal = ref(0)
 const batchPage = ref(1)
 const batchPageSize = ref(50)
 const batchColumns = ref<{ key: string, label: string }[]>([])
+// V2.6.1 / CR-018：三类行分开展示（正常主表 + 红冲区 + 无批次区）
+const batchSummary = ref<{ normal: number, reversal: number, orphan: number }>(
+  { normal: 0, reversal: 0, orphan: 0 })
+const reversalRows = ref<Dict[]>([])
+const orphanRows = ref<Dict[]>([])
+const abnormalLoading = ref(false)
 
 function batchParams(): Dict {
   return { ...balanceParams() }
@@ -176,11 +182,26 @@ async function loadBatch() {
   batchLoading.value = true
   try {
     const data = await fetchBatchReport({
-      ...batchParams(), page: batchPage.value, page_size: batchPageSize.value,
+      ...batchParams(), row_kind: 'normal',
+      page: batchPage.value, page_size: batchPageSize.value,
     })
     batchRows.value = (data.items || []) as Dict[]
     batchTotal.value = data.total ?? 0
     batchColumns.value = (data.columns || []) as { key: string, label: string }[]
+    batchSummary.value = (data.summary || { normal: 0, reversal: 0, orphan: 0 }) as
+      { normal: number, reversal: number, orphan: number }
+    // 异常区单独拉取（红冲 / 无批次出库），最多各 200 行
+    abnormalLoading.value = true
+    try {
+      const [rev, orp] = await Promise.all([
+        fetchBatchReport({ ...batchParams(), row_kind: 'reversal', page_size: 200 }),
+        fetchBatchReport({ ...batchParams(), row_kind: 'orphan', page_size: 200 }),
+      ])
+      reversalRows.value = (rev.items || []) as Dict[]
+      orphanRows.value = (orp.items || []) as Dict[]
+    } finally {
+      abnormalLoading.value = false
+    }
   } catch {
     // 拦截器已提示
   } finally {
@@ -581,8 +602,11 @@ onMounted(async () => {
   <!-- V2.6.1：批次配对报表弹窗 -->
   <el-dialog v-model="batchVisible" title="库存批次配对报表" width="96%" top="4vh">
     <div class="batch-bar">
-      <span class="subtitle">入库批次 → 出库 FIFO 配对；库存数量/金额为该批次剩余；资产编号=物料编码；出库项目=出库单备注；领用方=出库单领用人</span>
+      <span class="subtitle">入库批次 → 出库 FIFO 配对；剩余只由未消耗批次行体现；资产编号=物料编码；出库项目=出库单备注；领用方=出库单领用人</span>
       <span style="flex: 1"></span>
+      <el-tag type="info">正常配对 {{ batchSummary.normal }}</el-tag>
+      <el-tag type="warning">红冲 {{ batchSummary.reversal }}</el-tag>
+      <el-tag type="danger">无批次出库 {{ batchSummary.orphan }}</el-tag>
       <el-button @click="exportBatch"><el-icon><Download /></el-icon>导出 Excel</el-button>
     </div>
     <el-table v-loading="batchLoading" :data="batchRows" border stripe size="small" height="60vh">
@@ -597,6 +621,26 @@ onMounted(async () => {
                    :page-sizes="[20, 50, 100, 200]"
                    @current-change="(p: number) => { batchPage = p; loadBatch() }"
                    @size-change="(s: number) => { batchPageSize = s; batchPage = 1; loadBatch() }" />
+
+    <!-- CR-018：异常区（红冲 / 无批次出库）单独成表，不与正常配对混排 -->
+    <div v-if="batchSummary.reversal" class="abnormal-block">
+      <el-divider content-position="left">红冲行（{{ batchSummary.reversal }}）</el-divider>
+      <el-table :data="reversalRows" v-loading="abnormalLoading" border stripe size="small"
+                max-height="240">
+        <el-table-column v-for="c in batchColumns" :key="`r-${c.key}`" :prop="c.key"
+                         :label="c.label" width="120" show-overflow-tooltip />
+        <template #empty>暂无红冲行</template>
+      </el-table>
+    </div>
+    <div v-if="batchSummary.orphan" class="abnormal-block">
+      <el-divider content-position="left">无批次出库（{{ batchSummary.orphan }}）</el-divider>
+      <el-table :data="orphanRows" v-loading="abnormalLoading" border stripe size="small"
+                max-height="240">
+        <el-table-column v-for="c in batchColumns" :key="`o-${c.key}`" :prop="c.key"
+                         :label="c.label" width="120" show-overflow-tooltip />
+        <template #empty>暂无异常行</template>
+      </el-table>
+    </div>
   </el-dialog>
 </template>
 
@@ -619,4 +663,6 @@ onMounted(async () => {
 :deep(.el-table__row) { cursor: pointer; }
 /* 「类型-名称」里的类型做弱化，视线仍先落到物料名称上 */
 .type-prefix { color: var(--ctms-text-secondary); }
+.batch-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.abnormal-block { margin-top: 12px; }
 </style>

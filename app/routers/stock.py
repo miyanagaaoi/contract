@@ -680,10 +680,15 @@ def stock_batch_report(keyword: str | None = Query(None, description="物料编�
                        subject_code: str | None = Query(None, description="按仓库所属公司"),
                        product_id: int | None = Query(None),
                        date_from: str | None = Query(None), date_to: str | None = Query(None),
+                       row_kind: str | None = Query(None, description="normal/reversal/orphan（CR-018）"),
                        page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=500),
                        _user: User = Depends(require_perm("stock.balance.view")),
                        db: Session = Depends(get_db)):
-    """库存批次配对（入库批次 → 出库 FIFO 配对）明细，列口径见 docs/41。"""
+    """库存批次配对（入库批次 → 出库 FIFO 配对）明细。
+
+    V2.6.1 / CR-018：返回 `summary` 三类行数；`row_kind` 可只取某一类
+    （`normal` 正常配对 / `reversal` 红冲 / `orphan` 无批次出库）。
+    """
     from ..services import stock_report_service as svc
 
     wh_ids = None
@@ -693,11 +698,16 @@ def stock_batch_report(keyword: str | None = Query(None, description="物料编�
     rows = svc.build_batches(db, warehouse_id=warehouse_id, product_id=product_id,
                              warehouse_ids=wh_ids, date_from=date_from, date_to=date_to,
                              keyword=keyword)
+    summary = {"normal": 0, "reversal": 0, "orphan": 0}
+    for r in rows:
+        summary[r["row_kind"]] = summary.get(r["row_kind"], 0) + 1
+    if row_kind:
+        rows = [r for r in rows if r["row_kind"] == row_kind]
     total = len(rows)
     start = (page - 1) * page_size
     return {
         "items": rows[start:start + page_size], "total": total,
-        "page": page, "page_size": page_size,
+        "page": page, "page_size": page_size, "summary": summary,
         "columns": [{"key": k, "label": l} for (l, _w), k in
                     zip(svc.BATCH_COLUMNS, svc.BATCH_KEYS)],
     }
@@ -710,6 +720,7 @@ def stock_batch_report_export(keyword: str | None = Query(None),
                               product_id: int | None = Query(None),
                               date_from: str | None = Query(None),
                               date_to: str | None = Query(None),
+                              row_kind: str | None = Query(None, description="导出某类行（缺省全部）"),
                               _user: User = Depends(require_perm("stock.ledger.export")),
                               db: Session = Depends(get_db)):
     from .export import DOC_EXPORT_LIMIT, build_xlsx_response
@@ -721,6 +732,15 @@ def stock_batch_report_export(keyword: str | None = Query(None),
                   .filter(Warehouse.subject_code == subject_code).all()] or [-1]
     rows = svc.build_batches(db, warehouse_id=warehouse_id, product_id=product_id,
                              warehouse_ids=wh_ids, date_from=date_from, date_to=date_to,
-                             keyword=keyword)[:DOC_EXPORT_LIMIT]
-    data = [[r[k] for k in svc.BATCH_KEYS] for r in rows]
+                             keyword=keyword)
+    if row_kind:
+        rows = [r for r in rows if r["row_kind"] == row_kind]
+    rows = rows[:DOC_EXPORT_LIMIT]
+    data = []
+    for r in rows:
+        vals = []
+        for k in svc.BATCH_KEYS:
+            v = r.get(k)
+            vals.append(svc.ROW_KIND_LABELS.get(v, v) if k == "row_kind" else v)
+        data.append(vals)
     return build_xlsx_response("库存批次配对", svc.BATCH_COLUMNS, data, "批次配对")

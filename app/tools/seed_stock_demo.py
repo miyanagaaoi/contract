@@ -25,6 +25,7 @@ from app.database import SessionLocal
 from app.models_auth import User
 from app.models_doc import StockInOrder, StockInOrderItem, StockOutOrder, StockOutOrderItem
 from app.models_master import Product, ProductType, Uom, Warehouse
+from app.models_stock import Stock, StockLedger
 from app.services import posting_service
 
 PREFIX = "DEMO26"
@@ -129,7 +130,9 @@ def _make_out(db, warehouse, product, qty: str, doc_date: date, no: str, *,
     return doc
 
 
-def seed() -> dict:
+def seed(abnormal: bool = False) -> dict:
+    """造演示数据。`abnormal=True` 时额外造：① 红冲（反审核 OUT-A3）
+    ② 无入库批次的出库流水（直接插 ledger，模拟期初缺失——过账层会拦负库存，故只能这样演示）。"""
     with SessionLocal() as db:
         warehouse, products = _ensure_masters(db)
         a, b = products["A"], products["B"]
@@ -148,7 +151,39 @@ def seed() -> dict:
         _make_out(db, warehouse, b, "40", date(2026, 9, 15), f"{PREFIX}-OUT-B1",
                   out_type="领用出库", issue=("user", _admin(db).id, "演示领用人"),
                   remark="演示项目-领用")
-        return {"warehouse_id": warehouse.id, "product_ids": [a.id, b.id]}
+        info = {"warehouse_id": warehouse.id, "product_ids": [a.id, b.id]}
+        if abnormal:
+            info["abnormal"] = "reversal+orphan"
+            # ① 红冲：反审核 OUT-A3（10 个），产生「红冲-销售出库」流水
+            out_a3 = db.execute(select(StockOutOrder).where(
+                StockOutOrder.doc_no == f"{PREFIX}-OUT-A3")).scalar_one_or_none()
+            if out_a3 is not None and out_a3.status == "approved":
+                posting_service.unapprove_stock_doc(db, out_a3, "演示红冲", _admin(db))
+                db.commit()
+            # ② 无批次出库：期末缺失场景——物料 C 没有任何入库批次，只有一条出库流水
+            c = db.execute(select(Product).where(
+                Product.code == f"{PREFIX}-C")).scalar_one_or_none()
+            if c is None:
+                c = Product(code=f"{PREFIX}-C", name="演示物料C（期初缺失）", spec="C-300",
+                            product_type_id=a.product_type_id, uom_id=a.uom_id,
+                            default_price=Decimal("30"), status="enabled")
+                db.add(c)
+                db.flush()
+                db.commit()
+            if c.id not in info["product_ids"]:
+                info["product_ids"].append(c.id)
+            exists = db.execute(select(StockLedger.id).where(
+                StockLedger.doc_no == f"{PREFIX}-ORPHAN-OUT1")).first()
+            if exists is None:
+                db.add(StockLedger(
+                    product_id=c.id, warehouse_id=warehouse.id,
+                    biz_type="历史出库补录", doc_type="stock_out", doc_id=0,
+                    doc_no=f"{PREFIX}-ORPHAN-OUT1", src_doc_no=None,
+                    qty_change=Decimal("-15"), qty_after=Decimal("0"),
+                    unit_price=Decimal("30"), remark="演示：期初缺失导致的出库无批次",
+                ))
+                db.commit()
+        return info
 
 
 def purge() -> dict:
@@ -218,20 +253,29 @@ def print_report() -> None:
     print(" | ".join(f"{h}" for h in head))
     print("-" * 120)
     for r in rows:
-        print(" | ".join(str(r[k] if r[k] is not None else "") for k in cols))
+        vals = []
+        for k in cols:
+            v = r.get(k)
+            vals.append(ROW_KIND_LABELS.get(v, v) if k == "row_kind" else ("" if v is None else v))
+        print(" | ".join(str(v) for v in vals))
     print("-" * 120)
     def _s(key):
         return sum((r[key] or 0) for r in rows)
-    print(f"共 {len(rows)} 行；总出库量 {_s('out_qty'):.0f}，"
+    counts = {}
+    for r in rows:
+        counts[r["row_kind"]] = counts.get(r["row_kind"], 0) + 1
+    print(f"共 {len(rows)} 行（" + "、".join(
+        f"{ROW_KIND_LABELS.get(k, k)} {v}" for k, v in counts.items()) + "）；"
+          f"正常出库量 {sum(r['out_qty'] for r in rows if r['row_kind'] == 'normal'):.0f}，"
           f"剩余合计 {_s('stock_qty'):.0f}，剩余金额 {_s('stock_amount'):.2f}")
 
 
 if __name__ == "__main__":
-    info = seed()
+    info = seed(abnormal="--abnormal" in sys.argv)
     print("演示数据就绪:", info)
     if "--purge" in sys.argv:
         print("清理结果:", purge())
         sys.exit(0)
-    if "--report" in sys.argv:
+    if "--report" in sys.argv or "--abnormal" in sys.argv:
         print()
         print_report()
