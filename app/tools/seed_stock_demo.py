@@ -186,7 +186,7 @@ def seed(abnormal: bool = False) -> dict:
         return info
 
 
-def purge() -> dict:
+def purge(prefix: str = PREFIX) -> dict:
     """清除本脚本产生的演示数据（单据/流水/结存/主数据），供测试清理与重跑。"""
     from sqlalchemy import delete as _delete
 
@@ -196,11 +196,11 @@ def purge() -> dict:
     removed = {}
     with SessionLocal() as db:
         in_ids = [r[0] for r in db.execute(
-            select(StockInOrder.id).where(StockInOrder.doc_no.like(f"{PREFIX}-%"))).all()]
+            select(StockInOrder.id).where(StockInOrder.doc_no.like(f"{prefix}-%"))).all()]
         out_ids = [r[0] for r in db.execute(
-            select(StockOutOrder.id).where(StockOutOrder.doc_no.like(f"{PREFIX}-%"))).all()]
+            select(StockOutOrder.id).where(StockOutOrder.doc_no.like(f"{prefix}-%"))).all()]
         prod_ids = [r[0] for r in db.execute(
-            select(Product.id).where(Product.code.like(f"{PREFIX}-%"))).all()]
+            select(Product.id).where(Product.code.like(f"{prefix}-%"))).all()]
 
         if prod_ids:
             removed["ledger"] = db.execute(
@@ -221,28 +221,28 @@ def purge() -> dict:
             removed["products"] = db.execute(
                 _delete(Product).where(Product.id.in_(prod_ids))).rowcount
         wh_ids = [r[0] for r in db.execute(
-            select(Warehouse.id).where(Warehouse.code.like(f"{PREFIX}-%"))).all()]
+            select(Warehouse.id).where(Warehouse.code.like(f"{prefix}-%"))).all()]
         if wh_ids:
             removed["warehouses"] = db.execute(
                 _delete(Warehouse).where(Warehouse.id.in_(wh_ids))).rowcount
         pt_ids = [r[0] for r in db.execute(
-            select(ProductType.id).where(ProductType.code.like(f"{PREFIX}-%"))).all()]
+            select(ProductType.id).where(ProductType.code.like(f"{prefix}-%"))).all()]
         if pt_ids:
             removed["ptypes"] = db.execute(
                 _delete(ProductType).where(ProductType.id.in_(pt_ids))).rowcount
         u_ids = [r[0] for r in db.execute(
-            select(Uom.id).where(Uom.code.like(f"{PREFIX}-%"))).all()]
+            select(Uom.id).where(Uom.code.like(f"{prefix}-%"))).all()]
         if u_ids:
             removed["uoms"] = db.execute(_delete(Uom).where(Uom.id.in_(u_ids))).rowcount
         db.commit()
     return removed
 
 
-def print_report() -> None:
+def print_report(keyword: str = PREFIX) -> None:
     from app.services import stock_report_service as svc
 
     with SessionLocal() as db:
-        rows = svc.build_batches(db, warehouse_id=None, keyword=PREFIX)
+        rows = svc.build_batches(db, warehouse_id=None, keyword=keyword)
     if not rows:
         print("（没有报表数据）")
         return
