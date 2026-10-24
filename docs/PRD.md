@@ -288,6 +288,23 @@
   `IN_TYPES` 增加「退库入库」；测试 `app/tests/test_v2_6_4_stock_return.py`（部分退/防超退/未审核拦截/审核后加库存），
   全量 **525 passed**；演示数据 DEMO27 端到端生成 `IN202610000001`（类型/来源/行关联均正确）
 
+### CR-023 全量部署 compose（同步镜像 / 一体化 PG）
+
+- **问题**（2026-10-24 业务询问）：需要"全量部署"（含 Playwright 同步能力）的 docker-compose 写法，
+  此前只有 core 与 prod-server 两种，缺一体化/同步镜像的现成模板。
+- **规则**：
+  1. `deploy/docker-compose.full.yml`：**同步镜像**（`ctms:<版本>-sync`）+ 外部 PostgreSQL，
+     端口/路径/凭据全部走环境变量（`CTMS_PORT`/`CTMS_IMAGE`/`CTMS_DB_*`），
+     密码从 `.env` 的 `CTMS_DB_PASSWORD` 注入；挂载 `.env`、`/data`，可选挂 `tax_session`；
+  2. `deploy/docker-compose.full-with-db.yml`：**一体化**（内置 PostgreSQL 16 + 同步镜像），
+     `depends_on: service_healthy`，数据卷 `pgdata`；
+  3. 因 CR-021/022 在 2.6.1 镜像构建后合入，**重新构建并重新导出**发布包（核心 71MB / 全量 604MB），
+     校验和更新。
+- **状态**：已实现（2026-10-24）
+- **证据**：两份 compose 均通过 `docker compose config`（含变量替换校验）；
+  `ctms:2.6.1-sync` 冒烟：`/api/health` 返回 2.6.1、容器内 Chromium 156.0.8078.4；
+  发布包 `deploy-release-2.6.1/images/*` 已重建并通过 sha256 校验
+
 ## 历史版本索引（已冻结，仅溯源，不再更新）
 
 | 版本 | 规格 / 验收文档 | 说明 |
@@ -307,6 +324,7 @@
 |---|---|---|---|
 | 2026-10-20 | 建立开发文档体系 | — | PRD/TODO/AGENTS/CLAUDE 首次落地；回填 V2.6.0（CR-001~007）与 V2.6.1（CR-008~014），状态均「已实现」 |
 | 2026-10-24 | 桥插件 peer 版本适配宿主 0.2.1-rc.2 | CR-015 | 本地插件清单 13 处 peer 由 `0.2.0-rc.2` 改为 `0.2.1-rc.2`；重启后 `/ext/bridge-config` 已返回 wsUrl、`browser_*` 工具已注册（扩展侧待填新端口） |
+| 2026-10-24 | 全量部署 compose | CR-023 | 新增 full（同步镜像+外部PG）与 full-with-db（内置PG）两份 compose；重建并重导 2.6.1/2.6.1-sync 镜像包，校验和更新 |
 | 2026-10-24 | 出库单「更多 → 退库」 | CR-022 | 弹窗选行+数量（部分退），生成草稿「退库入库单」并关联来源出库单与行；草稿计入已退防超退；新增类型「退库入库」；525 passed |
 | 2026-10-24 | 物料树选择统一到全部行项 | CR-021 | 抽公共组件 ProductTreeSelect（树展开+悬停信息+远程补拉+多选）；单据行项/合同行项/盘点多选全部接入；前端构建通过 |
 | 2026-10-24 | 开发库业务数据全量清空 | CR-020 | 新增 purge_business_data（备份→清空业务表，保留账号/角色/字典）；重建 DEMO27 10 批次；523 passed |

@@ -1,0 +1,59 @@
+# CTMS 全量部署 · 一体化（PostgreSQL + 同步镜像，两个容器）
+#
+# 适用：新服务器从零部署，或想把数据库也放进 compose 统一管理（无需外部 PG）。
+# 迁移已有 PG 数据：先 pg_dump，再 `psql -h 127.0.0.1 -p 15432 -U ctms -d ctms < dump.sql`，
+# 或把旧数据库目录作为卷挂给 postgres（须同 PG 大版本）。
+#
+# 使用：
+#   mkdir -p /volume2/docker/ctms/{data,pgdata}
+#   # .env 至少写：CTMS_DB_PASSWORD=...  CTMS_PG_SUPER_PASSWORD=...
+#   docker compose -f deploy/docker-compose.full-with-db.yml up -d
+#   然后按需把旧数据导入（见上）。首次启动会自动建表 + 种子管理员账号。
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ${CTMS_PG_NAME:-ctms-pg}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${CTMS_DB_USER:-ctms}
+      POSTGRES_PASSWORD: ${CTMS_PG_SUPER_PASSWORD:?请在 .env 设置 CTMS_PG_SUPER_PASSWORD}
+      POSTGRES_DB: ${CTMS_DB_NAME:-ctms}
+      TZ: Asia/Shanghai
+    volumes:
+      - /volume2/docker/ctms/pgdata:/var/lib/postgresql/data
+    # 默认只对 compose 内网开放；需要本机 psql 调试时再映射端口
+    # ports:
+    #   - "15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CTMS_DB_USER:-ctms} -d ${CTMS_DB_NAME:-ctms}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ctms:
+    image: ${CTMS_IMAGE:-ctms:2.6.1-sync}
+    container_name: ${CTMS_NAME:-ctms-1}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${CTMS_PORT:-9000}:8000"
+    environment:
+      CTMS_DB_URL: "postgresql+psycopg2://${CTMS_DB_USER:-ctms}:${CTMS_DB_PASSWORD:?请在 .env 设置 CTMS_DB_PASSWORD}@postgres:5432/${CTMS_DB_NAME:-ctms}"
+      CTMS_UPLOAD_DIR: /data/uploads
+      CTMS_LOG_DIR: /data/logs
+      CTMS_SERVE_STATIC: "1"
+      CTMS_WEB_DIST: /srv/web/dist
+      CTMS_TAX_SYNC_ENABLED: "${CTMS_TAX_SYNC_ENABLED:-1}"
+      CTMS_TAX_SYNC_HEADLESS: "${CTMS_TAX_SYNC_HEADLESS:-1}"
+    volumes:
+      - /volume2/docker/ctms/.env:/app/.env
+      - /volume2/docker/ctms/data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
