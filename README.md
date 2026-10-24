@@ -6,7 +6,9 @@
 ## 当前状态
 
 - **版本**：`2.6.1`（`app/config.py: APP_VERSION`）
-- **质量基线**：`pytest` **519 passed**；前端 `vite build` 通过
+- **质量基线**：`pytest` **523 passed**；前端 `vite build` 通过
+- **开发库数据**：已全量清空业务数据（保留账号/角色/字典），仅含 `DEMO27` 10 批次演示数据；
+  清理工具 `python -m app.tools.purge_business_data --yes`（自动备份到 `app/backups/`）
 - **部署**：Docker 单容器，外部 PostgreSQL（`192.168.81.50:5432/ctms`），群晖 Container Manager；端口 9000
 - **在跑的能力**：合同台账与履约、采购/销售/库存过账、财务（付款/收款/发票）、
   发票同步（桥接 / Playwright）、发票包归档、批次配对报表（正常匹配 / 红冲 / 无批次出库分类）、打印与电子签名
