@@ -30,6 +30,7 @@ import {
   uploadAttachment,
   type Dict,
 } from '@/api'
+import ProductTreeSelect from '@/components/doc/ProductTreeSelect.vue'
 import { useAuthStore } from '@/stores/auth'
 import { fmtDate, fmtDateTime, fmtMoney } from '@/utils/format'
 
@@ -397,75 +398,20 @@ function emptyRow(): Dict {
 }
 
 /** V2.1（N4）：物料下拉（首次使用时加载一次） */
-const productOptions = ref<Dict[]>([])
 let productsLoaded = false
 
-async function ensureProducts() {
-  if (productsLoaded) return
-  try {
-    productOptions.value = await fetchMasterOptions('product')
-    productsLoaded = true
-  } catch {
-    productOptions.value = []
-  }
-}
-
-/** V2.6.1：物料树（商品类型分组 → 物料），供行项树形选择 */
-const productTree = computed(() => {
-  const groups = new Map<string, Dict[]>()
-  for (const p of productOptions.value) {
-    const key = (p.product_type_name as string) || '未分类'
-    if (!groups.has(key)) groups.set(key, [])
-    groups.get(key)!.push({
-      id: `t:${key}`, // 组节点用字符串 id，避免与物料数字 id 冲突
-      label: `${key}（${groups.get(key)!.length}）`,
-      disabled: true,
-      children: [],
-      isGroup: true,
-    })
-  }
-  const tree: Dict[] = []
-  for (const [key, list] of groups) {
-    const children = (productOptions.value.filter(
-      (p) => ((p.product_type_name as string) || '未分类') === key)).map((p) => ({
-        id: p.id,
-        label: `${p.name}（${p.code}）`,
-        raw: p,
-      }))
-    tree.push({
-      id: `t:${key}`, label: `${key}（${children.length}）`, disabled: true,
-      children, isGroup: true,
-    })
-  }
-  return tree
-})
-
-/** 悬停信息（第 2 条需求：档案基础信息辅助选料） */
-function productTip(p: Dict | undefined): string {
-  if (!p) return ''
-  return [
-    `编码：${p.code ?? '—'}`,
-    `名称：${p.name ?? '—'}`,
-    `规格：${p.spec || '—'}`,
-    `单位：${p.uom_name || '—'}`,
-    `默认单价：${p.default_price ?? '—'}`,
-    `类型：${p.product_type_name || '未分类'}`,
-  ].join(' ｜ ')
-}
-
-/** 选中物料 → 带出名称/规格/单位/默认单价（用户仍可覆盖） */
-function onItemProductChange(row: Dict, id: number | null) {
-  const hit = productOptions.value.find((p) => p.id === id)
-  if (!hit) return
-  row.product_code = hit.code ?? ''
-  row.product_name = hit.name ?? ''
-  // V2.5：单位随物料带出（只读列；口径与单据行项 `DocItemsTable` 一致）
-  row.uom_name = hit.uom_name ?? ''
-  if (!(row.name || '').trim()) row.name = hit.name ?? ''
-  if (!(row.spec || '').trim() && hit.spec) row.spec = hit.spec
+/** V2.6.1：树组件回传完整物料对象（与旧 onItemProductChange 等价） */
+function onItemProductPicked(row: Dict, p: Dict | null) {
+  if (!p) return
+  row.product_code = p.code ?? ''
+  row.product_name = p.name ?? ''
+  row.uom_name = p.uom_name ?? ''
+  if (!(row.name || '').trim()) row.name = p.name ?? ''
+  if (!(row.spec || '').trim() && p.spec) row.spec = p.spec
   const price = Number(row.unit_price) || 0
-  if (price === 0 && hit.default_price) row.unit_price = Number(hit.default_price)
+  if (price === 0 && p.default_price) row.unit_price = Number(p.default_price)
 }
+
 
 function resetForm() {
   Object.assign(form, {
@@ -1240,23 +1186,9 @@ onMounted(async () => {
           <el-table-column label="物料" min-width="180">
             <!-- V2.1 / N4：合同行项必须绑定系统物料档案（选中后带出名称/规格/默认单价） -->
             <template #default="{ row }">
-              <!-- V2.6.1：树形展开选取（商品类型 → 物料）；悬停显示档案信息辅助选料 -->
-              <el-tree-select v-model="row.product_id" size="small" clearable filterable
-                              placeholder="必选（可按编码/名称搜索）" style="width: 100%"
-                              :data="productTree" :render-after-expand="false"
-                              :props="{ value: 'id', label: 'label', children: 'children', disabled: 'disabled' }"
-                              @visible-change="(v: boolean) => v && ensureProducts()"
-                              @change="(v: number) => onItemProductChange(row, v)">
-                <template #default="{ data }">
-                  <el-tooltip v-if="!data.isGroup" :content="productTip(data.raw)"
-                              placement="right" :show-after="200" raw-content>
-                    <span>{{ data.label }}</span>
-                  </el-tooltip>
-                  <span v-else style="font-weight: 600; color: var(--ctms-text-muted)">
-                    {{ data.label }}
-                  </span>
-                </template>
-              </el-tree-select>
+              <!-- V2.6.1 / CR-021：与单据行项共用 ProductTreeSelect（树形展开 + 悬停档案信息） -->
+              <ProductTreeSelect v-model="row.product_id"
+                                 @change="(p: Dict | null) => onItemProductPicked(row, p)" />
             </template>
           </el-table-column>
           <el-table-column label="名称" min-width="150">

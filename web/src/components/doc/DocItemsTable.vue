@@ -13,6 +13,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 
 import { ElMessage } from 'element-plus'
 
+import ProductTreeSelect from '@/components/doc/ProductTreeSelect.vue'
 import QuickCreateDialog from '@/components/QuickCreateDialog.vue'
 import { fetchMasterOptions, type Dict } from '@/api'
 import type { DocItem } from '@/types/doc'
@@ -188,9 +189,8 @@ function onProductSearch(keyword: string) {
   loadProducts(keyword)
 }
 
-/** 选中物料 → 带出规格 / 单位 / 默认单价快照 */
-function onProductChange(row: Record<string, any>, productId: number | null) {
-  const p = products.value.find((o) => o.id === productId)
+/** 选中物料 → 带出规格 / 单位 / 默认单价快照（V2.6.1：组件直接回传物料对象） */
+function onProductChange(row: Record<string, any>, p: Dict | null) {
   if (!p) {
     emit('change')
     return
@@ -308,13 +308,9 @@ defineExpose({ loadProducts, totalAmount })
       <el-table-column label="物料" min-width="230">
         <template #default="{ row }">
           <div v-if="!readonly" class="product-pick">
-            <el-select v-model="row.product_id" filterable remote
-                       :remote-method="onProductSearch" :loading="loadingProducts"
-                       placeholder="输入编码/名称搜索" style="flex: 1"
-                       @change="(v: number) => onProductChange(row, v)">
-              <el-option v-for="p in products" :key="p.id"
-                         :label="`${p.name}（${p.code}）`" :value="p.id" />
-            </el-select>
+            <!-- V2.6.1 / CR-021：树形展开（商品类型 → 物料）+ 悬停档案信息 -->
+            <ProductTreeSelect v-model="row.product_id" style="flex: 1"
+                               @change="(p: Dict | null) => onProductChange(row, p)" />
             <!-- V2.1（N9）：最右侧小按钮 → 弹窗新增物料并回填本行（不跳转，BR-V2.1-10） -->
             <el-button size="small" title="快速新增物料" @click="openQuickProduct(row)">＋</el-button>
           </div>

@@ -15,6 +15,7 @@ import { useRoute, useRouter } from 'vue-router'
 import ApproveDialog from '@/components/doc/ApproveDialog.vue'
 import type { ApproveMode } from '@/components/doc/ApproveDialog.vue'
 import DocFormPage from '@/components/doc/DocFormPage.vue'
+import ProductTreeSelect from '@/components/doc/ProductTreeSelect.vue'
 import {
   docAction,
   fetchMasterOptions,
@@ -378,11 +379,9 @@ async function onApproveConfirm(payload: { mode: ApproveMode; reason: string }) 
           </el-select>
         </el-form-item>
         <el-form-item label="指定物料">
-          <el-select v-model="genProductIds" multiple filterable remote clearable
-                     :remote-method="searchProducts" :loading="productLoading"
-                     placeholder="按物料筛选（可多选；留空则按商品类型/全盘）" style="width: 100%">
-            <el-option v-for="p in products" :key="p.id" :label="`${p.name}（${p.code}）`" :value="p.id" />
-          </el-select>
+          <!-- V2.6.1 / CR-021：树形多选（商品类型 → 物料），留空则按类型/全盘 -->
+          <ProductTreeSelect v-model="genProductIds" multiple
+                             placeholder="按物料筛选（可多选；留空则按商品类型/全盘）" />
         </el-form-item>
       </el-form>
       <div class="tips">提示：重新生成会刷新已有行的账面数量（未审核前）。</div>
