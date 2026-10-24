@@ -11,7 +11,8 @@
 - **在跑的能力**：合同台账与履约、采购/销售/库存过账、财务（付款/收款/发票）、
   发票同步（桥接 / Playwright）、发票包归档、批次配对报表、打印与电子签名
 - **本机脚本**：`setup.bat`（`check`/`demo`）、`start-all.bat`（`--rebuild`/`--no-open`）、
-  `scripts/restart-backend.bat`、`scripts/stop-backend.bat`（仅操作 CTMS，拒绝误杀其它程序）
+  `scripts/restart-backend.bat`、`scripts/stop-backend.bat`（仅操作 CTMS，拒绝误杀其它程序）；
+  演示数据 `python -m app.tools.seed_stock_demo [--report|--purge]`
 
 ## 已知问题
 
@@ -26,6 +27,7 @@
 
 1. 轮换 PG 密码与飞书 App Secret，并同步群晖 `.env`（TODO-002）
 2. 群晖上完成 2.6.1 部署验证：`/api/health` 返回 `2.6.1`、发票筛选与批次报表可用
+   （批次报表可先用 `seed_stock_demo` 造数据验收，见 PRD CR-017）
 3. 生产发票同步策略定稿：桥接（办公机）为主，还是同步镜像 + 会话文件复用（TODO-001）
 4. 待确认想法：物料拼音搜索（TODO-004）、批次报表按出库单汇总打印（TODO-005）
 

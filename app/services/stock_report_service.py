@@ -14,7 +14,9 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from ..models_doc import StockOutOrder, StockLedger
+from ..models_doc import StockOutOrder
+from ..models_stock import StockLedger
+from .doc_service import warehouse_display_name
 from ..models_master import Product, Warehouse
 
 ZERO = Decimal("0")
@@ -99,7 +101,7 @@ def build_batches(db: Session, *, warehouse_id: int | None = None,
                 stock_qty -= take
                 stock_value -= take * batch["price"]
                 result.append({
-                    "warehouse": (warehouse.display_name or warehouse.name) if warehouse else "",
+                    "warehouse": warehouse_display_name(db, warehouse) if warehouse else "",
                     "in_no": batch["doc_no"],
                     "in_time": batch["time"].isoformat(sep=" ", timespec="seconds")
                     if batch["time"] else None,
@@ -118,14 +120,15 @@ def build_batches(db: Session, *, warehouse_id: int | None = None,
                     "out_type": meta.get("out_type"),
                     "out_project": meta.get("remark"),
                     "issue_party": meta.get("issue_name"),
-                    "stock_qty": float(batch["qty_rem"]),
-                    "stock_amount": float(batch["qty_rem"] * batch["price"]),
+                    # 剩余只由"未消耗批次行"体现，出库行不重复记（否则合计虚高）
+                    "stock_qty": None,
+                    "stock_amount": None,
                 })
                 if batch["qty_rem"] <= ZERO:
                     batches.pop(0)
             if need > ZERO:                            # 库存不足（历史遗留/期初缺失）
                 result.append({
-                    "warehouse": (warehouse.display_name or warehouse.name) if warehouse else "",
+                    "warehouse": warehouse_display_name(db, warehouse) if warehouse else "",
                     "in_no": "", "in_time": None,
                     "product_code": product.code if product else "",
                     "product_name": product.name if product else "",
@@ -146,7 +149,7 @@ def build_batches(db: Session, *, warehouse_id: int | None = None,
             if batch["qty_rem"] <= ZERO:
                 continue
             result.append({
-                "warehouse": (warehouse.display_name or warehouse.name) if warehouse else "",
+                "warehouse": warehouse_display_name(db, warehouse) if warehouse else "",
                 "in_no": batch["doc_no"],
                 "in_time": batch["time"].isoformat(sep=" ", timespec="seconds")
                 if batch["time"] else None,
