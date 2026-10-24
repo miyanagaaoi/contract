@@ -47,7 +47,9 @@
 - **验证门槛**（提交前必须全绿）：
   - 后端：`app\.venv\Scripts\python.exe -m pytest app/tests -q`（当前基线 **519 passed**）；
   - 前端：`web` 下 `node node_modules\vite\bin\vite.js build`；
-  - 改了后端代码 → 执行 `scripts\restart-backend.bat` 并验证 `/api/health`。
+  - 改了后端代码 → 执行 `scripts\restart-backend.bat` 并验证 `/api/health`；
+  - 停止服务用 `scripts\stop-backend.bat`（先校验 8000 上是 CTMS，非 CTMS 拒绝误杀；`--force` 才强杀）；
+  - **`.bat` 文件一律纯 ASCII + CRLF**：中文注释会导致 cmd 解析异常（CR-016 实测），说明写文档里。
 - **数据库迁移**：只走 `app/db_migrate.py` 的幂等增量迁移；DDL 必须 **SQLite 与 PostgreSQL 双兼容**
   （BOOLEAN 默认值只能 TRUE/FALSE，禁止 AUTOINCREMENT/DATETIME；有静态测试守护）。
 - **不提交大文件**：镜像（`*.tar(.gz)`）、`deploy-release-*/`、`node_modules`、`.env` 一律不入 git。
