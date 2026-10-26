@@ -156,7 +156,11 @@ TAX_SYNC_PASSWORD = (_env("CTMS_TAX_SYNC_PASSWORD") or "").strip()
 TAX_SYNC_TAX_NO = (_env("CTMS_TAX_SYNC_TAX_NO") or "").strip()
 TAX_SYNC_SESSION_TTL = int(_env("CTMS_TAX_SYNC_SESSION_TTL") or 3600)   # 1 小时
 TAX_SYNC_SMS_TIMEOUT = int(_env("CTMS_TAX_SYNC_SMS_TIMEOUT") or 600)    # 验证码等待 10 分钟
-TAX_SYNC_HEADLESS = (_env("CTMS_TAX_SYNC_HEADLESS") or "0") == "1"      # 默认**有头**：人工验证（点字/滑块/短信码）需要在可见窗口操作
+# 默认值按环境判断：有桌面（Windows 或带 DISPLAY 的 Linux）→ 有头（便于人工过验证码）；
+# 容器/无图形服务器 → 无头（有头会因缺少 X server 直接失败）
+_desktop_like = bool(os.name == "nt" or os.environ.get("DISPLAY")
+                     or os.environ.get("WAYLAND_DISPLAY"))
+TAX_SYNC_HEADLESS = (_env("CTMS_TAX_SYNC_HEADLESS") or ("0" if _desktop_like else "1")) == "1"
 TAX_SYNC_STORAGE_DIR = DATA_DIR / "tax_session"
 
 

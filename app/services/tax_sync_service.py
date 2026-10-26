@@ -169,6 +169,10 @@ def last_sync_info(db: Session) -> dict:
     log = db.query(InvoiceSyncLog).order_by(InvoiceSyncLog.id.desc()).first()
     return {
         "has_history": log is not None,
+        "headless": config.TAX_SYNC_HEADLESS,
+        # 非 Windows 且无 DISPLAY/WAYLAND_DISPLAY ≈ 容器/无图形服务器，无法弹窗
+        "has_display": bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+                            or os.name == "nt"),
         "companies": list_companies(db),
         "last_at": log.finished_at.isoformat() if log and log.finished_at else None,
         "date_from": log.date_from.isoformat() if log and log.date_from else None,
@@ -903,6 +907,22 @@ def start_sync(date_from: date, date_to: date, subject_code: str) -> int:
         subjects = {s["code"] for s in dicts.get_subjects(db)}
         if code not in subjects:
             raise ValueError(f"主体码 {code} 不在系统设置「我方公司」字典中，请先维护")
+    # 无头模式（容器/服务器）没有可见窗口，无法人工完成点字/滑块/短信验证：
+    # 没有有效会话就直接拒绝，并给出可执行的两条路，避免用户对着"等待验证"干等。
+    has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+                       or os.name == "nt")
+    if not session_fresh(code):
+        if config.TAX_SYNC_HEADLESS:
+            raise ValueError(
+                "当前为无头模式（容器/服务器），无法弹出浏览器窗口完成人工验证。"
+                "请任选其一：① 在办公机登录税局后把 "
+                f"app/data/tax_session/state_{code}.json 复制到容器对应目录（1 小时内有效）；"
+                "② 改用「上传发票包」或浏览器桥接通道同步。")
+        if not has_display:
+            raise ValueError(
+                "未检测到图形界面（无 DISPLAY），浏览器无法弹出窗口。"
+                "请设置 CTMS_TAX_SYNC_HEADLESS=1 并使用会话文件，"
+                "或在有桌面的机器上运行同步。")
     with _LOCK:
         running = (SessionLocal()
                    .query(InvoiceSyncLog)

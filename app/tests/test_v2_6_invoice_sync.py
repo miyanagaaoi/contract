@@ -329,3 +329,39 @@ class TestSyncGuard:
         with SessionLocal() as db:
             got = db.get(InvoiceSyncLog, log_id)
             assert got is not None and got.inserted == 3 and got.subject_code == SUBJECT
+
+
+class TestHeadlessGuard:
+    """CR-024：无头（容器）模式且无有效会话时，必须直接给出可执行指引，不得启动浏览器干等。"""
+
+    def test_headless_without_session_rejects_with_guidance(self, monkeypatch):
+        from app import config
+
+        monkeypatch.setattr(config, "TAX_SYNC_ENABLED", True)
+        monkeypatch.setattr(config, "TAX_SYNC_HEADLESS", True)
+        monkeypatch.setattr(config, "tax_sync_company", lambda code: {
+            "code": code, "username": "u", "password": "p", "tax_no": "91149900MAECLDF33U"})
+        monkeypatch.setattr(tax_sync_service, "session_fresh", lambda code: False)
+
+        with pytest.raises(ValueError) as exc:
+            tax_sync_service.start_sync(date(2026, 9, 1), date(2026, 10, 1), "ZC")
+        msg = str(exc.value)
+        assert "无头模式" in msg and "state_" in msg and "上传发票包" in msg
+
+    def test_display_required_when_headed_on_linux(self, monkeypatch):
+        import os
+
+        from app import config
+
+        monkeypatch.setattr(config, "TAX_SYNC_ENABLED", True)
+        monkeypatch.setattr(config, "TAX_SYNC_HEADLESS", False)
+        monkeypatch.setattr(config, "tax_sync_company", lambda code: {
+            "code": code, "username": "u", "password": "p", "tax_no": "91149900MAECLDF33U"})
+        monkeypatch.setattr(tax_sync_service, "session_fresh", lambda code: False)
+        monkeypatch.setattr(os, "name", "posix")
+        monkeypatch.delenv("DISPLAY", raising=False)
+        monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+
+        with pytest.raises(ValueError) as exc:
+            tax_sync_service.start_sync(date(2026, 9, 1), date(2026, 10, 1), "ZC")
+        assert "图形界面" in str(exc.value)

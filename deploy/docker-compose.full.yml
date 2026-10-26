@@ -48,7 +48,7 @@ services:
       # 附件 / 发票 PDF / 日志持久化（必须）
       - /volume2/docker/ctms/data:/data
       # 登录会话（可选）：把办公机登录后的 state_<主体码>.json 放进去复用，免去容器内人工验证
-      # - /volume2/docker/ctms/tax_session:/app/app/data/tax_session
+      - /volume2/docker/ctms/tax_session:/app/app/data/tax_session
     healthcheck:
       test: ["CMD", "python", "-c",
              "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=4)"]

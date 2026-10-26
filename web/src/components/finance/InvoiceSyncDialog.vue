@@ -65,6 +65,17 @@ const waitingSms = computed(() => phase.value === 'login')
 const currentCompany = computed(() =>
   companies.value.find((c) => c.code === subjectCode.value))
 
+/** 无头/无图形环境（容器部署）提示：没有可见窗口，无法人工完成验证码 */
+const headlessWarn = computed(() => {
+  const info2 = info.value || {}
+  if (!info2.headless) return ''
+  const fresh = companies.value.some((c) => c.session_fresh)
+  if (fresh) return ''
+  return '当前为无头模式（容器/服务器部署），不会弹出浏览器窗口，无法人工完成点字/短信验证。'
+    + '请先把办公机登录后的 state_<主体码>.json 复制到容器 /app/app/data/tax_session/ 复用会话'
+    + '（1 小时内有效），或改用「上传发票包」/ 浏览器桥接通道。'
+})
+
 function today(): string {
   return new Date().toISOString().slice(0, 10)
 }
@@ -210,6 +221,8 @@ function close() {
       <!-- 选中后显示该公司的会话连接状态 -->
       <el-alert v-if="sessionStatus" :type="sessionStatus.type" :closable="false"
                 :title="sessionStatus.text" style="margin-bottom: 12px" />
+      <el-alert v-if="headlessWarn" type="warning" :closable="false"
+                :title="headlessWarn" style="margin-bottom: 12px" />
       <el-alert v-if="!companies.some((c) => c.configured)" type="warning" :closable="false"
                 title="尚未配置任何公司的同步凭据：请在 .env 里按 CTMS_TAX_SYNC_<主体码>_USERNAME/PASSWORD 预充后重启服务。" />
       <el-alert v-else type="info" :closable="false"

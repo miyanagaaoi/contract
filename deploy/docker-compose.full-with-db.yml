@@ -50,6 +50,8 @@ services:
     volumes:
       - /volume2/docker/ctms/.env:/app/.env
       - /volume2/docker/ctms/data:/data
+      # 登录会话（容器同步的**必需**前提）：把办公机 app/data/tax_session/state_<主体码>.json 放进来
+      - /volume2/docker/ctms/tax_session:/app/app/data/tax_session
     healthcheck:
       test: ["CMD", "python", "-c",
              "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=4)"]
