@@ -374,7 +374,9 @@
   4. `scripts/export-docker.bat` 同步为**仅核心镜像**流程（CR-026 后无浏览器底座/同步包），默认版本 2.6.2。
 - **状态**：已实现（2026-10-28）
 - **证据**：`APP_VERSION=2.6.2`；本机 `/api/health` 返回 `2.6.2`；容器冒烟 `ctms:2.6.2` 返回 `2.6.2`；
-  发布包 70.5MB、sha256 校验通过；全量 **516 passed**
+  发布包 70.5MB、sha256 校验通过；全量 **516 passed**；
+  发布包 `README.md` 重写为「只给一份群晖部署 YAML」+ `.env`/步骤/验证/回滚/FAQ，
+  `deploy/docker-compose.synology.yml` 同步为 2.6.2 且通过 `docker compose config`
 
 ## 历史版本索引（已冻结，仅溯源，不再更新）
 

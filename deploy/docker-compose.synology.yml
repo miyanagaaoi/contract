@@ -1,39 +1,29 @@
-# CTMS V2.6.2 群晖 Container Manager 项目配置（**只用现成镜像，不做 build**）
+# CTMS 2.6.2 · 群晖 Container Manager 项目配置（只用现成镜像，不做 build）
 #
-# 群晖「项目 → 新增 → 上传 docker-compose.yml」没有源码上下文，任何 build: 都会失败，
+# 群晖「项目 → 新增 → 创建 docker-compose.yml」没有源码上下文，任何 build: 都会失败，
 # 因此这里只引用已导入的镜像 ctms:2.6.2。
 #
-# 部署步骤：
-#   1) 群晖「Container Manager → 映像 → 导入」选择 ctms-image-2.6.2-core.tar.gz
-#      （路径示例：/volume2/docker/ctms/import/ctms-image-2.6.2-core.tar.gz）
-#      导入后映像名为 ctms:2.6.2
-#   2) 建目录：/volume2/docker/ctms/data 、/volume2/docker/ctms/（放 .env）
-#   3) 「项目 → 新增 → 项目名称 ctms → 路径 /volume2/docker/ctms →
-#       来源：上传 docker-compose.yml（选本文件）→ 下一步 → 完成」
-#
+# 步骤：
+#   1) Container Manager → 映像 → 导入 → 选择 ctms-image-2.6.2-core.tar.gz
+#   2) 建目录 /volume2/docker/ctms/data ；把 .env 放到 /volume2/docker/ctms/.env
+#   3) 项目 → 新增 → 项目名 ctms → 路径 /volume2/docker/ctms → 粘贴本文件内容 → 完成
 services:
   ctms:
     image: ctms:2.6.2
     container_name: ctms-1
     restart: unless-stopped
     ports:
-      - "9000:8000"                 # 群晖访问 http://<NAS-IP>:9000
+      - "9000:8000"                 # 访问 http://<NAS-IP>:9000
     environment:
-      # ---- 沿用旧服务器配置（外部 PostgreSQL）----
-      # 密码从项目目录的 .env 读取（变量 CTMS_DB_PASSWORD），不要直接写在这里：
-      #   .env 内容示例： CTMS_DB_PASSWORD=你的PG密码
+      # 外部 PostgreSQL；密码从项目目录 .env 的 CTMS_DB_PASSWORD 读取
       CTMS_DB_URL: "postgresql+psycopg2://ctms:${CTMS_DB_PASSWORD:?请在 .env 里设置 CTMS_DB_PASSWORD}@192.168.81.50:5432/ctms"
       CTMS_UPLOAD_DIR: "/data/uploads"
       CTMS_LOG_DIR: "/data/logs"
       CTMS_SERVE_STATIC: "1"
       CTMS_WEB_DIST: "/srv/web/dist"
-      # ---- V2.6 发票同步凭据（按我方主体码；也可写进下方 .env 文件）----
-      # CTMS_TAX_SYNC_YX_USERNAME: ""
-      # CTMS_TAX_SYNC_YX_PASSWORD: ""
-      # CTMS_TAX_SYNC_YX_TAX_NO: "91149900MAECLDF33U"
     volumes:
-      # ⚠️ 用**相对路径**（相对项目路径 /docker/ctms），避免 /volume1 vs /volume2 写错
-      # .env 文件必须先存在（File Station 新建空文件即可），否则会被建成目录
+      # 用相对路径（相对项目路径 /volume2/docker/ctms），避免 /volume1、/volume2 写错
+      # .env 必须先存在（File Station 新建空文件亦可），否则会被建成目录
       - ./.env:/app/.env
-      # 附件/发票 PDF/日志持久化（务必保留；./data 会被自动创建）
+      # 附件 / 发票 PDF / 日志持久化（必须）
       - ./data:/data
