@@ -45,7 +45,7 @@
 
 - **语言**：与用户交流用中文；代码/命令/路径保持原文。
 - **验证门槛**（提交前必须全绿）：
-  - 后端：`app\.venv\Scripts\python.exe -m pytest app/tests -q`（当前基线 **519 passed**）；
+  - 后端：`app\.venv\Scripts\python.exe -m pytest app/tests -q`（当前基线 **516 passed**）；
   - 前端：`web` 下 `node node_modules\vite\bin\vite.js build`；
   - 改了后端代码 → 执行 `scripts\restart-backend.bat` 并验证 `/api/health`；
   - 停止服务用 `scripts\stop-backend.bat`（先校验 8000 上是 CTMS，非 CTMS 拒绝误杀；`--force` 才强杀）；
@@ -60,8 +60,9 @@
 ## 5. 版本与交付
 
 - 版本号唯一来源：`app/config.py: APP_VERSION`；发版时同步 `README` 当前状态。
-- 发布包按 [docs/39-v2.6-deploy.md](docs/39-v2.6-deploy.md)：核心包（~71MB gz）+ 浏览器底座 + 可选全量同步包；
-  服务器可离线组装同步镜像（`deploy/Dockerfile.sync-local`）。
+- 发布包：**仅核心镜像**（~71MB gz，无 Chromium；CR-026 已移除 Playwright 同步通道）；
+  模板 `deploy/docker-compose.full.yml`（外部 PG）/ `docker-compose.full-with-db.yml`（内置 PG）。
+  历史文档 [docs/39](docs/39-v2.6-deploy.md) 中同步镜像部分已冻结，仅作溯源。
 - 部署形态：群晖/宝塔等面板**只能导入镜像**，用 `deploy/docker-compose.synology.yml`（纯 `image:`）。
 
 ## 6. 遇到不确定时
