@@ -12,7 +12,7 @@ services:
       args:
         NPM_REGISTRY: https://registry.npmmirror.com
         PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
-    image: ctms:2.6.1
+    image: ctms:2.6.2
     container_name: ctms
     restart: unless-stopped
     ports:

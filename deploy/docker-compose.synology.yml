@@ -1,20 +1,19 @@
-# CTMS V2.6.1 群晖 Container Manager 项目配置（**只用现成镜像，不做 build**）
+# CTMS V2.6.2 群晖 Container Manager 项目配置（**只用现成镜像，不做 build**）
 #
 # 群晖「项目 → 新增 → 上传 docker-compose.yml」没有源码上下文，任何 build: 都会失败，
-# 因此这里只引用已导入的镜像 ctms:2.6.1。
+# 因此这里只引用已导入的镜像 ctms:2.6.2。
 #
 # 部署步骤：
-#   1) 群晖「Container Manager → 映像 → 导入」选择 ctms-image-2.6.1-core.tar.gz
-#      （路径示例：/volume2/docker/ctms/import/ctms-image-2.6.1-core.tar.gz）
-#      导入后映像名为 ctms:2.6.1
+#   1) 群晖「Container Manager → 映像 → 导入」选择 ctms-image-2.6.2-core.tar.gz
+#      （路径示例：/volume2/docker/ctms/import/ctms-image-2.6.2-core.tar.gz）
+#      导入后映像名为 ctms:2.6.2
 #   2) 建目录：/volume2/docker/ctms/data 、/volume2/docker/ctms/（放 .env）
 #   3) 「项目 → 新增 → 项目名称 ctms → 路径 /volume2/docker/ctms →
 #       来源：上传 docker-compose.yml（选本文件）→ 下一步 → 完成」
 #
-# 需要发票自动同步（Playwright）时把 image 换成 ctms:2.6.1-sync（同样先导入 tar）。
 services:
   ctms:
-    image: ctms:2.6.1
+    image: ctms:2.6.2
     container_name: ctms-1
     restart: unless-stopped
     ports:

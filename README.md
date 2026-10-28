@@ -5,12 +5,12 @@
 
 ## 当前状态
 
-- **版本**：`2.6.1`（`app/config.py: APP_VERSION`）
+- **版本**：`2.6.2`（`app/config.py: APP_VERSION`；本次含 CR-025 行项修正、CR-026 发票上传识别）
 - **质量基线**：`pytest` **523 passed**；前端 `vite build` 通过
 - **开发库数据**：已全量清空业务数据（保留账号/角色/字典），仅含 `DEMO27` 10 批次演示数据；
   清理工具 `python -m app.tools.purge_business_data --yes`（自动备份到 `app/backups/`）
 - **部署**：Docker 单容器，外部 PostgreSQL（`192.168.81.50:5432/ctms`），群晖 Container Manager；端口 9000；
-  全量部署模板 `deploy/docker-compose.full.yml`（同步镜像）/ `full-with-db.yml`（含内置 PG）
+  全量部署模板 `deploy/docker-compose.full.yml`（核心镜像）/ `full-with-db.yml`（含内置 PG）
 - **在跑的能力**：合同台账与履约、采购/销售/库存过账、财务（付款/收款/发票）、
   发票上传识别（单张 PDF / ZIP，自动入库并挂原始文件）、批次配对报表（正常匹配 / 红冲 / 无批次出库分类）、
   全单据行项物料树形选择（含悬停档案信息）、出库单退库、打印与电子签名
@@ -30,7 +30,7 @@
 ## 下一步
 
 1. 轮换 PG 密码与飞书 App Secret，并同步群晖 `.env`（TODO-002）
-2. 群晖上完成 2.6.1 部署验证：`/api/health` 返回 `2.6.1`、发票筛选与批次报表可用
+2. 群晖上完成 2.6.2 部署验证：`/api/health` 返回 `2.6.2`、发票上传识别与批次报表可用
    （批次报表可先用 `seed_stock_demo` 造数据验收，见 PRD CR-017）
 3. 生产发票同步策略定稿：桥接（办公机）为主，还是同步镜像 + 会话文件复用（TODO-001）
 4. 待确认想法：物料拼音搜索（TODO-004）、批次报表按出库单汇总打印（TODO-005）

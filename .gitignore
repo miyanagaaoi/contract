@@ -60,3 +60,6 @@ pip-unpack-*/
 
 # 临时脚本目录
 .tmp/
+
+# pytest 临时目录（勿入库）
+pytest-of-*/

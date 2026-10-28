@@ -4,10 +4,10 @@
 # 使用步骤：
 #   1) 构建/导入镜像（二选一）
 #      a. 构建机：scripts\export-docker.bat 2.6.1  → 得到
-#         ctms-image-2.6.1-core.tar.gz / ctms-image-2.6.1-sync.tar.gz / ctms-browser-1.tar.gz
+#         ctms-image-2.6.2-core.tar.gz / ctms-image-2.6.1-sync.tar.gz / ctms-browser-1.tar.gz
 #      b. 服务器：按 docs/39-v2.6-deploy.md §4.1 先 load 底座+核心，再本地组装：
-#         docker build --network=none -t ctms:2.6.1 \
-#           --build-arg CORE=ctms:2.6.1 -f deploy/Dockerfile.sync-local .
+#         docker build --network=none -t ctms:2.6.2 \
+#           --build-arg CORE=ctms:2.6.2 -f deploy/Dockerfile.sync-local .
 #   2) 准备目录与 .env：
 #      mkdir -p /volume2/docker/ctms/data
 #      /volume2/docker/ctms/.env 至少包含：
@@ -18,7 +18,7 @@
 # 不用群晖？把下面的 /volume2/docker/ctms 换成宿主机路径即可。
 services:
   ctms:
-    image: ${CTMS_IMAGE:-ctms:2.6.1}
+    image: ${CTMS_IMAGE:-ctms:2.6.2}
     container_name: ${CTMS_NAME:-ctms-1}
     restart: unless-stopped
     ports:
