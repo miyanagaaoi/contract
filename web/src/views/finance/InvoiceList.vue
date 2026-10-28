@@ -16,11 +16,9 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import DocListPage from '@/components/doc/DocListPage.vue'
-import InvoiceSyncDialog from '@/components/finance/InvoiceSyncDialog.vue'
 import {
-  confirmInvoice, downloadWithAuth, fetchInvoiceFiles, fetchInvoiceSyncInfo,
-  importInvoicePackage, printInvoicePackages, unbindInvoice, verifyInvoice,
-  voidInvoice, type Dict,
+  confirmInvoice, downloadWithAuth, fetchInvoiceFiles, importInvoiceFile,
+  printInvoicePackages, unbindInvoice, verifyInvoice, voidInvoice, type Dict,
 } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { fmtDate, fmtMoney } from '@/utils/format'
@@ -34,8 +32,7 @@ const bindStatus = ref<string>('')
 const hasFile = ref<string>('')
 const invoiceType = ref<string>('')
 const sort = ref<string>('invoice_date_desc')
-const syncVisible = ref(false)
-const syncInfo = ref<Dict>({})
+const uploadBusy = ref(false)
 
 const filterParams = computed<Dict>(() => ({
   direction: direction.value || undefined,
@@ -50,27 +47,13 @@ const canConfirm = computed(() => auth.hasPerm('finance.invoice.confirm'))
 const canVoid = computed(() => auth.hasPerm('finance.invoice.void'))
 const canSync = computed(() => auth.hasPerm('finance.invoice.create'))
 
-const syncHint = computed(() => {
-  const info = syncInfo.value
-  if (!info?.has_history) return '尚未同步过'
-  const at = String(info.last_at || '').replace('T', ' ').slice(0, 16)
-  return `上次同步 ${at}（新增 ${info.inserted ?? 0} / 跳过 ${info.skipped_duplicate ?? 0}）`
-})
 
-async function loadSyncInfo() {
-  syncInfo.value = await fetchInvoiceSyncInfo().catch(() => ({}))
-}
-onMounted(loadSyncInfo)
 
 function flash(message: string) {
   ElMessage.success(message)
   listRef.value?.load()
 }
 
-function onSynced() {
-  loadSyncInfo()
-  listRef.value?.load()
-}
 
 /** 批量打印：把所选发票的原始 PDF 合并成一个文件在新窗口打开 */
 async function printBulk(selected: DocRecord[]) {
@@ -92,32 +75,30 @@ async function printBulk(selected: DocRecord[]) {
 
 const pkgInput = ref<HTMLInputElement | null>(null)
 
-/** 「上传发票包」：平台「下载→全部下载」得到的压缩包 → 解压按票号挂附件 */
+
+async /** CR-026：上传单张 PDF 或 ZIP 发票包 → 识别 → 建单/挂附件，并刷新列表 */
 async function onPackagePicked(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  const valid = (syncInfo.value?.companies || []).filter((c: Dict) => c.configured)
-  let subject = valid.length === 1 ? valid[0].code as string : ''
-  if (!subject) {
-    try {
-      const { value } = await ElMessageBox.prompt(
-        '请输入发票包对应的我方公司主体码（如 ZC / YX）', '选择公司',
-        { inputValue: valid[0]?.code || '', confirmButtonText: '导入' })
-      subject = String(value || '').trim().toUpperCase()
-    } catch { return }
-  }
-  if (!subject) return
+  uploadBusy.value = true
   try {
-    const res = await importInvoicePackage(file, subject)
-    const n = (res.attached || []).length
-    const bad = (res.unmatched || []).length
-    ElMessage.success(
-      `发票包导入完成：匹配挂附件 ${n} 张` +
-      (bad ? `；${bad} 个文件未匹配到系统发票（请先同步）` : ''))
+    const res = await importInvoiceFile(file)
+    const created = (res.created || []).length
+    const attached = (res.attached || []).length
+    const failed = (res.failed || []) as Dict[]
+    ElMessage.success(`已处理：新建发票 ${created} 张，补挂附件 ${attached} 张`
+      + (failed.length ? `，失败 ${failed.length} 个` : ''))
+    if (failed.length) {
+      await ElMessageBox.alert(
+        failed.slice(0, 10).map((f) => `· ${f.file}：${f.reason}`).join('\n'),
+        '以下文件未能识别', { type: 'warning', confirmButtonText: '知道了' })
+    }
     listRef.value?.load()
-  } catch { /* 拦截器已提示 */ }
+  } catch { /* 拦截器已提示 */ } finally {
+    uploadBusy.value = false
+  }
 }
 
 async function onMore({ command, row }: { command: string; row: DocRecord }) {
@@ -182,15 +163,12 @@ async function onMore({ command, row }: { command: string; row: DocRecord }) {
                export-path="/api/finance/invoices/export.xlsx" @more="onMore">
     <!-- V2.6：同步发票入口（财务/有创建权限者可见） -->
     <template #toolbar>
-      <el-tooltip :content="syncHint" placement="top">
-        <el-button type="primary" plain @click="syncVisible = true">
-          ⟳ 同步发票
+      <el-tooltip content="上传单张发票 PDF，或税务平台「下载→全部下载」得到的 ZIP 发票包；自动识别票面并入库" placement="top">
+        <el-button type="primary" plain :loading="uploadBusy" @click="pkgInput?.click()">
+          上传发票（PDF / ZIP）
         </el-button>
       </el-tooltip>
-      <el-tooltip content="平台「下载→全部下载」的发票包压缩包，自动解压挂附件" placement="top">
-        <el-button plain @click="pkgInput?.click()">上传发票包</el-button>
-      </el-tooltip>
-      <input ref="pkgInput" type="file" accept=".zip,.rar,.7z" style="display: none"
+      <input ref="pkgInput" type="file" accept=".pdf,.zip" style="display: none"
              @change="onPackagePicked" />
     </template>
 
@@ -368,7 +346,6 @@ async function onMore({ command, row }: { command: string; row: DocRecord }) {
     </template>
   </DocListPage>
 
-  <InvoiceSyncDialog v-model="syncVisible" @done="onSynced" />
 </template>
 
 <style scoped>

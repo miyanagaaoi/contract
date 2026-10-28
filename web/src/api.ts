@@ -807,34 +807,7 @@ export async function assignUserRoles(userId: number, roleIds: number[]): Promis
 
 // ---------- V2.6：发票同步与采购单绑定发票（docs/38） ----------
 
-/** 同步状态概要（上次同步结果 + 登录会话是否保活中） */
-export async function fetchInvoiceSyncInfo(): Promise<Dict> {
-  const { data } = await http.get('/finance/invoices/sync-info')
-  return data
-}
-
-/** 发起同步（电子发票服务平台，按我方主体码区分公司），返回 { sync_id } */
-export async function startInvoiceSync(dateFrom: string, dateTo: string,
-                                       subjectCode: string): Promise<Dict> {
-  const { data } = await http.post('/finance/invoices/sync',
-                                  { date_from: dateFrom, date_to: dateTo,
-                                    subject_code: subjectCode })
-  return data
-}
-
-/** 轮询同步状态 */
-export async function fetchInvoiceSyncStatus(syncId: number): Promise<Dict> {
-  const { data } = await http.get(`/finance/invoices/sync/${syncId}`)
-  return data
-}
-
-/** 提交登录短信验证码 */
-export async function submitInvoiceSyncSms(syncId: number, code: string): Promise<Dict> {
-  const { data } = await http.post(`/finance/invoices/sync/${syncId}/sms`, { code })
-  return data
-}
-
-/** 采购单绑定进项发票（多选） */
+/** 采购单绑定进项发票（多选，CR-003） */
 export async function bindInvoices(purchaseOrderId: number, invoiceIds: number[]): Promise<Dict> {
   const { data } = await http.post('/finance/invoices/bind',
                                   { purchase_order_id: purchaseOrderId, invoice_ids: invoiceIds })
@@ -847,12 +820,11 @@ export async function unbindInvoice(invoiceId: number): Promise<Dict> {
   return data
 }
 
-/** 导入「下载发票包」：解压按数电票号挂附件 */
-export async function importInvoicePackage(file: File, subjectCode: string): Promise<Dict> {
+/** 上传发票识别入库：单张 PDF 或 ZIP 发票包（CR-026） */
+export async function importInvoiceFile(file: File): Promise<Dict> {
   const fd = new FormData()
   fd.append('file', file)
-  fd.append('subject_code', subjectCode)
-  const { data } = await http.post('/finance/invoices/import-package', fd, { timeout: 120000 })
+  const { data } = await http.post('/finance/invoices/import-file', fd, { timeout: 180000 })
   return data
 }
 

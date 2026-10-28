@@ -71,9 +71,10 @@ def post_stock_doc(db: Session, doc, *, user, reverse: bool = False,
         if (new_qty < 0 and not reverse and not skip_negative_check
                 and not params.get("allow_negative_stock", False)):
             warehouse_name = item.warehouse_name or getattr(doc, "warehouse_name", "") or f"仓库#{warehouse_id}"
-            raise BusinessError(                    # AC-V2-21
+            shortage = (item.qty or ZERO) - (stock.qty or ZERO)
+            raise BusinessError(                    # AC-V2-21 / CR-025：明确缺货数量
                 f"{warehouse_name} 物料「{item.product_name}」库存不足"
-                f"（可用 {stock.qty}，需要 {item.qty}）"
+                f"（可用 {stock.qty}，需要 {item.qty}，缺 {shortage}）"
             )
 
         stock.qty = new_qty
@@ -432,7 +433,7 @@ def assert_out_balance_ok(db: Session, doc) -> None:
             product_name, warehouse_name = name_of[key]
             raise BusinessError(
                 f"{warehouse_name or f'仓库#{key[1]}'} 物料「{product_name}」库存不足"
-                f"（当前结存 {balance}，本次出库 {qty}），请调整数量后再保存"
+                f"（当前结存 {balance}，本次出库 {qty}，缺 {qty - balance}），请调整数量后再保存"
             )
 
 

@@ -39,7 +39,6 @@ from ..models_doc import (
     ReceiptOrder,
 )
 from ..services import audit_service, doc_service, finance_service, numbering_service
-from ..services import tax_sync_service
 from ..services.permission_service import apply_data_scope, require_perm
 from .doc_routes import _guard, register_doc_routes
 from .export import DOC_EXPORT_LIMIT, build_xlsx_response
@@ -623,106 +622,33 @@ def invoice_create(request: Request, payload: dict = Body(...),
 # ==================== V2.6：发票同步（docs/38） ====================
 # ⚠️ 这些路由必须在 GET /invoices/{invoice_id} **之前**注册，避免 "sync" 被当作 int id 解析。
 
-@router.get(INVOICE_PREFIX + "/sync-info", summary="同步状态概要（已配置公司/上次同步/会话保活）")
-def invoice_sync_info(user: User = Depends(require_perm("finance.invoice.view")),
-                      db: Session = Depends(get_db)):
-    return tax_sync_service.last_sync_info(db)
+@router.post(INVOICE_PREFIX + "/import-file",
+             summary="上传发票识别入库（单张 PDF 或 ZIP 发票包）")
+async def invoice_import_file(request: Request, file: UploadFile = File(...),
+                              user: User = Depends(require_perm("finance.invoice.create")),
+                              db: Session = Depends(get_db)):
+    """上传单张 PDF 或 ZIP 发票包：提取票面字段 → 建发票（已认证/未确认）并挂原始文件。
 
+    - 识别用 PDF 文本层 + 规则解析（无 OCR）；
+    - 发票号已存在 → 只补挂附件（幂等）；
+    - 识别不出的文件在 `failed` 中逐条返回原因，前端会展示。
+    """
+    from ..services import invoice_import_service
 
-@router.post(INVOICE_PREFIX + "/sync", summary="发起发票同步（电子发票服务平台，按主体码区分公司）")
-def invoice_sync(payload: dict = Body(...), request: Request = None,
-                 user: User = Depends(require_perm("finance.invoice.create")),
-                 db: Session = Depends(get_db)):
-    date_from = doc_service.parse_doc_date(payload.get("date_from"))
-    date_to = doc_service.parse_doc_date(payload.get("date_to")) or date.today()
-    subject_code = str(payload.get("subject_code") or "").strip()
-    if not subject_code:
-        raise HTTPException(status_code=422, detail="请选择要同步的我方公司（主体码）")
-    try:
-        log_id = tax_sync_service.start_sync(date_from, date_to, subject_code)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    audit_service.log(db, user, module="finance", action="sync",
-                      object_type="invoice_sync", object_id=log_id,
-                      detail=f"发起发票同步 {date_from}~{date_to}（主体 {subject_code}）",
-                      request=request)
-    db.commit()
-    return {"sync_id": log_id}
-
-
-@router.get(INVOICE_PREFIX + "/sync/{log_id}", summary="轮询同步状态")
-def invoice_sync_status(log_id: int,
-                        user: User = Depends(require_perm("finance.invoice.view")),
-                        db: Session = Depends(get_db)):
-    log = db.get(InvoiceSyncLog, log_id)
-    if log is None:
-        raise HTTPException(status_code=404, detail="同步任务不存在")
-    return {
-        "id": log.id, "status": log.status,
-        "subject_code": log.subject_code,
-        "date_from": log.date_from.isoformat() if log.date_from else None,
-        "date_to": log.date_to.isoformat() if log.date_to else None,
-        "fetched": log.fetched, "inserted": log.inserted,
-        "skipped_duplicate": log.skipped_duplicate,
-        "message": log.message,
-        "started_at": _fmt_dt(log.started_at), "finished_at": _fmt_dt(log.finished_at),
-    }
-
-
-@router.post(INVOICE_PREFIX + "/sync/{log_id}/sms", summary="提交同步登录短信验证码")
-def invoice_sync_sms(log_id: int, payload: dict = Body(...),
-                     user: User = Depends(require_perm("finance.invoice.create"))):
-    code = str(payload.get("code") or "").strip()
-    if not code:
-        raise HTTPException(status_code=422, detail="验证码不能为空")
-    if not tax_sync_service.submit_sms(log_id, code):
-        raise HTTPException(status_code=404, detail="同步任务不存在或已结束")
-    return {"ok": True}
-
-
-@router.post(INVOICE_PREFIX + "/import-rows",
-             summary="桥接同步：导入浏览器解析的发票行（开发环境通道）")
-def invoice_import_rows(payload: dict = Body(...), request: Request = None,
-                        user: User = Depends(require_perm("finance.invoice.create")),
-                        db: Session = Depends(get_db)):
-    """开发环境同步通道：DSH 浏览器桥从用户已登录的「全量发票查询」页读出行数据
-    （normalize_row 口径的字典），本端点负责幂等入库。行格式：
-    `{invoice_no, invoice_type, invoice_date, amount, tax_amount, total_amount,
-      seller_name?, seller_tax_no?, buyer_name?, buyer_tax_no?}`。"""
-    subject_code = str(payload.get("subject_code") or "").strip()
-    rows = payload.get("rows") or []
-    if not subject_code:
-        raise HTTPException(status_code=422, detail="请选择要同步的我方公司（主体码）")
-    if not isinstance(rows, list) or not rows:
-        raise HTTPException(status_code=422, detail="rows 不能为空")
-    try:
-        result = tax_sync_service.import_platform_rows(db, rows, subject_code)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    audit_service.log(db, user, module="finance", action="import",
-                      object_type="invoice_sync",
-                      detail=f"桥接导入发票 {result['inserted']} 张（主体 {subject_code}，"
-                             f"重复 {result['skipped_duplicate']}，红字 {result['skipped_red']}）",
-                      request=request)
-    db.commit()
-    return result
-
-
-@router.post(INVOICE_PREFIX + "/import-package",
-             summary="导入「下载发票包」：解压并按数电票号挂附件")
-async def invoice_import_package(request: Request, file: UploadFile = File(...),
-                                 subject_code: str = Form(...),
-                                 user: User = Depends(require_perm("finance.invoice.create")),
-                                 db: Session = Depends(get_db)):
     data = await file.read()
+    if not data:
+        raise HTTPException(status_code=422, detail="上传文件为空")
+    name = file.filename or "upload.pdf"
     try:
-        result = tax_sync_service.import_package(db, data, subject_code)
-    except Exception as exc:  # noqa: BLE001 - 非压缩包等
-        raise HTTPException(status_code=422, detail=f"发票包解析失败：{exc}")
-    audit_service.log(db, user, module="finance", action="import_package",
+        entries = invoice_import_service.expand_upload(name, data)
+    except Exception as exc:  # noqa: BLE001 - 非 zip/损坏
+        raise HTTPException(status_code=422, detail=f"压缩包解析失败：{exc}")
+    result = invoice_import_service.import_files(db, entries)
+    audit_service.log(db, user, module="finance", action="import_file",
                       object_type="invoice",
-                      detail=f"发票包 {file.filename}：匹配 {len(result['attached'])} 张，"
-                             f"未匹配 {len(result['unmatched'])} 个文件", request=request)
+                      detail=f"上传识别 {name}：新建 {len(result['created'])} 张，"
+                             f"补挂附件 {len(result['attached'])} 张，失败 {len(result['failed'])} 个",
+                      request=request)
     db.commit()
     return result
 

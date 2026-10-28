@@ -876,3 +876,26 @@ def create_return(out_id: int, request: Request, payload: dict = Body(...),
                       request=request)
     db.commit()
     return doc_service.fmt_doc(db, ret)
+
+
+# ==================== V2.6.1：物料全仓库存合计（CR-025 物料浮窗用） ====================
+
+@router.get("/api/stock/product-totals", tags=["stock"], summary="物料全仓库存合计（批量）")
+def product_stock_totals(product_ids: str = Query(..., description="逗号分隔物料 id，最多 200 个"),
+                         _user: User = Depends(require_perm("stock.balance.view")),
+                         db: Session = Depends(get_db)):
+    """返回 `{物料id: 全仓合计结存}`；用于物料选择浮窗显示库存数量。
+
+    只读；分块查询，避免大列表 N+1。无权限的账号前端会自动隐藏库存行。
+    """
+    try:
+        ids = [int(x) for x in str(product_ids).split(",") if x.strip()][:200]
+    except ValueError:
+        raise HTTPException(status_code=422, detail="product_ids 格式错误")
+    if not ids:
+        return {}
+    rows = (db.query(Stock.product_id, func.coalesce(func.sum(Stock.qty), 0))
+            .filter(Stock.product_id.in_(ids))
+            .group_by(Stock.product_id)
+            .all())
+    return {str(r[0]): float(r[1] or 0) for r in rows}

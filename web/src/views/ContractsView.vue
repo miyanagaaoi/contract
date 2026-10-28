@@ -408,8 +408,8 @@ function onItemProductPicked(row: Dict, p: Dict | null) {
   row.uom_name = p.uom_name ?? ''
   if (!(row.name || '').trim()) row.name = p.name ?? ''
   if (!(row.spec || '').trim() && p.spec) row.spec = p.spec
-  const price = Number(row.unit_price) || 0
-  if (price === 0 && p.default_price) row.unit_price = Number(p.default_price)
+  // CR-025：重新选择物料后单价跟随刷新
+  row.unit_price = Number(p.default_price || 0)
 }
 
 
@@ -1188,6 +1188,8 @@ onMounted(async () => {
             <template #default="{ row }">
               <!-- V2.6.1 / CR-021：与单据行项共用 ProductTreeSelect（树形展开 + 悬停档案信息） -->
               <ProductTreeSelect v-model="row.product_id"
+                                 :fallback-label="row.product_name
+                                   ? `${row.product_name}（${row.product_code || row.product_id}）` : ''"
                                  @change="(p: Dict | null) => onItemProductPicked(row, p)" />
             </template>
           </el-table-column>

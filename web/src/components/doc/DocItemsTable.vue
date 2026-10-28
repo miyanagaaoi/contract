@@ -195,14 +195,13 @@ function onProductChange(row: Record<string, any>, p: Dict | null) {
     emit('change')
     return
   }
+  // CR-025：重新选择物料后，快照字段**一律刷新**（不再只在为空时覆盖）
   row.product_code = p.code
   row.product_name = p.name
   row.spec = p.spec ?? null
   row.uom_name = p.uom_name ?? null
   row.uom_decimals = p.uom_decimals ?? null
-  if (row.unit_price === null || row.unit_price === undefined || row.unit_price === 0) {
-    row.unit_price = Number(p.default_price || 0)
-  }
+  row.unit_price = Number(p.default_price || 0)
   emit('change')
 }
 
@@ -310,6 +309,8 @@ defineExpose({ loadProducts, totalAmount })
           <div v-if="!readonly" class="product-pick">
             <!-- V2.6.1 / CR-021：树形展开（商品类型 → 物料）+ 悬停档案信息 -->
             <ProductTreeSelect v-model="row.product_id" style="flex: 1"
+                               :fallback-label="row.product_name
+                                 ? `${row.product_name}（${row.product_code || row.product_id}）` : ''"
                                @change="(p: Dict | null) => onProductChange(row, p)" />
             <!-- V2.1（N9）：最右侧小按钮 → 弹窗新增物料并回填本行（不跳转，BR-V2.1-10） -->
             <el-button size="small" title="快速新增物料" @click="openQuickProduct(row)">＋</el-button>

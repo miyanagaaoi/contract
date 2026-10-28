@@ -1,6 +1,4 @@
-# CTMS 全量部署 · 同步镜像版（含前端 + 后端 + Playwright/Chromium）
 #
-# 适用：需要在**服务器端自动同步发票**（Playwright 通道）的场景。
 # 镜像：ctms:<版本>-sync（＝ core + Chromium/字体；见 deploy/Dockerfile.sync-local）
 #
 # 使用步骤：
@@ -8,22 +6,19 @@
 #      a. 构建机：scripts\export-docker.bat 2.6.1  → 得到
 #         ctms-image-2.6.1-core.tar.gz / ctms-image-2.6.1-sync.tar.gz / ctms-browser-1.tar.gz
 #      b. 服务器：按 docs/39-v2.6-deploy.md §4.1 先 load 底座+核心，再本地组装：
-#         docker build --network=none -t ctms:2.6.1-sync \
+#         docker build --network=none -t ctms:2.6.1 \
 #           --build-arg CORE=ctms:2.6.1 -f deploy/Dockerfile.sync-local .
 #   2) 准备目录与 .env：
 #      mkdir -p /volume2/docker/ctms/data
 #      /volume2/docker/ctms/.env 至少包含：
 #        CTMS_DB_PASSWORD=<PG密码>
-#        CTMS_TAX_SYNC_YX_USERNAME=<税局账号>
-#        CTMS_TAX_SYNC_YX_PASSWORD=<税局密码>
-#        CTMS_TAX_SYNC_YX_TAX_NO=91149900MAECLDF33U
 #   3) docker compose -f deploy/docker-compose.full.yml up -d
 #   4) 验证：curl http://127.0.0.1:9000/api/health  → version 2.6.1
 #
 # 不用群晖？把下面的 /volume2/docker/ctms 换成宿主机路径即可。
 services:
   ctms:
-    image: ${CTMS_IMAGE:-ctms:2.6.1-sync}
+    image: ${CTMS_IMAGE:-ctms:2.6.1}
     container_name: ${CTMS_NAME:-ctms-1}
     restart: unless-stopped
     ports:
@@ -36,19 +31,11 @@ services:
       CTMS_LOG_DIR: /data/logs
       CTMS_SERVE_STATIC: "1"
       CTMS_WEB_DIST: /srv/web/dist
-      # ---- 发票同步（Playwright 通道；无头模式）----
-      CTMS_TAX_SYNC_ENABLED: "${CTMS_TAX_SYNC_ENABLED:-1}"
-      CTMS_TAX_SYNC_HEADLESS: "${CTMS_TAX_SYNC_HEADLESS:-1}"
-      CTMS_TAX_SYNC_SESSION_TTL: "${CTMS_TAX_SYNC_SESSION_TTL:-3600}"
-      CTMS_TAX_SYNC_SMS_TIMEOUT: "${CTMS_TAX_SYNC_SMS_TIMEOUT:-600}"
-      # 账号/密码/税号等 CTMS_TAX_SYNC_<主体码>_* 也可写在挂载的 /app/.env 里
     volumes:
       # 应用配置（发票同步凭据、飞书配置等）：文件需先存在，否则会被建成目录
       - /volume2/docker/ctms/.env:/app/.env
       # 附件 / 发票 PDF / 日志持久化（必须）
       - /volume2/docker/ctms/data:/data
-      # 登录会话（可选）：把办公机登录后的 state_<主体码>.json 放进去复用，免去容器内人工验证
-      - /volume2/docker/ctms/tax_session:/app/app/data/tax_session
     healthcheck:
       test: ["CMD", "python", "-c",
              "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=4)"]

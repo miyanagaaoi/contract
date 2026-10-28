@@ -31,7 +31,7 @@ services:
       retries: 10
 
   ctms:
-    image: ${CTMS_IMAGE:-ctms:2.6.1-sync}
+    image: ${CTMS_IMAGE:-ctms:2.6.1}
     container_name: ${CTMS_NAME:-ctms-1}
     restart: unless-stopped
     depends_on:
@@ -45,13 +45,9 @@ services:
       CTMS_LOG_DIR: /data/logs
       CTMS_SERVE_STATIC: "1"
       CTMS_WEB_DIST: /srv/web/dist
-      CTMS_TAX_SYNC_ENABLED: "${CTMS_TAX_SYNC_ENABLED:-1}"
-      CTMS_TAX_SYNC_HEADLESS: "${CTMS_TAX_SYNC_HEADLESS:-1}"
     volumes:
       - /volume2/docker/ctms/.env:/app/.env
       - /volume2/docker/ctms/data:/data
-      # 登录会话（容器同步的**必需**前提）：把办公机 app/data/tax_session/state_<主体码>.json 放进来
-      - /volume2/docker/ctms/tax_session:/app/app/data/tax_session
     healthcheck:
       test: ["CMD", "python", "-c",
              "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=4)"]

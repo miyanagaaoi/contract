@@ -899,7 +899,8 @@ def product_options(db: Session, keyword: str | None = None, product_type_id: in
     return [{"id": i["id"], "code": i["code"], "name": i["name"], "spec": i["spec"],
              "uom_id": i["uom_id"], "uom_name": i["uom_name"],
              "uom_decimals": i["uom_decimals"], "default_price": i["default_price"],
-             "safety_stock": i["safety_stock"], "product_type_name": i["product_type_name"]}
+             "safety_stock": i["safety_stock"], "product_type_name": i["product_type_name"],
+             "brand": i.get("brand")}
             for i in data["items"]]
 
 
