@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-- **版本**：`2.6.2`（`app/config.py: APP_VERSION`；本次含 CR-025 行项修正、CR-026 发票上传识别）
+- **版本**：`2.6.2`（`app/config.py: APP_VERSION`；含 CR-025 行项修正、CR-026 发票上传识别、CR-028 发票页白屏修复）
 - **质量基线**：`pytest` **523 passed**；前端 `vite build` 通过
 - **开发库数据**：已全量清空业务数据（保留账号/角色/字典），仅含 `DEMO27` 10 批次演示数据；
   清理工具 `python -m app.tools.purge_business_data --yes`（自动备份到 `app/backups/`）

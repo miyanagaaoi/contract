@@ -76,7 +76,7 @@ async function printBulk(selected: DocRecord[]) {
 const pkgInput = ref<HTMLInputElement | null>(null)
 
 
-async /** CR-026：上传单张 PDF 或 ZIP 发票包 → 识别 → 建单/挂附件，并刷新列表 */
+/** CR-026：上传单张 PDF 或 ZIP 发票包 → 识别 → 建单/挂附件，并刷新列表 */
 async function onPackagePicked(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]

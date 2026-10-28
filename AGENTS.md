@@ -45,7 +45,7 @@
 
 - **语言**：与用户交流用中文；代码/命令/路径保持原文。
 - **验证门槛**（提交前必须全绿）：
-  - 后端：`app\.venv\Scripts\python.exe -m pytest app/tests -q`（当前基线 **516 passed**）；
+  - 后端：`app\.venv\Scripts\python.exe -m pytest app/tests -q`（当前基线 **517 passed**）；
   - 前端：`web` 下 `node node_modules\vite\bin\vite.js build`；
   - 改了后端代码 → 执行 `scripts\restart-backend.bat` 并验证 `/api/health`；
   - 停止服务用 `scripts\stop-backend.bat`（先校验 8000 上是 CTMS，非 CTMS 拒绝误杀；`--force` 才强杀）；
