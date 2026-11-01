@@ -167,6 +167,30 @@ const batchTotal = ref(0)
 const batchPage = ref(1)
 const batchPageSize = ref(50)
 const batchColumns = ref<{ key: string, label: string }[]>([])
+// CR-042：批次报表列宽记忆（本地保存，按列 key；默认值恢复）
+const BATCH_WIDTH_KEY = 'ctms_batch_col_widths'
+const defaultWidth = (key: string) => (key === 'product_name' ? 200 : key === 'out_project' ? 180 : 130)
+const batchColWidths = ref<Record<string, number>>(
+  (() => {
+    try {
+      return JSON.parse(localStorage.getItem(BATCH_WIDTH_KEY) || '{}') as Record<string, number>
+    } catch {
+      return {}
+    }
+  })(),
+)
+const colWidth = (key: string) => batchColWidths.value[key] || defaultWidth(key)
+
+function onBatchHeaderDrag(_newWidth: number, _oldWidth: number, column: { property?: string }) {
+  const key = column?.property
+  if (!key) return
+  const w = Number(_newWidth)
+  if (!w) return
+  batchColWidths.value = { ...batchColWidths.value, [key]: Math.round(w) }
+  try {
+    localStorage.setItem(BATCH_WIDTH_KEY, JSON.stringify(batchColWidths.value))
+  } catch { /* 隐私模式忽略 */ }
+}
 // V2.6.1 / CR-018：三类行分开展示（正常主表 + 红冲区 + 无批次区）
 const batchSummary = ref<{ normal: number, reversal: number, orphan: number }>(
   { normal: 0, reversal: 0, orphan: 0 })
@@ -640,9 +664,10 @@ onMounted(async () => {
       </el-button-group>
       <el-button @click="exportBatch"><el-icon><Download /></el-icon>导出 Excel</el-button>
     </div>
-    <el-table v-loading="batchLoading" :data="batchRows" border stripe size="small" height="60vh">
+    <el-table v-loading="batchLoading" :data="batchRows" border stripe size="small" height="60vh"
+              @header-dragend="onBatchHeaderDrag">
       <el-table-column v-for="c in batchColumns" :key="c.key" :prop="c.key" :label="c.label"
-                       :width="c.key === 'product_name' ? 200 : c.key === 'out_project' ? 180 : 130"
+                       :width="colWidth(c.key)"
                        :align="['qty','price','amount','out_qty','out_amount','stock_qty','stock_amount'].includes(c.key) ? 'right' : 'left'"
                        show-overflow-tooltip />
       <template #empty>暂无批次数据（请先入库并产生出库流水）</template>

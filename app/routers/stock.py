@@ -899,6 +899,33 @@ def create_return(out_id: int, request: Request, payload: dict = Body(...),
     return doc_service.fmt_doc(db, ret)
 
 
+@router.get("/api/stock/out-orders/{out_id}/return-records", tags=["stock"],
+            summary="该出库单的退库记录（CR-042）")
+def return_records(out_id: int, _user: User = Depends(require_perm("stock.out.view")),
+                   db: Session = Depends(get_db)):
+    """列出由该出库单生成的退库入库单（含状态/数量/时间），供退库弹窗核对历史。"""
+    from sqlalchemy import func as _func
+
+    from ..models_doc import StockInOrderItem
+
+    q = (db.query(StockInOrder, _func.coalesce(_func.sum(StockInOrderItem.qty), 0))
+         .outerjoin(StockInOrderItem, StockInOrderItem.doc_id == StockInOrder.id)
+         .filter(StockInOrder.source_doc_type == "stock_out",
+                 StockInOrder.source_doc_id == out_id,
+                 StockInOrder.deleted.is_(False))
+         .group_by(StockInOrder.id)
+         .order_by(StockInOrder.id.desc()))
+    out = []
+    for doc, qty in q.all():
+        out.append({"doc_id": doc.id, "doc_no": doc.doc_no,
+                    "doc_date": doc.doc_date.isoformat() if doc.doc_date else None,
+                    "status": doc.status, "qty": float(qty or 0),
+                    "in_type": doc.in_type, "remark": doc.remark,
+                    "created_at": doc.created_at.isoformat(sep=" ", timespec="seconds")
+                    if doc.created_at else None})
+    return {"items": out, "total": len(out)}
+
+
 # ==================== V2.6.1：物料全仓库存合计（CR-025 物料浮窗用） ====================
 
 @router.get("/api/stock/product-totals", tags=["stock"], summary="物料全仓库存合计（批量）")

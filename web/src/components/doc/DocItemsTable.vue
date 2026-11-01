@@ -247,6 +247,19 @@ function onQuickProductCreated(item: Dict) {
   emit('change')
 }
 
+/** CR-042：数量框回车 → 跳到下一行数量框；末行则按上一行追加新行（连续录入） */
+function onEnterRow(ev: KeyboardEvent) {
+  const tr = (ev.target as HTMLElement).closest('tr')
+  const next = tr?.nextElementSibling as HTMLElement | null
+  if (next) {
+    const input = next.querySelector('input') as HTMLInputElement | null
+    input?.focus()
+    input?.select()
+    return
+  }
+  if (props.items.length && (props.items[props.items.length - 1] as Dict).product_id) copyLastRow()
+}
+
 /** CR-041：复制上一行（同物料/规格/单位/单价，数量沿用）——连续录入同款物料更快 */
 function copyLastRow() {
   const last = props.items[props.items.length - 1]
@@ -357,7 +370,8 @@ defineExpose({ loadProducts, totalAmount })
         <template #default="{ row }">
           <el-input-number v-if="!readonly" :model-value="row.qty" :min="0"
                            :precision="decimalsOf(row)" :step="qtyStep(row)" :controls="false"
-                           style="width: 100%" @update:model-value="(v: number | undefined) => onQtyChange(row, v)" />
+                           style="width: 100%" @keydown.enter.prevent="onEnterRow($event)"
+                           @update:model-value="(v: number | undefined) => onQtyChange(row, v)" />
           <span v-else>{{ fmtQty(row.qty, decimalsOf(row)) }}</span>
           <div v-if="!readonly && integerHint(row)" class="hint">{{ integerHint(row) }}</div>
         </template>
@@ -425,4 +439,9 @@ defineExpose({ loadProducts, totalAmount })
   background-color: #fef0f0;
 }
 .copy-hash { cursor: pointer; color: var(--el-color-primary); font-weight: 600 }
+@media (max-width: 768px) {
+  .el-table { font-size: 12px; }
+  .actions { flex-wrap: wrap; gap: 6px; }
+  .actions .tips { display: none; }
+}
 </style>

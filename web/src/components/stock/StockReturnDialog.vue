@@ -9,7 +9,7 @@
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
-import { createStockReturn, fetchStockReturnPreview, type Dict } from '@/api'
+import { createStockReturn, fetchStockReturnPreview, fetchStockReturnRecords, type Dict } from '@/api'
 import { fmtQty } from '@/utils/format'
 
 const props = defineProps<{ modelValue: boolean; doc: Dict | null }>()
@@ -28,6 +28,7 @@ const submitting = ref(false)
 const info = ref<Dict>({})
 const rows = ref<Dict[]>([])
 const remark = ref('')
+const records = ref<Dict[]>([])
 const docDate = ref('')
 
 function today(): string {
@@ -42,6 +43,8 @@ async function load() {
     info.value = data
     docDate.value = today()
     remark.value = `由出库单 ${data.doc_no} 退库`
+    const rec = await fetchStockReturnRecords(Number(props.doc.id)).catch(() => ({ items: [] }))
+    records.value = (rec.items || []) as Dict[]
     rows.value = (data.rows || []).map((r: Dict) => ({
       ...r,
       checked: Number(r.returnable_qty) > 0,
@@ -170,6 +173,22 @@ async function submit() {
       </el-table-column>
       <template #empty>该出库单没有可退行（可能已全部退库）</template>
     </el-table>
+
+    <el-collapse v-if="records.length" style="margin-top: 8px">
+      <el-collapse-item :title="`退库记录（${records.length} 张）`">
+        <el-table :data="records" border size="small" max-height="200">
+          <el-table-column prop="doc_no" label="退库入库单" width="170" />
+          <el-table-column prop="doc_date" label="日期" width="110" />
+          <el-table-column prop="qty" label="数量" width="90" align="right" />
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">
+              {{ { draft: '草稿', submitted: '待审核', approved: '已审核', voided: '已作废' }[row.status] || row.status }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="remark" label="说明" show-overflow-tooltip />
+        </el-table>
+      </el-collapse-item>
+    </el-collapse>
 
     <div class="line" style="margin-top: 10px">
       <el-input v-model="remark" placeholder="退库说明（可选）" maxlength="200" />
