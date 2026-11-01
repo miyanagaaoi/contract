@@ -427,11 +427,16 @@ def export_balances(keyword: str | None = Query(None), warehouse_id: int | None 
     from .export import BALANCE_EXPORT_COLUMNS, DOC_EXPORT_LIMIT, build_xlsx_response
 
     rows = []
-    stocks = (_balances_query(db, keyword=keyword, warehouse_id=warehouse_id,
+    rows_q = (_balances_query(db, keyword=keyword, warehouse_id=warehouse_id,
                               product_type_id=product_type_id, below_safety=below_safety,
                               qty_min=qty_min, qty_max=qty_max, subject_code=subject_code,
                               include_zero=include_zero)
-              .order_by(Product.code.asc()).limit(DOC_EXPORT_LIMIT).all())
+              .order_by(Product.code.asc()))
+    stocks = rows_q.limit(DOC_EXPORT_LIMIT + 1).all()
+    if len(stocks) > DOC_EXPORT_LIMIT:
+        raise HTTPException(
+            status_code=413,
+            detail=f"导出结果超过 {DOC_EXPORT_LIMIT} 行，请缩小筛选范围（公司/仓库/商品类型/数量区间）后重试")
     for s in stocks:
         product = s.product
         below = bool(product and product.safety_stock is not None
@@ -712,6 +717,11 @@ def stock_batch_report_export(keyword: str | None = Query(None),
                              keyword=keyword)
     if row_kind:
         rows = [r for r in rows if r["row_kind"] == row_kind]
+    if len(rows) > DOC_EXPORT_LIMIT:
+        raise HTTPException(
+            status_code=413,
+            detail=f"命中 {len(rows)} 行，超过单次导出上限 {DOC_EXPORT_LIMIT} 行；"
+                   "请用「日期范围（按入库时间）」缩小范围（默认本月）后重试")
     rows = rows[:DOC_EXPORT_LIMIT]
     data = []
     for r in rows:

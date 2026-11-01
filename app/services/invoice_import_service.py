@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import re
 import zipfile
@@ -125,13 +126,21 @@ def _direction_of(inv: Invoice) -> str:
 
 
 def _attach(db: Session, inv: Invoice, file_name: str, data: bytes, dest_dir: Path) -> None:
+    sha = hashlib.sha256(data).hexdigest()
+    # CR-033：同一张发票重复上传同一文件（内容一致）→ 不再落第二份附件
+    dup = (db.query(Attachment)
+           .filter(Attachment.object_type == "invoice", Attachment.object_id == inv.id,
+                   Attachment.sha256 == sha, Attachment.deleted == False)  # noqa: E712
+           .first())
+    if dup is not None:
+        return
     safe = f"{inv.invoice_no}_{Path(file_name).name}"
     (dest_dir / safe).write_bytes(data)
     db.add(Attachment(
         file_name=Path(file_name).name,
         stored_path=f"invoices/{safe}",
         content_type=("application/pdf" if safe.lower().endswith(".pdf") else "application/xml"),
-        size_bytes=len(data), object_type="invoice", object_id=inv.id,
+        size_bytes=len(data), sha256=sha, object_type="invoice", object_id=inv.id,
     ))
 
 

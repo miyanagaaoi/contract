@@ -1,0 +1,45 @@
+name: CI
+
+# 质量门禁（CR-033）：后端测试 + 前端构建 + 静态守卫
+# 触发：push / PR / 手动；任何一步失败即红灯，防止“build 过但运行白屏”类问题合入。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r app/requirements.txt -r app/requirements-pg.txt pytest httpx
+      - name: Ruff (未定义名称/语法错误)
+        run: |
+          pip install ruff
+          ruff check app
+      - name: Pytest (含前端静态守卫)
+        run: python -m pytest app/tests -q
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install & build
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+          node node_modules/vite/bin/vite.js build

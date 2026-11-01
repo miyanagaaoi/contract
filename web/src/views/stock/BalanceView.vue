@@ -174,8 +174,29 @@ const reversalRows = ref<Dict[]>([])
 const orphanRows = ref<Dict[]>([])
 const abnormalLoading = ref(false)
 
+/** CR-033：批次报表默认按「本月」过滤（按入库时间）——财务月度明细口径 */
+function monthRange(offset = 0): [string, string] {
+  const now = new Date()
+  const from = new Date(now.getFullYear(), now.getMonth() + offset, 1)
+  const to = offset === 0 ? now : new Date(now.getFullYear(), now.getMonth() + offset + 1, 0)
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return [iso(from), iso(to)]
+}
+
+const batchRange = ref<[string, string] | null>(monthRange())
+
 function batchParams(): Dict {
-  return { ...balanceParams() }
+  return {
+    ...balanceParams(),
+    date_from: batchRange.value?.[0] || undefined,
+    date_to: batchRange.value?.[1] || undefined,
+  }
+}
+
+function setBatchRange(kind: 'this' | 'last' | 'all') {
+  batchRange.value = kind === 'all' ? null : monthRange(kind === 'last' ? -1 : 0)
+  batchPage.value = 1
+  loadBatch()
 }
 
 async function loadBatch() {
@@ -212,6 +233,7 @@ async function loadBatch() {
 function openBatchReport() {
   batchVisible.value = true
   batchPage.value = 1
+  batchRange.value = monthRange()      // 默认本月（按入库时间）
   loadBatch()
 }
 
@@ -607,6 +629,15 @@ onMounted(async () => {
       <el-tag type="info">正常配对 {{ batchSummary.normal }}</el-tag>
       <el-tag type="warning">红冲 {{ batchSummary.reversal }}</el-tag>
       <el-tag type="danger">无批次出库 {{ batchSummary.orphan }}</el-tag>
+      <el-date-picker v-model="batchRange" type="daterange" size="small"
+                      value-format="YYYY-MM-DD" range-separator="~"
+                      start-placeholder="入库起始" end-placeholder="入库截止"
+                      style="width: 240px" @change="() => { batchPage = 1; loadBatch() }" />
+      <el-button-group size="small">
+        <el-button @click="setBatchRange('this')">本月</el-button>
+        <el-button @click="setBatchRange('last')">上月</el-button>
+        <el-button @click="setBatchRange('all')">全部</el-button>
+      </el-button-group>
       <el-button @click="exportBatch"><el-icon><Download /></el-icon>导出 Excel</el-button>
     </div>
     <el-table v-loading="batchLoading" :data="batchRows" border stripe size="small" height="60vh">

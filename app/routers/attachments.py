@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import mimetypes
 import uuid
 from pathlib import Path
@@ -135,6 +136,7 @@ async def _store_upload(file: UploadFile, folder_key: str) -> tuple[str, int, st
     target = folder / stored_name
 
     size = 0
+    digest = hashlib.sha256()
     with target.open("wb") as out:
         while chunk := await file.read(1024 * 1024):
             size += len(chunk)
@@ -142,8 +144,17 @@ async def _store_upload(file: UploadFile, folder_key: str) -> tuple[str, int, st
                 out.close()
                 target.unlink(missing_ok=True)
                 raise HTTPException(status_code=413, detail=f"附件超过 {MAX_UPLOAD_MB}MB 限制")
+            digest.update(chunk)
             out.write(chunk)
-    return f"{folder_key}/{stored_name}", size, original
+    return f"{folder_key}/{stored_name}", size, original, digest.hexdigest()
+
+
+def _remove_stored(stored_path: str) -> None:
+    """删除刚落盘但判定为重复的附件文件（忽略异常）。"""
+    try:
+        (UPLOAD_DIR / stored_path).unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 @router.post("/attachments/upload", summary="通用附件上传")
@@ -155,13 +166,23 @@ async def upload_object_attachment(object_type: str = Query(...), object_id: int
     _assert_perm(db, user, edit_perm)
     _assert_object_exists(db, object_type, object_id)
 
-    stored_path, size, original = await _store_upload(file, f"{object_type}/{object_id}")
+    stored_path, size, original, sha = await _store_upload(file, f"{object_type}/{object_id}")
+    # CR-033：同一对象重复上传同一文件 → 直接返回已有附件（不落第二份）
+    exists = (db.query(Attachment)
+              .filter(Attachment.object_type == object_type,
+                      Attachment.object_id == object_id,
+                      Attachment.sha256 == sha,
+                      Attachment.deleted == False)  # noqa: E712
+              .first())
+    if exists is not None:
+        _remove_stored(stored_path)
+        return _fmt(exists)
     att = Attachment(
         contract_id=object_id if object_type == "contract" else None,
         object_type=object_type, object_id=object_id,
         file_name=original, stored_path=stored_path,
         content_type=file.content_type or mimetypes.guess_type(original)[0],
-        size_bytes=size,
+        size_bytes=size, sha256=sha,
     )
     db.add(att)
     db.flush()
@@ -220,12 +241,21 @@ async def upload_attachment(contract_id: int, file: UploadFile = File(...),
     if contract.deleted:
         raise HTTPException(status_code=400, detail="合同已停用，不能上传附件")
 
-    stored_path, size, original = await _store_upload(file, str(contract_id))
+    stored_path, size, original, sha = await _store_upload(file, str(contract_id))
+    exists = (db.query(Attachment)
+              .filter(Attachment.object_type == "contract", Attachment.object_id == contract_id,
+                      Attachment.sha256 == sha, Attachment.deleted == False)  # noqa: E712
+              .first())
+    if exists is not None:
+        _remove_stored(stored_path)
+        return {"id": exists.id, "file_name": exists.file_name, "size_bytes": exists.size_bytes,
+                "uploaded_at": exists.uploaded_at.isoformat() if exists.uploaded_at else None,
+                "duplicated": True}
     att = Attachment(
         contract_id=contract_id, object_type="contract", object_id=contract_id,
         file_name=original, stored_path=stored_path,
         content_type=file.content_type or mimetypes.guess_type(original)[0],
-        size_bytes=size,
+        size_bytes=size, sha256=sha,
     )
     db.add(att)
     db.flush()
