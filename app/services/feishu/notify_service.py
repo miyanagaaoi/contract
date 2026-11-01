@@ -70,6 +70,33 @@ def enqueue(db: Session, *, event_key: str, category: str, recipient_user_id: in
     return row
 
 
+def enqueue_low_stock(db: Session, *, product, warehouse, qty, safety_stock,
+                      day=None) -> int:
+    """库存低于安全库存 → 给有库存查看权限的账号推一条飞书提醒（CR-039）。
+
+    - 幂等键按「物料+仓库+日期」，同一物料一天只提醒一次；
+    - 仅 Feishu 已配置且账号绑定飞书时投递（`enqueue` 内部判断），否则静默跳过；
+    - 纯入队，不发送、不阻塞过账事务。
+    """
+    from datetime import date as _date
+
+    if not config.feishu_ready() or product is None or warehouse is None:
+        return 0
+    if safety_stock is None or qty is None or float(qty) >= float(safety_stock):
+        return 0
+    day = day or _date.today()
+    content = (f"库存预警：{warehouse.name} 物料「{product.name}（{product.code}）」"
+               f"当前结存 {qty}，低于安全库存 {safety_stock}")
+    card_obj = {"text": content}
+    count = 0
+    for user in users_with_perm(db, "stock.balance.view"):
+        key = f"stock:low:{product.id}:{warehouse.id}:{day.isoformat()}:u{user.id}"
+        if enqueue(db, event_key=key, category="stock",
+                   recipient_user_id=user.id, card_obj=card_obj, msg_type="text") is not None:
+            count += 1
+    return count
+
+
 def enqueue_doc_todo(db: Session, *, doc, kind: str, kind_label: str,
                      actor_name: str | None = None) -> int:
     """单据提交后：给**有审核权限且数据范围可见**的账号各推一条待办。"""

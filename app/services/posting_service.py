@@ -104,6 +104,14 @@ def post_stock_doc(db: Session, doc, *, user, reverse: bool = False,
             from .stock_report_service import stock_value_of
 
             stock.stock_value = stock_value_of(db, item.product_id, warehouse_id)
+        if not reverse:
+            from .feishu import notify_service as _notify
+            from ..models_master import Product as _Product
+
+            _prod = db.get(_Product, item.product_id)
+            _notify.enqueue_low_stock(db, product=_prod, warehouse=stock.warehouse,
+                                      qty=new_qty,
+                                      safety_stock=getattr(_prod, "safety_stock", None))
         written += 1
 
     doc.posted = not reverse
@@ -186,6 +194,14 @@ def post_transfer(db: Session, doc, *, user, reverse: bool = False) -> int:
             stock.updated_at = datetime.now()
             if params.get("cost_method") == "moving_avg":
                 stock.stock_value = _moving_avg_value(old_qty, old_value, delta, price)
+            if not reverse and biz_type == "调拨出库":
+                from .feishu import notify_service as _notify
+                from ..models_master import Product as _Product
+
+                _prod = db.get(_Product, item.product_id)
+                _notify.enqueue_low_stock(db, product=_prod, warehouse=stock.warehouse,
+                                          qty=new_qty,
+                                          safety_stock=getattr(_prod, "safety_stock", None))
             db.add(StockLedger(
                 product_id=item.product_id, warehouse_id=warehouse_id,
                 biz_type=(f"红冲-{biz_type}" if reverse else biz_type),

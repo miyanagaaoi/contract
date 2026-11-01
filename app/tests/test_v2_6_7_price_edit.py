@@ -93,7 +93,9 @@ class TestManualPrice:
         with SessionLocal() as db:
             led = db.execute(select(StockLedger).where(
                 StockLedger.doc_id == doc["id"],
-                StockLedger.doc_type == "stock_in")).scalars().first()
+                StockLedger.doc_type == "stock_in",
+                StockLedger.product_id == masters["product"]).order_by(
+                StockLedger.id.desc())).scalars().first()
             assert led is not None and Decimal(led.unit_price) == Decimal("12")
             value = stock_value_map(db, {(masters["wh1"], masters["product"])})
         assert value[(masters["wh1"], masters["product"])] == Decimal("120")
@@ -111,7 +113,9 @@ class TestManualPrice:
         with SessionLocal() as db:
             led = db.execute(select(StockLedger).where(
                 StockLedger.doc_id == out["id"],
-                StockLedger.doc_type == "stock_out")).scalars().first()
+                StockLedger.doc_type == "stock_out",
+                StockLedger.product_id == masters["product"]).order_by(
+                StockLedger.id.desc())).scalars().first()
             assert Decimal(led.unit_price) == Decimal("20")
             # 剩余批次金额仍按入库价：6 × 12 = 72（出库价不改变成本）
             value = stock_value_map(db, {(masters["wh1"], masters["product"])})
