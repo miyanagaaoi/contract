@@ -247,6 +247,30 @@ function onQuickProductCreated(item: Dict) {
   emit('change')
 }
 
+/** CR-041：复制上一行（同物料/规格/单位/单价，数量沿用）——连续录入同款物料更快 */
+function copyLastRow() {
+  const last = props.items[props.items.length - 1]
+  if (!last) return
+  if (!last.product_id) {
+    ElMessage.warning('请先选择上一行的物料')
+    return
+  }
+  props.items.push({
+    product_id: last.product_id,
+    product_code: last.product_code,
+    product_name: last.product_name,
+    spec: last.spec ?? null,
+    uom_name: last.uom_name ?? null,
+    uom_decimals: last.uom_decimals ?? null,
+    qty: last.qty ?? 1,
+    unit_price: last.unit_price ?? 0,
+    warehouse_id: last.warehouse_id ?? null,
+    remark: last.remark ?? null,
+    src_item_id: null,
+  })
+  emit('change')
+}
+
 function addRow() {
   props.items.push({
     product_id: null,
@@ -381,6 +405,7 @@ defineExpose({ loadProducts, totalAmount })
 
     <div v-if="!readonly" class="actions">
       <el-button type="primary" plain size="small" @click="addRow">添加行</el-button>
+      <el-button plain size="small" :disabled="!items.length" @click="copyLastRow">复制上一行</el-button>
       <span class="gray tips">数量精度按物料单位小数位限制；金额 = 数量 × 单价，由系统自动计算。</span>
     </div>
 

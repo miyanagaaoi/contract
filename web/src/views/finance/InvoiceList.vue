@@ -13,6 +13,7 @@
  * - 确认状态徽标（未确认/已确认）随绑定弹窗流转。
  */
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import DocListPage from '@/components/doc/DocListPage.vue'
@@ -26,6 +27,7 @@ import { fmtDate, fmtMoney } from '@/utils/format'
 import type { DocRecord } from '@/types/doc'
 
 const auth = useAuthStore()
+const router = useRouter()
 const listRef = ref<InstanceType<typeof DocListPage> | null>(null)
 const direction = ref<string>('in')
 const authStatus = ref<string>('')
@@ -46,6 +48,7 @@ const filterParams = computed<Dict>(() => ({
 
 const canConfirm = computed(() => auth.hasPerm('finance.invoice.confirm'))
 const canVoid = computed(() => auth.hasPerm('finance.invoice.void'))
+const canEdit = computed(() => auth.hasPerm('finance.invoice.edit'))
 /** CR-026：上传识别需要发票创建权限（后端同样校验） */
 const canUpload = computed(() => auth.hasPerm('finance.invoice.create'))
 
@@ -116,6 +119,11 @@ async function onMore({ command, row }: { command: string; row: DocRecord }) {
       // 直链打开不带登录态 → 经 axios（带 token）取 blob 再打开
       const blob = await downloadWithAuth(String(pdf.preview_url))
       window.open(URL.createObjectURL(blob), '_blank')
+      return
+    }
+    if (command === 'invoice-correct') {
+      // CR-041：上传识别后的待补全/0 元票，直接进入编辑页校正字段与金额
+      router.push({ name: 'finance-invoice-edit', params: { id: String(row.id) } })
       return
     }
     if (command === 'invoice-auto-match') {
@@ -308,6 +316,8 @@ async function onMore({ command, row }: { command: string; row: DocRecord }) {
     <template #more-actions="{ row }">
       <el-dropdown-item v-if="canConfirm" divided
                         command="invoice-print">打印发票</el-dropdown-item>
+      <el-dropdown-item v-if="canEdit && row.status === 'draft'"
+                        command="invoice-correct">校正识别信息</el-dropdown-item>
       <el-dropdown-item v-if="canConfirm && row.status === 'draft'
                                 && row.invoice_direction === 'in'"
                         command="invoice-auto-match">自动匹配采购单</el-dropdown-item>
