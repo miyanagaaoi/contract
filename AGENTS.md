@@ -45,7 +45,7 @@
 
 - **语言**：与用户交流用中文；代码/命令/路径保持原文。
 - **验证门槛**（提交前必须全绿）：
-  - 后端：`app\.venv\Scripts\python.exe -m pytest app/tests -q`（当前基线 **526 passed**）；
+  - 后端：`app\.venv\Scripts\python.exe -m pytest app/tests -q`（当前基线 **528 passed**）；
   - 前端：`web` 下 `node node_modules\vite\bin\vite.js build`；
   - 改了后端代码 → 执行 `scripts\restart-backend.bat` 并验证 `/api/health`；
   - 停止服务用 `scripts\stop-backend.bat`（先校验 8000 上是 CTMS，非 CTMS 拒绝误杀；`--force` 才强杀）；
@@ -57,13 +57,34 @@
 - **前端约定**：受保护接口的文件/打印必须经 axios 取 blob 再打开（直链不带 token）。
 - **提交信息**：`feat/fix/docs/chore/test(scope): 一句话说明`，正文列影响面。
 
-## 5. 版本与交付
+## 5. 版本与交付（打包规则）
 
-- 版本号唯一来源：`app/config.py: APP_VERSION`；发版时同步 `README` 当前状态。
-- 发布包：**仅核心镜像**（~71MB gz，无 Chromium；CR-026 已移除 Playwright 同步通道）；
-  模板 `deploy/docker-compose.full.yml`（外部 PG）/ `docker-compose.full-with-db.yml`（内置 PG）。
-  历史文档 [docs/39](docs/39-v2.6-deploy.md) 中同步镜像部分已冻结，仅作溯源。
-- 部署形态：群晖/宝塔等面板**只能导入镜像**，用 `deploy/docker-compose.synology.yml`（纯 `image:`）。
+### 5.1 每次改动完成必做（自动执行，无需询问）
+
+1. **版本号 +1**（补丁位）：`app/config.py: APP_VERSION` 从 `2.6.x` 升到 `2.6.x+1`，
+   并同步 `README` 当前状态；
+2. **构建 Docker 镜像**：`docker build -t ctms:<APP_VERSION> -f deploy/Dockerfile.single .`
+   （仅本地镜像，不导出、不更新发布包）；
+3. 验证容器：`curl http://127.0.0.1:<测试端口>/api/health` 返回新版本号；连不上时至少验证宿主机 `/api/health`；
+4. 文档回写照 §3（PRD/README/TODO/去重/回复清单）。
+
+> 目的：随时有「与代码一致、可直接部署」的镜像；版本号随每次改动递增，部署端凭 tag 判断新旧。
+
+### 5.2 只有用户明确说「可以打包 / 发版」时才做（禁止擅自交付）
+
+1. 运行 `scripts\export-docker.bat <APP_VERSION>`（构建 + 导出 `ctms-image-<版本>-core.tar.gz`）；
+2. 更新发布目录 `deploy-release-<版本>/`（镜像 tar + `SHA256SUMS` + `deploy/` 模板 + `README.md` 部署清单）；
+3. `sha256sum -c SHA256SUMS` 校验 + 容器冒烟；
+4. 交付说明：群晖导入 tar → 改 compose `image:` tag → 启动 → 校验 `/api/health`。
+
+### 5.3 交付形态
+
+- **仅核心镜像**（~71MB gz，无 Chromium；CR-026 已移除 Playwright 同步通道）；
+  模板 `deploy/docker-compose.full.yml`（外部 PG）/ `full-with-db.yml`（内置 PG）/
+  `docker-compose.synology.yml`（群晖：纯 `image:`，相对挂载 `./.env`、`./data`）；
+- 版本号唯一来源：`app/config.py: APP_VERSION`；镜像 tag 必须与之一致；
+- 数据库迁移随启动自动执行（`db_migrate` 幂等增量）；金额/派生列升级后如为 0，
+  运行 `python -m app.tools.rebuild_stock_value` 重算。
 
 ## 6. 遇到不确定时
 

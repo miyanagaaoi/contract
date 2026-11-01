@@ -331,10 +331,6 @@ def stock_balances(keyword: str | None = Query(None, description="物料编码/�
     total = int(query.count() or 0)
     rows = (query.order_by(Product.code.asc())
             .offset((page - 1) * page_size).limit(page_size).all())
-    from ..services.stock_report_service import stock_value_map
-
-    pairs = {(s.warehouse_id, s.product_id) for s in rows}
-    values = stock_value_map(db, pairs)
     return {
         "items": [{
             "product_id": s.product_id,
@@ -353,8 +349,8 @@ def stock_balances(keyword: str | None = Query(None, description="物料编码/�
             "subject_code": s.warehouse.subject_code if s.warehouse else None,
             "subject_name": subject_name_of(db, s.warehouse.subject_code) if s.warehouse else None,
             "qty": float(s.qty or 0),
-            # V2.6.2（CR-029）：当前库存总额度 —— FIFO 批次剩余金额合计（与批次报表一致）
-            "stock_amount": float(values.get((s.warehouse_id, s.product_id), 0)),
+            # V2.6.2（CR-029/CR-032）：当前库存总额度 —— 过账时增量维护的结存金额列
+            "stock_amount": float(s.stock_value or 0),
             "safety_stock": float(s.product.safety_stock) if s.product and s.product.safety_stock is not None else None,
             "below_safety": bool(s.product and s.product.safety_stock is not None
                                  and (s.qty or 0) < s.product.safety_stock),
@@ -436,9 +432,6 @@ def export_balances(keyword: str | None = Query(None), warehouse_id: int | None 
                               qty_min=qty_min, qty_max=qty_max, subject_code=subject_code,
                               include_zero=include_zero)
               .order_by(Product.code.asc()).limit(DOC_EXPORT_LIMIT).all())
-    from ..services.stock_report_service import stock_value_map
-
-    values = stock_value_map(db, {(s.warehouse_id, s.product_id) for s in stocks})
     for s in stocks:
         product = s.product
         below = bool(product and product.safety_stock is not None
@@ -453,7 +446,7 @@ def export_balances(keyword: str | None = Query(None), warehouse_id: int | None 
             doc_service.warehouse_display_name(db, s.warehouse) if s.warehouse else "",
             float(s.qty or 0),
             float(product.safety_stock) if product and product.safety_stock is not None else "",
-            float(values.get((s.warehouse_id, s.product_id), 0)),
+            float(s.stock_value or 0),
             "是" if below else "否",
             s.updated_at.isoformat(sep=" ", timespec="seconds") if s.updated_at else "",
         ])

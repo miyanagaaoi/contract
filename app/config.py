@@ -105,7 +105,7 @@ def _sqlite_file_of(url: str, fallback: Path) -> Path:
 DB_FILE = _sqlite_file_of(DB_URL, _DEFAULT_DB_FILE)
 
 APP_NAME = "CTMS"
-APP_VERSION = "2.6.2"  # V2.6.2（物料选择与快照修正、出库缺货提示、发票改上传识别、移除同步通道）
+APP_VERSION = "2.6.3"  # V2.6.3（库存金额增量列、发票方向识别与认证状态、单价可改收尾）
 
 # 附件限制
 MAX_UPLOAD_MB = 20

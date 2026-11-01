@@ -89,6 +89,11 @@ def post_stock_doc(db: Session, doc, *, user, reverse: bool = False,
             created_by=getattr(user, "id", None),
             remark="反审核红冲" if reverse else None,
         ))
+        db.flush()
+        # CR-032：库存金额按「剩余批次成本」精确重算（与库存明细/批次报表同源）
+        from .stock_report_service import stock_value_of
+
+        stock.stock_value = stock_value_of(db, item.product_id, warehouse_id)
         written += 1
 
     doc.posted = not reverse
@@ -176,6 +181,12 @@ def post_transfer(db: Session, doc, *, user, reverse: bool = False) -> int:
                 remark="反审核红冲" if reverse else None,
             ))
             written += 1
+        db.flush()
+        # CR-032：调拨两端同价，按剩余批次成本重算两仓金额（默认 FIFO 成本时总额度守恒）
+        from .stock_report_service import stock_value_of
+
+        out_stock.stock_value = stock_value_of(db, item.product_id, from_wh)
+        in_stock.stock_value = stock_value_of(db, item.product_id, to_wh)
 
     doc.posted = not reverse
     audit_service.log(db, user, module="stock",
@@ -367,6 +378,10 @@ def apply_opening_balance(db: Session, *, product, warehouse, target_qty: Decima
         qty_change=delta, qty_after=target_qty, unit_price=unit_price,
         created_by=getattr(user, "id", None), remark="期初建账导入",
     ))
+    db.flush()
+    from .stock_report_service import stock_value_of
+
+    stock.stock_value = stock_value_of(db, product.id, warehouse.id)   # CR-032
     return True
 
 

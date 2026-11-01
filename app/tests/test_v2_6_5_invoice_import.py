@@ -79,7 +79,7 @@ def test_zip_import_create_then_attach_only():
             Invoice.invoice_no.in_([no1, no2]))).scalars().all()
         assert len(rows) == 2
         for inv in rows:
-            assert inv.auth_status == "authenticated"
+            assert inv.auth_status == "pending", "仅文件名兜底（0 元）应待认证"
             assert inv.bind_status == "unbound"
             assert inv.sync_source == "upload"
             assert db.execute(select(Attachment).where(
@@ -140,3 +140,51 @@ class TestUploadGuards:
                        files={"file": ("evil.exe", b"MZ", "application/octet-stream")})
         assert r.status_code == 422
         assert "PDF" in r.json()["detail"]
+
+
+def test_detect_direction_by_tax_no():
+    """CR-032 / TODO-012：购方是我方→进项；销方是我方→销项；都不匹配→默认进项。"""
+    from app.services.invoice_import_service import _detect_direction
+
+    by_tax = {"91149900MAECLDF33U": {"code": "ZC", "name": "智澈公司"}}
+    assert _detect_direction({"buyer_tax_no": "91149900MAECLDF33U"}, by_tax)[0] == "in"
+    assert _detect_direction({"seller_tax_no": "91149900MAECLDF33U"}, by_tax)[0] == "out"
+    d, s = _detect_direction({"buyer_tax_no": "X", "seller_tax_no": "Y"}, by_tax)
+    assert d == "in" and s is None
+
+
+def test_text_parsed_invoice_is_authenticated_with_amount():
+    """文本层解析出金额 → 已认证；购方税号=我方 → 进项 + 归属公司。"""
+    import uuid
+
+    no = str(uuid.uuid4().int)[:20]
+    text_pdf_name = f"{no}.pdf"
+    # 构造「文本层」：直接走 parse + 导入（PDF 无法在此伪造文本层，故用 monkeypatch 模拟提取）
+    import app.services.invoice_import_service as svc
+
+    original = svc._pdf_text
+    try:
+        svc._pdf_text = lambda data: SAMPLE_TEXT.replace("26142000001496803711", no)
+        # 我方主体补税号，供方向/归属识别
+        from app import dicts as app_dicts
+
+        with SessionLocal() as db:
+            app_dicts.set_subjects(db, [{"code": "ZC", "name": "智澈公司",
+                                         "tax_no": "91149900MAECLDF33U"}])
+            db.commit()
+        with SessionLocal() as db:
+            r = svc.import_files(db, [(text_pdf_name, b"%PDF-1.4 fake")])
+        assert len(r["created"]) == 1, r
+        with SessionLocal() as db:
+            inv = db.execute(select(Invoice).where(Invoice.invoice_no == no)).scalar_one()
+            assert inv.invoice_direction == "in"
+            assert inv.auth_status == "authenticated"
+            assert float(inv.total_amount) == 32560.0
+            assert inv.our_company_code == "ZC"
+            # 清理
+            db.query(Attachment).filter(Attachment.object_type == "invoice",
+                                        Attachment.object_id == inv.id).delete()
+            db.delete(inv)
+            db.commit()
+    finally:
+        svc._pdf_text = original

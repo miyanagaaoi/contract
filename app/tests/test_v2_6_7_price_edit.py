@@ -120,6 +120,12 @@ class TestManualPrice:
         preview = client.get(f"{OUT}/{out['id']}/return-preview", headers=h).json()
         assert preview["rows"][0]["unit_price"] == 20.0   # 退库单价 = 出库行单价
 
+        # CR-032：库存明细直接读结存金额列，也必须是 72（与批次回放一致）
+        row = next(r for r in client.get("/api/stock/balances", headers=h,
+                                         params={"product_id": masters["product"]}).json()["items"]
+                   if r["warehouse_id"] == masters["wh1"])
+        assert row["stock_amount"] == 72.0
+
     def test_调拨单价两端同价并进入调入仓金额(self, client, h, masters):
         _approve(client, h, IN, _create_in(client, h, masters, qty="10", price="5")["id"])
 

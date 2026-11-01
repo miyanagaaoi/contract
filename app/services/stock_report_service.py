@@ -247,3 +247,12 @@ def stock_value_map(db: Session,
             continue
         values[key] = values.get(key, ZERO) + Decimal(str(r["stock_amount"] or 0))
     return values
+
+
+def stock_value_of(db: Session, product_id: int, warehouse_id: int) -> Decimal:
+    """某一 `(物料, 仓库)` 的当前库存总额度（CR-032：过账后按 FIFO 精确重算）。
+
+    只加载该组合的流水并回放，成本仅与该物料的流水条数相关（单据级写入，不是列表查询路径）。
+    """
+    rows = build_batches(db, product_id=product_id, warehouse_id=warehouse_id)
+    return sum((Decimal(str(r["stock_amount"])) for r in rows if r["stock_qty"]), ZERO)

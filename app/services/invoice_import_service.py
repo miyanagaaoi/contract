@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from .. import config, dicts
 from ..models import Attachment
-from ..models_doc import INVOICE_IN, Invoice
+from ..models_doc import INVOICE_IN, INVOICE_OUT, Invoice
 from . import numbering_service
 
 ZERO = Decimal("0")
@@ -135,6 +135,22 @@ def _attach(db: Session, inv: Invoice, file_name: str, data: bytes, dest_dir: Pa
     ))
 
 
+def _detect_direction(parsed: dict, by_tax: dict[str, dict]) -> tuple[str, dict | None]:
+    """按购销方税号判定进项/销项（CR-032 / TODO-012）。
+
+    - 购方是我方 → 进项（`in`），对应公司取购方；
+    - 销方是我方 → 销项（`out`），对应公司取销方；
+    - 都匹配不上（税号缺失/非本主体）→ 默认按进项，公司留空，等待人工确认归属。
+    """
+    buyer = by_tax.get(str(parsed.get("buyer_tax_no") or "").strip())
+    seller = by_tax.get(str(parsed.get("seller_tax_no") or "").strip())
+    if buyer is not None:
+        return INVOICE_IN, buyer
+    if seller is not None:
+        return INVOICE_OUT, seller
+    return INVOICE_IN, None
+
+
 def import_files(db: Session, files: list[tuple[str, bytes]]) -> dict:
     """导入一组文件（单 PDF 或 zip 解出的条目）→ 建单/挂附件，返回逐项结果。"""
     dest_dir = Path(config.UPLOAD_DIR) / "invoices"
@@ -156,8 +172,9 @@ def import_files(db: Session, files: list[tuple[str, bytes]]) -> dict:
                 failed.append({"file": name, "reason": "无法识别发票号码（无文本层且文件名无票号）"})
                 continue
 
+            direction, subject = _detect_direction(parsed, by_tax)
             inv = (db.query(Invoice)
-                   .filter(Invoice.invoice_direction == INVOICE_IN, Invoice.invoice_no == no)
+                   .filter(Invoice.invoice_direction == direction, Invoice.invoice_no == no)
                    .first())
             if inv is not None:
                 _attach(db, inv, name, data, dest_dir)
@@ -167,18 +184,19 @@ def import_files(db: Session, files: list[tuple[str, bytes]]) -> dict:
 
             # 新建发票（识别字段；缺失的保持为空，金额缺省 0）
             day = parsed.get("invoice_date") or date.today()
-            subject = by_tax.get(str(parsed.get("buyer_tax_no") or "").strip())
+            # 认证状态：文本层解析出金额才算「已认证」；仅靠文件名兜底（0 元）→ 待认证
+            parsed_ok = (not failed) and parsed.get("total_amount") is not None and bool(text)
             inv = Invoice(
                 doc_no=numbering_service.next_doc_no(db, "invoice", day),
                 doc_date=day, status="draft",
-                invoice_direction=INVOICE_IN, invoice_no=no,
+                invoice_direction=direction, invoice_no=no,
                 invoice_type=None,
                 invoice_date=day,
                 tax_rate=parsed.get("tax_rate"),
                 amount=parsed.get("amount") or ZERO,
                 tax_amount=parsed.get("tax_amount") or ZERO,
                 total_amount=parsed.get("total_amount") or ZERO,
-                auth_status="authenticated", bind_status="unbound",
+                auth_status=("authenticated" if parsed_ok else "pending"), bind_status="unbound",
                 sync_source="upload", synced_at=datetime.now(),
                 seller_name=parsed.get("seller_name"),
                 seller_tax_no=parsed.get("seller_tax_no"),
@@ -188,7 +206,8 @@ def import_files(db: Session, files: list[tuple[str, bytes]]) -> dict:
                 our_company_name=(subject or {}).get("name"),
                 subject_code=(subject or {}).get("code"),
                 subject_name=(subject or {}).get("name"),
-                party_name=parsed.get("seller_name"),
+                party_name=(parsed.get("seller_name") if direction == INVOICE_IN
+                            else parsed.get("buyer_name")),
                 remark=f"上传识别导入（{date.today().isoformat()}）",
             )
             db.add(inv)

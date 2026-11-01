@@ -86,7 +86,8 @@ def _ledger(db, product, warehouse, biz_type: str, qty: str, price: str | None,
 def _stock_with_ledger(db, product, warehouse, qty: str, price: str = "5") -> Stock:
     """建结存并配一条等量入库流水（保持 stocks.qty == SUM(ledger.qty_change)）。"""
     amount = Decimal(qty)
-    stock = Stock(product_id=product.id, warehouse_id=warehouse.id, qty=amount)
+    stock = Stock(product_id=product.id, warehouse_id=warehouse.id, qty=amount,
+                  stock_value=amount * Decimal(price))     # CR-032：金额列与流水同步
     db.add(stock)
     _ledger(db, product, warehouse, "采购入库", qty, price, qty)
     return stock
@@ -157,7 +158,8 @@ class TestStockAmount:
 class TestBalancesApi:
     def test_列表返回当前库存总额度(self, client, h, db):
         product, wh = _mk_product(db), _mk_warehouse(db)
-        db.add(Stock(product_id=product.id, warehouse_id=wh.id, qty=Decimal("12")))
+        db.add(Stock(product_id=product.id, warehouse_id=wh.id, qty=Decimal("12"),
+                     stock_value=Decimal("62")))
         _ledger(db, product, wh, "采购入库", "10", "5", "10")
         _ledger(db, product, wh, "采购入库", "2", "6", "12")
         db.commit()
@@ -174,7 +176,8 @@ class TestBalancesApi:
         from app.services import stock_report_service as svc
 
         product, wh = _mk_product(db), _mk_warehouse(db)
-        db.add(Stock(product_id=product.id, warehouse_id=wh.id, qty=Decimal("7")))
+        db.add(Stock(product_id=product.id, warehouse_id=wh.id, qty=Decimal("7"),
+                     stock_value=Decimal("35")))
         _ledger(db, product, wh, "采购入库", "10", "5", "10")
         _ledger(db, product, wh, "销售出库", "-3", "5", "7")
         db.commit()

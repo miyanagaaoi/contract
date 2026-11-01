@@ -5,8 +5,9 @@
 
 ## 当前状态
 
-- **版本**：`2.6.2`（`app/config.py: APP_VERSION`；含 CR-025 行项修正、CR-026 发票上传识别、CR-028 发票页白屏修复）
-- **质量基线**：`pytest` **526 passed**；前端 `vite build` 通过
+- **版本**：`2.6.3`（`app/config.py: APP_VERSION`；含 CR-025 行项修正、CR-026 发票上传识别、CR-028 白屏修复、CR-029 库存总额度口径、
+  CR-031 单价可改、CR-032 金额增量列与发票方向识别）
+- **质量基线**：`pytest` **528 passed**；前端 `vite build` 通过
 - **开发库数据**：已全量清空业务数据（保留账号/角色/字典），仅含 `DEMO27` 10 批次演示数据；
   清理工具 `python -m app.tools.purge_business_data --yes`（自动备份到 `app/backups/`）
 - **部署**：Docker 单容器，外部 PostgreSQL（`192.168.81.50:5432/ctms`），群晖 Container Manager；端口 9000；
@@ -35,7 +36,7 @@
    （批次报表可先用 `seed_stock_demo` 造数据验收，见 PRD CR-017）
 4. 待确认想法：物料拼音搜索（TODO-004）、批次报表按出库单汇总打印（TODO-005）
 5. 验证上传识别：单张数电票 PDF 的字段解析准确率（不同版式/扫描件）
-6. 待确认：库存金额聚合性能（TODO-011）、发票销项识别与认证状态（TODO-012）
+6. 打包发版：当前镜像 `ctms:2.6.3` 已构建（本地），等你确认后导出发布包（`scripts\export-docker.bat 2.6.3`）
 
 ## 文档入口
 

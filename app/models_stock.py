@@ -47,6 +47,11 @@ class Stock(Base):
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False, index=True)
     warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), nullable=False, index=True)
     qty: Mapped[Decimal] = mapped_column(Numeric(16, 3), nullable=False, default=Decimal("0"))
+    # CR-032（TODO-011）：当前库存总额度 = Σ(未消耗批次剩余数量 × 批次入库单价)
+    # 过账时增量维护（入库加、出库按单据单价减、调拨两端 ±，红冲反向），
+    # 库存明细/导出直接读该列，避免每次全量回放流水。
+    stock_value: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False,
+                                                 default=Decimal("0"))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
     )
