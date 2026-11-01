@@ -49,6 +49,8 @@ const props = withDefaults(defineProps<{
   showPrice?: boolean
   /** 是否显示金额相关列（单价 / 金额）；调拨单等不涉及金额的单据传 false */
   showAmount?: boolean
+  /** 选中物料是否自动带默认单价（出库/调拨自行按 FIFO 带价时传 false，CR-031） */
+  priceOnPick?: boolean
   showWarehouse?: boolean
   /** 是否显示「当前库存」只读列（出库单特有，透传给 DocItemsTable） */
   showStock?: boolean
@@ -91,6 +93,7 @@ const props = withDefaults(defineProps<{
   itemsEditable: true,
   showPrice: true,
   showAmount: true,
+  priceOnPick: true,
   showWarehouse: false,
   showStock: false,
   stockMap: () => ({}),
@@ -572,6 +575,7 @@ defineExpose({ patchExtra, items, header, load, detail, editable })
         <DocItemsTable :items="items" :readonly="!editable || !itemsEditable"
                        :show-warehouse="showWarehouse" :show-stock="showStock" :stock-map="stockMap"
                        :show-price="showPrice" :show-amount="showAmount"
+                       :price-on-pick="priceOnPick"
                        :extra-cols="extraCols"
                        :error-rows="errorRows" @change="onItemsChange" />
       </slot>

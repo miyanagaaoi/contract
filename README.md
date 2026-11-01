@@ -6,7 +6,7 @@
 ## 当前状态
 
 - **版本**：`2.6.2`（`app/config.py: APP_VERSION`；含 CR-025 行项修正、CR-026 发票上传识别、CR-028 发票页白屏修复）
-- **质量基线**：`pytest` **521 passed**；前端 `vite build` 通过
+- **质量基线**：`pytest` **526 passed**；前端 `vite build` 通过
 - **开发库数据**：已全量清空业务数据（保留账号/角色/字典），仅含 `DEMO27` 10 批次演示数据；
   清理工具 `python -m app.tools.purge_business_data --yes`（自动备份到 `app/backups/`）
 - **部署**：Docker 单容器，外部 PostgreSQL（`192.168.81.50:5432/ctms`），群晖 Container Manager；端口 9000；
@@ -14,7 +14,8 @@
 - **在跑的能力**：合同台账与履约、采购/销售/库存过账、财务（付款/收款/发票）、
   发票上传识别（单张 PDF / ZIP，自动入库并挂原始文件）、批次配对报表（正常匹配 / 红冲 / 无批次出库分类）、
   全单据行项物料树形选择（含悬停档案信息）、出库单退库、打印与电子签名；
-  库存明细金额列「当前库存总额度」= FIFO 批次剩余金额（与批次配对报表同源）
+  库存明细金额列「当前库存总额度」= FIFO 批次剩余金额（与批次配对报表同源）；
+  入库/出库/调拨单行项单价可手工修改（金额自动重算，审核后锁定）
 - **本机脚本**：`setup.bat`（`check`/`demo`）、`start-all.bat`（`--rebuild`/`--no-open`）、
   `scripts/restart-backend.bat`、`scripts/stop-backend.bat`（仅操作 CTMS，拒绝误杀其它程序）；
   演示数据 `python -m app.tools.seed_stock_demo [--report|--purge]`
@@ -34,8 +35,7 @@
    （批次报表可先用 `seed_stock_demo` 造数据验收，见 PRD CR-017）
 4. 待确认想法：物料拼音搜索（TODO-004）、批次报表按出库单汇总打印（TODO-005）
 5. 验证上传识别：单张数电票 PDF 的字段解析准确率（不同版式/扫描件）
-6. 待确认：调拨入库是否按调出成本记价（TODO-010）、库存金额聚合性能（TODO-011）、
-   发票销项识别与认证状态（TODO-012）
+6. 待确认：库存金额聚合性能（TODO-011）、发票销项识别与认证状态（TODO-012）
 
 ## 文档入口
 

@@ -3,7 +3,7 @@
  * 入库单表单（T-V2-25）：审核即过账。
  *
  * 由采购单下推生成时：仓库 / 入库类型 / 供应商 / 行项数量已预填，
- * 单价沿用采购单价（只读），可在保存前调整入库数量。
+ * 单价沿用采购单价；CR-031 起入库单价**可在未审核前手工修改**（金额自动重算）。
  */
 import { ref } from 'vue'
 
@@ -36,7 +36,7 @@ void ensureOptions()
 <template>
   <DocFormPage v-model="extra" title="入库单" kind-label="入库单"
                api="/api/stock/in-orders" perm-prefix="stock.in"
-               list-route="stock-in-orders" show-warehouse show-subject :show-price="false"
+               list-route="stock-in-orders" show-warehouse show-subject
                :extra-cols="['received']"
                :extra-required="[{ key: 'warehouse_id', label: '入库仓库' }]">
     <template #header>

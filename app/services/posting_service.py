@@ -120,7 +120,8 @@ def post_transfer(db: Session, doc, *, user, reverse: bool = False) -> int:
     - **幂等**：`doc.posted` 短路，与 `post_stock_doc` 同款（AC-V2.1-17）；
     - 调出仓记「调拨出库」、调入仓记「调拨入库」，两条流水**同凭证号**（同一调拨单号），
       便于按单据追溯（AC-V2.1-15）；
-    - 调拨**不产生金额**（`unit_price=0`），因此不增加「当前库存总额度」（BR-V2.1-08 / CR-029）。
+    - 调拨金额按**行单价**（CR-031 起可手工填写，前端默认带出调出仓 FIFO 成本），
+      两端同价；未填价（0）时视为不产生金额（兼容旧单）。
     """
     params = get_sys_params(db)
     if not reverse and doc.posted:
@@ -154,6 +155,9 @@ def post_transfer(db: Session, doc, *, user, reverse: bool = False) -> int:
     written = 0
     sign = -1 if reverse else 1
     for item, out_stock, in_stock, qty in plans:
+        # CR-031：调拨单价可按行手工填写（前端默认带出调出仓 FIFO 成本）；
+        # 两端同价，保证跨仓「当前库存总额度」守恒（未填价时按 0 计，兼容旧单）。
+        price = item.unit_price if item.unit_price is not None else ZERO
         legs = (
             (out_stock, from_wh, "调拨出库", -sign * qty),
             (in_stock, to_wh, "调拨入库", sign * qty),
@@ -167,7 +171,7 @@ def post_transfer(db: Session, doc, *, user, reverse: bool = False) -> int:
                 biz_type=(f"红冲-{biz_type}" if reverse else biz_type),
                 doc_type=doc.doc_type, doc_id=doc.id, doc_no=doc.doc_no,
                 qty_change=delta, qty_after=new_qty,
-                unit_price=ZERO,                     # 调拨不产生金额（BR-V2.1-08）
+                unit_price=price,                    # CR-031：调拨行单价（两端同价）
                 org_id=doc.org_id, created_by=getattr(user, "id", None),
                 remark="反审核红冲" if reverse else None,
             ))

@@ -194,7 +194,7 @@ async function checkBalance(): Promise<boolean> {
 <template>
   <DocFormPage ref="formRef" v-model="extra" title="出库单" kind-label="出库单"
                api="/api/stock/out-orders" perm-prefix="stock.out"
-               list-route="stock-out-orders" show-subject :show-price="false" show-stock :stock-map="stockMap"
+               list-route="stock-out-orders" show-subject :price-on-pick="false" show-stock :stock-map="stockMap"
                :extra-cols="['shipped']" :before-save="checkBalance"
                :extra-required="[{ key: 'warehouse_id', label: '出库仓库' }]">
     <template #header>

@@ -40,6 +40,8 @@ const props = withDefaults(defineProps<{
    * 07-stock.spec.ts 的预期都不符。
    */
   showAmount?: boolean
+  /** 选中物料时是否自动带出物料默认单价；出库/调拨按 FIFO 带价时置 false（CR-031） */
+  priceOnPick?: boolean
   /** 额外只读快照列 */
   extraCols?: ExtraCol[]
   /**
@@ -58,6 +60,7 @@ const props = withDefaults(defineProps<{
   showWarehouse: false,
   showPrice: true,
   showAmount: true,
+  priceOnPick: true,
   extraCols: () => [],
   showStock: false,
   stockMap: () => ({}),
@@ -201,7 +204,9 @@ function onProductChange(row: Record<string, any>, p: Dict | null) {
   row.spec = p.spec ?? null
   row.uom_name = p.uom_name ?? null
   row.uom_decimals = p.uom_decimals ?? null
-  row.unit_price = Number(p.default_price || 0)
+  // CR-031：出库/调拨关闭“默认价”覆盖 → 清零后由页面按 FIFO 成本重新带价，
+  // 保证“重新选择物料后单价仍跟随刷新”（CR-025 语义）
+  row.unit_price = props.priceOnPick ? Number(p.default_price || 0) : 0
   emit('change')
 }
 
