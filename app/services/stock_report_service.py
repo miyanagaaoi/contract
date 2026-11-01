@@ -101,6 +101,8 @@ def build_batches(db: Session, *, warehouse_id: int | None = None,
             is_rev = str(lg.biz_type or "").startswith("红冲")
             meta = out_meta.get(lg.doc_id, {})
             base = _row_common(db=db, warehouse=warehouse, product=product, meta=meta)
+            # 供「库存明细·当前库存总额度」按 (仓库, 物料) 聚合（不导出）
+            base["_wh_id"], base["_pid"] = wh_id, pid
             ts = lg.created_at.isoformat(sep=" ", timespec="seconds") if lg.created_at else None
 
             # ---------- 红冲行：单独类型，不参与正常 FIFO 统计 ----------
@@ -186,6 +188,7 @@ def build_batches(db: Session, *, warehouse_id: int | None = None,
             if batch["qty_rem"] <= ZERO:
                 continue
             row = _row_common(db=db, warehouse=warehouse, product=product, meta={})
+            row["_wh_id"], row["_pid"] = wh_id, pid
             row.update({
                 "row_kind": "normal",
                 "in_no": batch["doc_no"],
@@ -224,3 +227,23 @@ ROW_KIND_LABELS: dict[str, str] = {
     "reversal": "红冲",
     "orphan": "无批次出库",
 }
+
+
+def stock_value_map(db: Session,
+                    pairs: set[tuple[int, int]] | None = None) -> dict[tuple[int, int], Decimal]:
+    """当前库存总额度（V2.6.2 / CR-029）：`Σ(批次剩余数量 × 批次入库单价)`。
+
+    与批次配对报表**同源同口径**（直接复用 `build_batches` 的未消耗批次行），
+    因此「库存明细金额」与「批次报表剩余金额合计」必然一致。
+
+    `pairs` 可限定 `{(warehouse_id, product_id)}`，但回放仍需全量流水才能得到正确剩余。
+    """
+    values: dict[tuple[int, int], Decimal] = {}
+    for r in build_batches(db):
+        if not r.get("stock_qty"):
+            continue
+        key = (int(r["_wh_id"]), int(r["_pid"]))
+        if pairs is not None and key not in pairs:
+            continue
+        values[key] = values.get(key, ZERO) + Decimal(str(r["stock_amount"] or 0))
+    return values

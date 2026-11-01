@@ -1,16 +1,13 @@
-"""V2.1 / T-V2.1-12 · 13 测试：库存明细「货品总额度」与数量/物料类型筛选。
+"""库存明细「当前库存总额度」与数量/类型筛选（CR-029 口径重写）。
 
-覆盖 `22-v2.1-requirements.md`：
-- BR-V2.1-09 / AC-V2.1-11：货品总额度 = 该 `(物料 × 仓库)` 的**入库批次金额合计**；
-- AC-V2.1-12：数量区间筛选。
+口径（2026-11-01 业务确认，方案 A）：
+    **当前库存总额度 = Σ(该仓库该物料的 FIFO 未消耗批次剩余数量 × 批次入库单价)**
+    —— 与批次配对报表「剩余金额合计」同源同口径（`stock_value_map` 复用 `build_batches`）。
 
-⚠️ 本文件重点锁死 `23-v2.1-system-design.md` §7.1 指出的两个**极易写错**的口径：
-1. **不能用 `qty_change > 0` 判"入库方向"**——红冲入库的 `qty_change` 为负，若按正负过滤
-   就会被漏掉，导致**冲减失效、额度虚高**；
-2. **必须排除「调拨入库」**（含其红冲），否则同一批货在仓库间搬运会反复放大额度。
-
-调拨功能（T-V2.1-13~15）尚未实现，故此处用 `StockLedger` 直接构造流水来验证聚合口径，
-使该口径**不依赖调拨功能的开发进度**即可被固化。
+因此本文件锁死的是「剩余批次金额」，而不是旧的“累计入库金额合计”：
+- 入库形成批次；出库按 FIFO 消耗（金额随之减少）；红冲按反向冲减/归还；
+- 调拨入库单价为 0（BR-V2.1-08），不增加金额；
+- 缺失单价按 0 计。
 """
 from __future__ import annotations
 
@@ -25,7 +22,7 @@ from app.init_db import ADMIN_INIT_PASSWORD, ADMIN_USERNAME
 from app.main import app
 from app.models_master import Product, ProductType, Uom, Warehouse
 from app.models_stock import Stock, StockLedger
-from app.routers.stock import _inbound_amount_subquery
+from app.services.stock_report_service import stock_value_map
 
 
 @pytest.fixture()
@@ -75,22 +72,19 @@ def _mk_warehouse(db) -> Warehouse:
     return wh
 
 
-def _ledger(db, product, warehouse, biz_type: str, qty: str, price: str, after: str) -> None:
+def _ledger(db, product, warehouse, biz_type: str, qty: str, price: str | None,
+            after: str, doc_no: str | None = None) -> None:
     """直接写一条库存流水（绕过单据，便于精确构造口径场景）。"""
     db.add(StockLedger(
         product_id=product.id, warehouse_id=warehouse.id, biz_type=biz_type,
-        doc_type="stock_in_order", doc_id=1, doc_no=f"T{_sfx()}",
-        qty_change=Decimal(qty), qty_after=Decimal(after), unit_price=Decimal(price),
+        doc_type="stock_in_order", doc_id=1, doc_no=doc_no or f"T{_sfx()}",
+        qty_change=Decimal(qty), qty_after=Decimal(after),
+        unit_price=None if price is None else Decimal(price),
     ))
 
 
 def _stock_with_ledger(db, product, warehouse, qty: str, price: str = "5") -> Stock:
-    """建结存**并配一条等量入库流水**。
-
-    ⚠️ 必须保持 `stocks.qty == SUM(stock_ledger.qty_change)` 不变式（AC-V2-26）：
-    只建 `Stock` 而不写流水，会污染 `test_v2_docs.py::test_recalc_consistent`
-    的全局一致性校验（recalc 会遍历所有 stocks 行）。
-    """
+    """建结存并配一条等量入库流水（保持 stocks.qty == SUM(ledger.qty_change)）。"""
     amount = Decimal(qty)
     stock = Stock(product_id=product.id, warehouse_id=warehouse.id, qty=amount)
     db.add(stock)
@@ -98,85 +92,70 @@ def _stock_with_ledger(db, product, warehouse, qty: str, price: str = "5") -> St
     return stock
 
 
-def _inbound_amount(db, product_id: int, warehouse_id: int) -> Decimal:
-    sub = _inbound_amount_subquery(db)
-    row = (db.query(sub.c.inbound_amount)
-           .filter(sub.c.product_id == product_id, sub.c.warehouse_id == warehouse_id)
-           .first())
-    return Decimal(row[0]) if row and row[0] is not None else Decimal("0")
+def _stock_amount(db, product_id: int, warehouse_id: int) -> Decimal:
+    return stock_value_map(db, {(warehouse_id, product_id)}).get(
+        (warehouse_id, product_id), Decimal("0"))
 
 
-# ---------------------------------------------------------------- 聚合口径（核心）
-
-class TestInboundAmount:
-    def test_入库批次金额合计(self, db):
+class TestStockAmount:
+    def test_入库批次剩余金额合计(self, db):
         product, wh = _mk_product(db), _mk_warehouse(db)
         _ledger(db, product, wh, "采购入库", "10", "5", "10")
         _ledger(db, product, wh, "采购入库", "5", "6", "15")
         db.commit()
+        assert _stock_amount(db, product.id, wh.id) == Decimal("80")   # 10*5 + 5*6
 
-        assert _inbound_amount(db, product.id, wh.id) == Decimal("80")  # 10*5 + 5*6
+    def test_出库按FIFO减少金额(self, db):
+        """入库 10@5 + 5@6，出库 12 → 剩 3@6，金额 18。"""
+        product, wh = _mk_product(db), _mk_warehouse(db)
+        doc = f"T{_sfx()}"
+        _ledger(db, product, wh, "采购入库", "10", "5", "10", doc_no=f"{doc}-1")
+        _ledger(db, product, wh, "采购入库", "5", "6", "15", doc_no=f"{doc}-2")
+        _ledger(db, product, wh, "销售出库", "-12", "5", "3", doc_no=f"{doc}-OUT")
+        db.commit()
+        assert _stock_amount(db, product.id, wh.id) == Decimal("18")
 
-    def test_红冲负向冲减(self, db):
-        """⚠️ 关键回归点：若用 `qty_change > 0` 过滤，本用例会失败（冲减失效）。"""
+    def test_红冲入库冲减金额(self, db):
+        """红冲入库（同单号）应冲减该批次剩余 → 金额归零。"""
+        product, wh = _mk_product(db), _mk_warehouse(db)
+        doc = f"T{_sfx()}"
+        _ledger(db, product, wh, "采购入库", "10", "5", "10", doc_no=doc)
+        _ledger(db, product, wh, "红冲-采购入库", "-10", "5", "0", doc_no=doc)
+        db.commit()
+        assert _stock_amount(db, product.id, wh.id) == Decimal("0")
+
+    def test_调拨入库单价为零不增加金额(self, db):
         product, wh = _mk_product(db), _mk_warehouse(db)
         _ledger(db, product, wh, "采购入库", "10", "5", "10")
-        _ledger(db, product, wh, "红冲-采购入库", "-10", "5", "0")
+        _ledger(db, product, wh, "调拨入库", "7", "0", "17")
         db.commit()
+        assert _stock_amount(db, product.id, wh.id) == Decimal("50")
 
-        assert _inbound_amount(db, product.id, wh.id) == Decimal("0")
-
-    def test_调拨入库不计入(self, db):
-        """⚠️ 关键回归点：调拨是仓库间搬运，不得放大额度。"""
-        product, wh = _mk_product(db), _mk_warehouse(db)
-        _ledger(db, product, wh, "采购入库", "10", "5", "10")
-        _ledger(db, product, wh, "调拨入库", "7", "9", "17")
-        _ledger(db, product, wh, "红冲-调拨入库", "-7", "9", "10")
-        db.commit()
-
-        assert _inbound_amount(db, product.id, wh.id) == Decimal("50")
-
-    def test_出库不影响额度(self, db):
-        product, wh = _mk_product(db), _mk_warehouse(db)
-        _ledger(db, product, wh, "采购入库", "10", "5", "10")
-        _ledger(db, product, wh, "销售出库", "-4", "5", "6")
-        db.commit()
-
-        assert _inbound_amount(db, product.id, wh.id) == Decimal("50")
-
-    def test_其他入库计入_盘盈计入(self, db):
+    def test_其他入库与盘盈计入(self, db):
         product, wh = _mk_product(db), _mk_warehouse(db)
         _ledger(db, product, wh, "其他入库", "2", "3", "2")
         _ledger(db, product, wh, "盘盈入库", "1", "4", "3")
         db.commit()
-
-        assert _inbound_amount(db, product.id, wh.id) == Decimal("10")
+        assert _stock_amount(db, product.id, wh.id) == Decimal("10")
 
     def test_缺失单价按零计入(self, db):
         product, wh = _mk_product(db), _mk_warehouse(db)
-        db.add(StockLedger(product_id=product.id, warehouse_id=wh.id, biz_type="采购入库",
-                           doc_type="stock_in_order", doc_id=1, doc_no=f"T{_sfx()}",
-                           qty_change=Decimal("3"), qty_after=Decimal("3"), unit_price=None))
+        _ledger(db, product, wh, "采购入库", "3", None, "3")
         db.commit()
-
-        assert _inbound_amount(db, product.id, wh.id) == Decimal("0")
+        assert _stock_amount(db, product.id, wh.id) == Decimal("0")
 
     def test_按物料与仓库分别聚合(self, db):
-        """不跨仓库合并：同一物料在两个仓库各自独立计算。"""
         product = _mk_product(db)
         wh1, wh2 = _mk_warehouse(db), _mk_warehouse(db)
         _ledger(db, product, wh1, "采购入库", "10", "5", "10")
         _ledger(db, product, wh2, "采购入库", "2", "7", "2")
         db.commit()
+        assert _stock_amount(db, product.id, wh1.id) == Decimal("50")
+        assert _stock_amount(db, product.id, wh2.id) == Decimal("14")
 
-        assert _inbound_amount(db, product.id, wh1.id) == Decimal("50")
-        assert _inbound_amount(db, product.id, wh2.id) == Decimal("14")
-
-
-# ---------------------------------------------------------------- HTTP 契约
 
 class TestBalancesApi:
-    def test_列表返回货品总额度(self, client, h, db):
+    def test_列表返回当前库存总额度(self, client, h, db):
         product, wh = _mk_product(db), _mk_warehouse(db)
         db.add(Stock(product_id=product.id, warehouse_id=wh.id, qty=Decimal("12")))
         _ledger(db, product, wh, "采购入库", "10", "5", "10")
@@ -187,7 +166,25 @@ class TestBalancesApi:
         assert resp.status_code == 200, resp.text
         row = next(r for r in resp.json()["items"] if r["product_id"] == product.id)
         assert row["qty"] == 12.0
-        assert row["inbound_amount"] == 62.0     # 10*5 + 2*6
+        assert row["stock_amount"] == 62.0          # 10*5 + 2*6（无出库，等于批次剩余）
+        assert "inbound_amount" not in row
+
+    def test_列表金额与批次报表剩余金额一致(self, client, h, db):
+        """CR-029 核心：两处口径必须同源一致（同一 (仓库,物料)）。"""
+        from app.services import stock_report_service as svc
+
+        product, wh = _mk_product(db), _mk_warehouse(db)
+        db.add(Stock(product_id=product.id, warehouse_id=wh.id, qty=Decimal("7")))
+        _ledger(db, product, wh, "采购入库", "10", "5", "10")
+        _ledger(db, product, wh, "销售出库", "-3", "5", "7")
+        db.commit()
+
+        resp = client.get("/api/stock/balances", headers=h, params={"keyword": product.code})
+        row = next(r for r in resp.json()["items"] if r["product_id"] == product.id)
+
+        rows = svc.build_batches(db, product_id=product.id, warehouse_id=wh.id)
+        report_value = sum(r["stock_amount"] or 0 for r in rows if r["stock_qty"])
+        assert row["stock_amount"] == report_value == 35.0   # 7 × 5
 
     def test_数量区间筛选(self, client, h, db):
         low, high = _mk_product(db), _mk_product(db)
@@ -215,7 +212,8 @@ class TestBalancesApi:
         db.add(child)
         db.flush()
         child.path = f"/{parent.id}/{child.id}/"
-        product = Product(code=f"P{sfx}", name=f"物料{sfx}", product_type_id=child.id, uom_id=uom.id)
+        product = Product(code=f"P{sfx}", name=f"物料{sfx}", product_type_id=child.id,
+                          uom_id=uom.id)
         db.add(product)
         db.flush()
         wh = _mk_warehouse(db)

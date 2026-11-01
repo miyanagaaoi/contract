@@ -268,25 +268,6 @@ def fifo_price(product_id: int = Query(..., description="物料 id"),
             "enough": not short}
 
 
-def _inbound_amount_subquery(db: Session):
-    """V2.1（N11，BR-V2.1-09）：货品总额度 = 该 `(物料 × 仓库)` 的**入库批次金额合计**。
-
-    ⚠️ **不能用 `qty_change > 0` 判"入库方向"**：红冲入库的 `qty_change` 为负，会被漏掉
-    从而**无法冲减**（额度虚高，见 `23-v2.1-system-design.md` §7.1）。必须以 `biz_type`
-    判方向，再对 `qty_change` 求和，使负向自然冲减；同时排除「调拨入库」（含其红冲），
-    否则同一批货在仓库间搬运会反复放大额度。
-    """
-    return (db.query(
-                StockLedger.product_id.label("product_id"),
-                StockLedger.warehouse_id.label("warehouse_id"),
-                func.sum(StockLedger.qty_change * func.coalesce(StockLedger.unit_price, 0))
-                .label("inbound_amount"))
-            .filter(StockLedger.biz_type.like("%入库%"),
-                    StockLedger.biz_type.notlike("%调拨入库%"))
-            .group_by(StockLedger.product_id, StockLedger.warehouse_id)
-            .subquery())
-
-
 def _balances_query(db: Session, *, keyword: str | None = None, warehouse_id: int | None = None,
                     product_id: int | None = None,
                     product_type_id: int | None = None, below_safety: bool = False,
@@ -294,17 +275,13 @@ def _balances_query(db: Session, *, keyword: str | None = None, warehouse_id: in
                     subject_code: str | None = None, include_zero: bool = False):
     """库存结存查询（列表与导出共用，保证"导出口径与页面一致"，R7）。
 
-    V2.1（N11）：同时 LEFT JOIN 出「货品总额度」，返回 `(Stock, inbound_amount)` 行；
-    V2.1（N12）：新增 `qty_min` / `qty_max` 数量区间筛选。
+    V2.6.2 / CR-029：金额列改为「当前库存总额度」，由 `stock_report_service.stock_value_map`
+    按 FIFO 批次剩余金额聚合（与批次配对报表同源），返回 `Stock` 行；
+    V2.1（N12）：支持 `qty_min` / `qty_max` 数量区间筛选。
     V2.3（N3）：新增 `subject_code` —— 按**仓库所属公司**筛选商品（库存维度是 物料×仓库，
     公司归属来自仓库档案，故用 EXISTS 过滤仓库公司，避免与额度子查询的 join 冲突）。
     """
-    sub = _inbound_amount_subquery(db)
-    query = (db.query(Stock, sub.c.inbound_amount)
-             .join(Product, Stock.product_id == Product.id)
-             .outerjoin(sub, and_(sub.c.product_id == Stock.product_id,
-                                  sub.c.warehouse_id == Stock.warehouse_id))
-             )
+    query = (db.query(Stock).join(Product, Stock.product_id == Product.id))
     if not include_zero:
         # 默认隐藏零结存（V2.6.1：页面可勾选"显示零库存"，见 include_zero）
         query = query.filter(Stock.qty != 0)
@@ -354,6 +331,10 @@ def stock_balances(keyword: str | None = Query(None, description="物料编码/�
     total = int(query.count() or 0)
     rows = (query.order_by(Product.code.asc())
             .offset((page - 1) * page_size).limit(page_size).all())
+    from ..services.stock_report_service import stock_value_map
+
+    pairs = {(s.warehouse_id, s.product_id) for s in rows}
+    values = stock_value_map(db, pairs)
     return {
         "items": [{
             "product_id": s.product_id,
@@ -372,13 +353,13 @@ def stock_balances(keyword: str | None = Query(None, description="物料编码/�
             "subject_code": s.warehouse.subject_code if s.warehouse else None,
             "subject_name": subject_name_of(db, s.warehouse.subject_code) if s.warehouse else None,
             "qty": float(s.qty or 0),
-            # V2.1（N11）：货品总额度 —— 该 (物料 × 仓库) 的入库批次金额合计
-            "inbound_amount": float(amount or 0),
+            # V2.6.2（CR-029）：当前库存总额度 —— FIFO 批次剩余金额合计（与批次报表一致）
+            "stock_amount": float(values.get((s.warehouse_id, s.product_id), 0)),
             "safety_stock": float(s.product.safety_stock) if s.product and s.product.safety_stock is not None else None,
             "below_safety": bool(s.product and s.product.safety_stock is not None
                                  and (s.qty or 0) < s.product.safety_stock),
             "updated_at": s.updated_at.isoformat(sep=" ", timespec="seconds") if s.updated_at else None,
-        } for s, amount in rows],
+        } for s in rows],
         "total": total, "page": page, "page_size": page_size,
     }
 
@@ -444,7 +425,7 @@ def export_balances(keyword: str | None = Query(None), warehouse_id: int | None 
                     db: Session = Depends(get_db)):
     """导出当前筛选的结存清单（与列表同一查询构建，条数与内容一致）。
 
-    V2.1：新增「货品总额度」列与数量区间筛选，保持"导出与筛选一致"（AC-V2-40）。
+    V2.6.2 / CR-029：「当前库存总额度」列（FIFO 批次剩余金额），保持"导出与筛选一致"（AC-V2-40）。
     V2.3：新增「公司」列与按公司筛选，仓库列改用默认显示名（ZC-主仓）。
     """
     from .export import BALANCE_EXPORT_COLUMNS, DOC_EXPORT_LIMIT, build_xlsx_response
@@ -455,7 +436,10 @@ def export_balances(keyword: str | None = Query(None), warehouse_id: int | None 
                               qty_min=qty_min, qty_max=qty_max, subject_code=subject_code,
                               include_zero=include_zero)
               .order_by(Product.code.asc()).limit(DOC_EXPORT_LIMIT).all())
-    for s, amount in stocks:
+    from ..services.stock_report_service import stock_value_map
+
+    values = stock_value_map(db, {(s.warehouse_id, s.product_id) for s in stocks})
+    for s in stocks:
         product = s.product
         below = bool(product and product.safety_stock is not None
                      and (s.qty or 0) < product.safety_stock)
@@ -469,7 +453,7 @@ def export_balances(keyword: str | None = Query(None), warehouse_id: int | None 
             doc_service.warehouse_display_name(db, s.warehouse) if s.warehouse else "",
             float(s.qty or 0),
             float(product.safety_stock) if product and product.safety_stock is not None else "",
-            float(amount or 0),
+            float(values.get((s.warehouse_id, s.product_id), 0)),
             "是" if below else "否",
             s.updated_at.isoformat(sep=" ", timespec="seconds") if s.updated_at else "",
         ])
@@ -512,7 +496,7 @@ def export_ledger(product_id: int = Query(...), warehouse_id: int = Query(...),
 
 # ==================== 期初库存导入（仅超管） ====================
 
-# 模板列保持精简：编码/仓库定位行，数量是期初目标值，单价只影响货品总额度口径
+# 模板列保持精简：编码/仓库定位行，数量是期初目标值，单价进入入库批次（影响当前库存总额度）
 OPENING_IMPORT_COLUMNS = [
     ("物料编码*", 16), ("仓库*", 20), ("结存数量*", 12), ("单价", 12),
 ]

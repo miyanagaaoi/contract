@@ -464,9 +464,9 @@ onMounted(async () => {
             {{ row.safety_stock === null || row.safety_stock === undefined ? '—' : fmtQty(row.safety_stock, row.uom_decimals) }}
           </template>
         </el-table-column>
-        <el-table-column label="货品总额度" width="130" align="right">
+        <el-table-column label="当前库存总额度" width="150" align="right">
           <!-- V2.1 / N11：该 (物料 × 仓库) 的入库批次金额合计（BR-V2.1-09） -->
-          <template #default="{ row }">{{ fmtMoney(row.inbound_amount) }}</template>
+          <template #default="{ row }">{{ fmtMoney(row.stock_amount) }}</template>
         </el-table-column>
         <el-table-column label="库存状态" width="100">
           <template #default="{ row }">

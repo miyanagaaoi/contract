@@ -120,7 +120,7 @@ def post_transfer(db: Session, doc, *, user, reverse: bool = False) -> int:
     - **幂等**：`doc.posted` 短路，与 `post_stock_doc` 同款（AC-V2.1-17）；
     - 调出仓记「调拨出库」、调入仓记「调拨入库」，两条流水**同凭证号**（同一调拨单号），
       便于按单据追溯（AC-V2.1-15）；
-    - 调拨**不产生金额**（`unit_price=0`），也不计入货品总额度（BR-V2.1-08）。
+    - 调拨**不产生金额**（`unit_price=0`），因此不增加「当前库存总额度」（BR-V2.1-08 / CR-029）。
     """
     params = get_sys_params(db)
     if not reverse and doc.posted:
@@ -344,8 +344,8 @@ def apply_opening_balance(db: Session, *, product, warehouse, target_qty: Decima
     """期初建账：把 `(物料 × 仓库)` 的结存**设为**目标值（差额走一条流水）。
 
     - 返回 False 表示差额为 0（重复导入同一份文件时自然幂等：全部跳过、不写流水）；
-    - `biz_type` 用「期初入库」：`biz_type` 在模型上是自由文本，但货品总额度
-      （`routers/stock.py::_inbound_amount_subquery`）按 `like('%入库%')` 且排除
+    - `biz_type` 用「期初入库」：`biz_type` 在模型上是自由文本，但「当前库存总额度」
+      （CR-029 起改为 FIFO 批次剩余金额）按 `like('%入库%')` 且排除
       调拨入库来聚合，选一个含「入库」的类型才能让 `unit_price` 自然计入/冲减额度，
       而不必给 Stock 另加总额度列（总额度本就是动态聚合口径，无落库字段）。
     - 负差额（调减）同样记负数流水，保持 `stocks.qty == SUM(ledger.qty_change)`

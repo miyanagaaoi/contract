@@ -26,3 +26,11 @@
 | TODO-001 | 容器内 Playwright 为**无头**浏览器，无法人工完成「点选文字/滑块」验证码 | 生产环境首次登录无法自动化 | 办公机先登录 → 复制 `app/data/tax_session/state_<主体码>.json` 进容器；或在 1 小时保活窗口内发起同步 |
 | TODO-002 | 飞书 App Secret 与服务器 PG 密码曾出现在 git 历史（已于 V2.6 推送前清理） | 凭据可能已外泄 | **待轮换**：飞书后台重置 Secret、`ALTER USER ctms PASSWORD`，并同步 `.env` |
 | TODO-003 | 群晖 Container Manager / 部分面板只能「导入镜像」或上传 compose，**不能从 Git 自动 build**（无源码上下文） | 用 `build:` 的 compose 会失败 | 用 `deploy/docker-compose.synology.yml`（纯 `image:`），先导入 `ctms-image-<版本>-core.tar.gz` |
+
+### TODO-010 调拨按调出成本记价（避免「当前库存总额度」随调拨下降）
+
+- **状态**：待确认
+- **背景**：CR-029 起金额 = FIFO 批次剩余金额；调拨入库当前 `unit_price=0`（BR-V2.1-08），
+  于是调出仓批次被消耗、调入仓批次为 0，跨仓总额度会随调拨下降（实测：10 件@5 → 调拨 6 件后总额度 50 → 20）。
+- **可选方案**：调拨入库按调出仓 FIFO 成本记价（会改变“调拨不产生金额”的旧口径与相关报表）。
+- **结论去向**：待业务确认后再开 PRD CR。

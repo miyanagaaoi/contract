@@ -402,7 +402,8 @@ class StockTransfer(Base, DocMixin):
     """调拨单：单张单据表达"调出仓 → 调入仓"，**审核后同一事务内出+入**。
 
     - 仅支持**同一组织内**两仓库（Q4 冻结结论，跨组织不在本版范围）；
-    - 不产生金额（行项 `unit_price` / `amount` 恒为 0），也不计入「货品总额度」
+    - 不产生金额（行项 `unit_price` / `amount` 恒为 0）；调入批次单价为 0，
+      因此不影响「当前库存总额度」的金额（CR-029 口径）
       （BR-V2.1-08 / BR-V2.1-09）；
     - `direction = 0`：**不参与** `direction` 驱动的过账逻辑，由专用 `post_transfer` 处理
       （现有一单双向无法用 `post_stock_doc` 表达，见 `23-v2.1-system-design.md` §6.1）。

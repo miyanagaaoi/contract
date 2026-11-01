@@ -237,22 +237,23 @@ class TestTransferPosting:
             biz = [r.biz_type for r in rows]
             assert "红冲-调拨出库" in biz and "红冲-调拨入库" in biz
 
-    def test_调拨不产生金额且不计入货品总额度(self, client, h, db):
-        """BR-V2.1-08/09：调拨是仓库间搬运，既无金额也不放大货品总额度。"""
-        from app.routers.stock import _inbound_amount_subquery
+    def test_调拨入库金额为零不放大总额度(self, client, h, db):
+        """BR-V2.1-08 / CR-029：调拨入库单价为 0，不增加「当前库存总额度」。
+
+        注意（已知取舍）：按 FIFO 批次剩余金额口径，调出仓批次被消耗、调入仓批次单价为 0，
+        因此**跨仓总额度会随调拨下降**；如需按成本结转应另开 CR（TODO-010）。
+        """
+        from app.services.stock_report_service import stock_value_map
 
         product = _mk_product(db)
         wh1, wh2 = _mk_warehouse(db), _mk_warehouse(db)
-        _seed_stock(db, product, wh1, "10")          # 50 元入库金额
+        _seed_stock(db, product, wh1, "10")          # 10@5 = 50 元
 
         doc = _create(client, h, product, wh1, wh2, qty="6").json()
         assert _approve(client, h, doc["id"]).status_code == 200
 
         with SessionLocal() as s:
-            sub = _inbound_amount_subquery(s)
-            rows = {r.warehouse_id: Decimal(r.inbound_amount or 0)
-                    for r in s.query(sub).filter(sub.c.product_id == product.id).all()}
+            values = stock_value_map(s, {(wh1.id, product.id), (wh2.id, product.id)})
 
-        assert rows.get(wh2.id, Decimal("0")) == Decimal("0"), \
-            "调拨入库不得计入货品总额度"
-        assert rows.get(wh1.id) == Decimal("50"), "调出仓的入库金额不受调拨出库影响"
+        assert values.get((wh2.id, product.id), Decimal("0")) == Decimal("0"),             "调拨入库单价为 0，不得放大当前库存总额度"
+        assert values.get((wh1.id, product.id)) == Decimal("20"),             "调出仓按 FIFO 剩余 4 件 × 5 元 = 20"

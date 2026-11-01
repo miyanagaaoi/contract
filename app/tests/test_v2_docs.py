@@ -417,7 +417,9 @@ class TestStockPosting:
         self._stock_out(box, keeper, product, warehouse, 4)
         assert self._balance(box, product["id"], warehouse["id"], keeper) == 6.0
 
-        balances = box.client.get("/api/stock/balances", headers=keeper).json()
+        # 分页环境下必须按物料精确过滤（默认 20/页，其它用例的结存行可能挤占首页）
+        balances = box.client.get("/api/stock/balances", headers=keeper,
+                                  params={"product_id": product["id"]}).json()
         row = next(b for b in balances["items"] if b["product_id"] == product["id"])
         assert row["qty"] == 6.0
 
