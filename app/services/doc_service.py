@@ -456,6 +456,8 @@ def fmt_doc(db: Session, doc, *, with_items: bool = True) -> dict:
                   "delivery_date", "delivery_address", "contact_name", "contact_phone",
                   "ship_warehouse_id", "generated_in_id", "generated_in_no",
                   "generated_out_id", "generated_out_no",
+                  # CR-040：盘点复盘
+                  "review_status", "review_note", "reviewed_by", "reviewed_name",
                   # V2.1/N13：调拨单调出/调入仓库
                   "from_warehouse_id", "from_warehouse_name",
                   "to_warehouse_id", "to_warehouse_name",

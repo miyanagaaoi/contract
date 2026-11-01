@@ -807,6 +807,12 @@ export async function assignUserRoles(userId: number, roleIds: number[]): Promis
 
 // ---------- V2.6：发票同步与采购单绑定发票（docs/38） ----------
 
+/** CR-040：盘点复盘登记（审核后留痕） */
+export async function reviewStockTake(takeId: number, note: string): Promise<Dict> {
+  const { data } = await http.post(`/stock/takes/${takeId}/review`, { note })
+  return data
+}
+
 /** CR-038：发票自动匹配候选 */
 export async function fetchInvoiceMatchCandidates(invoiceId: number): Promise<Dict> {
   const { data } = await http.get(`/finance/invoices/${invoiceId}/match-candidates`)

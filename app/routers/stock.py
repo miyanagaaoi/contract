@@ -733,6 +733,40 @@ def stock_batch_report_export(keyword: str | None = Query(None),
     return build_xlsx_response("库存批次配对", svc.BATCH_COLUMNS, data, "批次配对")
 
 
+# ==================== CR-040：盘点复盘（审核后留痕，不改库存） ====================
+
+@router.post("/api/stock/takes/{take_id}/review", tags=["stock"], summary="盘点复盘登记")
+def review_stock_take(take_id: int, request: Request, payload: dict = Body(...),
+                      user: User = Depends(require_perm("stock.take.approve")),
+                      db: Session = Depends(get_db)):
+    """盘点单审核后由复盘人确认差异说明（仅留痕：不改库存、不重算差异）。
+
+    - 必须已审核（`status=approved`）；
+    - 每张盘点单只登记一次（重复 422）；
+    - `note` 必填（差异原因/处理结论），落 `review_status=reviewed` + 复盘人/时间。
+    """
+    take = db.get(StockTake, take_id)
+    if take is None or take.deleted:
+        raise HTTPException(status_code=404, detail="盘点单不存在")
+    if take.status != "approved":
+        raise HTTPException(status_code=422, detail="仅已审核的盘点单可登记复盘")
+    if (take.review_status or "none") == "reviewed":
+        raise HTTPException(status_code=422, detail="该盘点单已复盘，不能重复登记")
+    note = str(payload.get("note") or "").strip()
+    if not note:
+        raise HTTPException(status_code=422, detail="复盘说明必填（差异原因/处理结论）")
+    take.review_status = "reviewed"
+    take.review_note = note[:2000]
+    take.reviewed_by = getattr(user, "id", None)
+    take.reviewed_name = getattr(user, "real_name", None)
+    take.reviewed_at = datetime.now()
+    audit_service.log(db, user, module="stock", action="review",
+                      object_type="stock_take", object_id=take.id, object_no=take.doc_no,
+                      detail=f"盘点复盘：{note[:100]}", request=request)
+    db.commit()
+    return doc_service.fmt_doc(db, take)
+
+
 # ==================== V2.6.1：出库单「更多 → 退库」（CR-022） ====================
 
 def _returned_qty_map(db: Session, out_id: int) -> dict[int, Decimal]:

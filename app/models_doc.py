@@ -435,6 +435,12 @@ class StockTake(Base, DocMixin):
     generated_in_no: Mapped[str | None] = mapped_column(String(32), nullable=True)
     generated_out_id: Mapped[int | None] = mapped_column(Integer, nullable=True)         # 盘亏出库单 id
     generated_out_no: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # CR-040：复盘（审核后由复盘人确认差异说明；不改库存，仅留痕）
+    review_status: Mapped[str] = mapped_column(String(16), nullable=False, default="none")
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reviewed_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     items: Mapped[list["StockTakeItem"]] = relationship(
         back_populates="doc", cascade="all, delete-orphan", order_by="StockTakeItem.seq",

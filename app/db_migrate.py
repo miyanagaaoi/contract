@@ -91,6 +91,12 @@ _ADD_COLUMNS: list[tuple[str, str, str]] = [
     ("invoices", "our_company_code", "VARCHAR(8)"),
     ("invoices", "our_company_name", "VARCHAR(64)"),
     ("invoices", "is_red", "BOOLEAN NOT NULL DEFAULT FALSE"),  # PG 不接受整数默认值
+    # ---- CR-040：盘点复盘 ----
+    ("stock_takes", "review_status", "VARCHAR(16) NOT NULL DEFAULT 'none'"),
+    ("stock_takes", "review_note", "TEXT"),
+    ("stock_takes", "reviewed_by", "INTEGER"),
+    ("stock_takes", "reviewed_name", "VARCHAR(64)"),
+    ("stock_takes", "reviewed_at", "TIMESTAMP"),
     # ---- CR-033：附件内容哈希（去重）----
     ("attachments", "sha256", "VARCHAR(64)"),
     # ---- CR-032：库存结存增加「当前库存总额度」列（过账增量维护）----

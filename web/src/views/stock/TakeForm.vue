@@ -15,6 +15,7 @@ import { useRoute, useRouter } from 'vue-router'
 import ApproveDialog from '@/components/doc/ApproveDialog.vue'
 import type { ApproveMode } from '@/components/doc/ApproveDialog.vue'
 import DocFormPage from '@/components/doc/DocFormPage.vue'
+import { reviewStockTake } from '@/api'
 import ProductTreeSelect from '@/components/doc/ProductTreeSelect.vue'
 import {
   docAction,
@@ -152,6 +153,19 @@ async function searchProducts(keyword: string) {
 }
 
 /** 重新拉取详情（生成行项 / 保存实盘 / 审核后刷新） */
+async function openReview(detail: Dict, reload?: () => void) {
+  try {
+    const { value } = await ElMessageBox.prompt('复盘说明（差异原因 / 处理结论，必填）', '盘点复盘', {
+      confirmButtonText: '提交复盘', cancelButtonText: '取消',
+      inputValidator: (v: string) => (v && v.trim() ? true : '请填写复盘说明'),
+    })
+    await reviewStockTake(Number(detail.id), value)
+    ElMessage.success('复盘已登记')
+    reload?.()
+    await reloadDoc()
+  } catch { /* 取消或接口错误由拦截器提示 */ }
+}
+
 function reloadDoc() {
   return formRef.value?.load()
 }
@@ -263,7 +277,13 @@ async function onApproveConfirm(payload: { mode: ApproveMode; reason: string }) 
                  :require-items="false" :submit-items="false" :redirect-after-save="false"
                  :extra-required="[{ key: 'warehouse_id', label: '盘点仓库' }]"
                  @saved="onSaved">
-      <template #header="{ detail }">
+      <template #header="{ detail, reload }">
+        <el-col :span="24" v-if="detail && detail.status === 'approved'">
+          <el-alert v-if="detail.review_status === 'reviewed'" type="success" :closable="false"
+                    style="margin-bottom: 8px"
+                    :title="`已复盘：${detail.review_note || ''}（${detail.reviewed_name || '—'}）`" />
+          <el-button v-else type="warning" plain @click="openReview(detail, reload)">登记复盘</el-button>
+        </el-col>
         <el-col :span="12">
           <el-form-item label="盘点仓库" required>
             <el-select v-model="extra.warehouse_id" filterable placeholder="请选择仓库"
