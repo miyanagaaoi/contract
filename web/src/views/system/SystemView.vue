@@ -394,6 +394,11 @@ onMounted(async () => {
         <el-form label-width="200px" class="narrow">
           <el-form-item v-for="m in paramMeta" :key="m.key" :label="m.label">
             <el-switch v-if="m.type === 'bool'" v-model="params[m.key]" :disabled="!canParamEdit" />
+            <el-select v-else-if="m.type === 'select'" v-model="params[m.key]"
+                       :disabled="!canParamEdit" style="width: 220px">
+              <el-option v-for="o in (m.options || [])" :key="o.value"
+                         :label="o.label" :value="o.value" />
+            </el-select>
             <el-input-number v-else v-model="params[m.key]" :min="m.min" :max="m.max"
                              :controls="false" :disabled="!canParamEdit" style="width: 160px" />
             <span class="tip">{{ m.note }}</span>

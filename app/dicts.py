@@ -263,6 +263,8 @@ DEFAULT_SYS_PARAMS: dict = {
     "default_price_decimals": 4,    # 单价小数位
     "money_decimals": 2,            # 金额小数位
     "pwd_min_length": 8,            # 密码最小长度
+    # CR-037：库存成本口径（fifo=批次近似；moving_avg=移动加权平均）
+    "cost_method": "fifo",
 }
 
 # 参数取值类型（set 时按此归一，防脏值）
@@ -274,12 +276,18 @@ _SYS_PARAM_TYPES: dict[str, type] = {
     "default_price_decimals": int,
     "money_decimals": int,
     "pwd_min_length": int,
+    "cost_method": str,
 }
 
 # 参数元数据（系统管理页展示：中文名/类型/说明；T-V2-12）
 SYS_PARAM_META: list[dict] = [
     {"key": "warranty_window_days", "label": "质保到期提醒窗口（天）", "type": "int",
      "note": "首页看板提前多少天提醒质保到期", "min": 1, "max": 365},
+    {"key": "cost_method", "label": "库存成本口径", "type": "select",
+     "note": "决定「当前库存总额度」的计价：FIFO 批次近似（默认，与批次报表同源）"
+             "或移动加权平均（每次出库按当前均价结转）",
+     "options": [{"value": "fifo", "label": "FIFO 批次近似"},
+                 {"value": "moving_avg", "label": "移动加权平均"}]},
     {"key": "allow_negative_stock", "label": "允许负库存", "type": "bool",
      "note": "关闭时出库过账校验可用库存（建议保持关闭）"},
     {"key": "allow_self_approve", "label": "允许创建人自审", "type": "bool",

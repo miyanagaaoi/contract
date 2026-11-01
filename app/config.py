@@ -105,7 +105,7 @@ def _sqlite_file_of(url: str, fallback: Path) -> Path:
 DB_FILE = _sqlite_file_of(DB_URL, _DEFAULT_DB_FILE)
 
 APP_NAME = "CTMS"
-APP_VERSION = "2.6.6"  # V2.6.6（采购退货单/销售退货单）
+APP_VERSION = "2.6.7"  # V2.6.7（成本口径：FIFO / 移动加权平均可选）
 
 # 附件限制
 MAX_UPLOAD_MB = 20

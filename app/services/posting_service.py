@@ -82,6 +82,7 @@ def post_stock_doc(db: Session, doc, *, user, reverse: bool = False,
                 f"（可用 {stock.qty}，需要 {item.qty}，缺 {shortage}）"
             )
 
+        old_qty, old_value = stock.qty or ZERO, stock.stock_value or ZERO
         stock.qty = new_qty
         stock.updated_at = datetime.now()
         base_type = biz_type_of(doc, item)
@@ -94,11 +95,15 @@ def post_stock_doc(db: Session, doc, *, user, reverse: bool = False,
             created_by=getattr(user, "id", None),
             remark="反审核红冲" if reverse else None,
         ))
-        db.flush()
-        # CR-032：库存金额按「剩余批次成本」精确重算（与库存明细/批次报表同源）
-        from .stock_report_service import stock_value_of
+        if params.get("cost_method") == "moving_avg":
+            stock.stock_value = _moving_avg_value(old_qty, old_value, delta,
+                                                  item.unit_price or ZERO)
+        else:
+            db.flush()
+            # CR-032：库存金额按「剩余批次成本」精确重算（与库存明细/批次报表同源）
+            from .stock_report_service import stock_value_of
 
-        stock.stock_value = stock_value_of(db, item.product_id, warehouse_id)
+            stock.stock_value = stock_value_of(db, item.product_id, warehouse_id)
         written += 1
 
     doc.posted = not reverse
@@ -162,6 +167,7 @@ def post_transfer(db: Session, doc, *, user, reverse: bool = False) -> int:
         in_stock = _get_stock(db, item.product_id, to_wh)
         plans.append((item, out_stock, in_stock, qty))
 
+    params = get_sys_params(db)
     # ── 阶段二：统一写入（任一异常由路由层事务整体回滚） ──
     written = 0
     sign = -1 if reverse else 1
@@ -174,9 +180,12 @@ def post_transfer(db: Session, doc, *, user, reverse: bool = False) -> int:
             (in_stock, to_wh, "调拨入库", sign * qty),
         )
         for stock, warehouse_id, biz_type, delta in legs:
-            new_qty = (stock.qty or ZERO) + delta
+            old_qty, old_value = stock.qty or ZERO, stock.stock_value or ZERO
+            new_qty = old_qty + delta
             stock.qty = new_qty
             stock.updated_at = datetime.now()
+            if params.get("cost_method") == "moving_avg":
+                stock.stock_value = _moving_avg_value(old_qty, old_value, delta, price)
             db.add(StockLedger(
                 product_id=item.product_id, warehouse_id=warehouse_id,
                 biz_type=(f"红冲-{biz_type}" if reverse else biz_type),
@@ -187,12 +196,13 @@ def post_transfer(db: Session, doc, *, user, reverse: bool = False) -> int:
                 remark="反审核红冲" if reverse else None,
             ))
             written += 1
-        db.flush()
-        # CR-032：调拨两端同价，按剩余批次成本重算两仓金额（默认 FIFO 成本时总额度守恒）
-        from .stock_report_service import stock_value_of
+        if params.get("cost_method") != "moving_avg":
+            db.flush()
+            # CR-032：调拨两端同价，按剩余批次成本重算两仓金额（FIFO 时总额度守恒）
+            from .stock_report_service import stock_value_of
 
-        out_stock.stock_value = stock_value_of(db, item.product_id, from_wh)
-        in_stock.stock_value = stock_value_of(db, item.product_id, to_wh)
+            out_stock.stock_value = stock_value_of(db, item.product_id, from_wh)
+            in_stock.stock_value = stock_value_of(db, item.product_id, to_wh)
 
     doc.posted = not reverse
     audit_service.log(db, user, module="stock",
@@ -376,18 +386,24 @@ def apply_opening_balance(db: Session, *, product, warehouse, target_qty: Decima
     delta = target_qty - (stock.qty or ZERO)
     if delta == 0:
         return False
+    old_qty, old_value = stock.qty or ZERO, stock.stock_value or ZERO
     stock.qty = target_qty
     stock.updated_at = datetime.now()
+    params = get_sys_params(db)
+    if params.get("cost_method") == "moving_avg":
+        stock.stock_value = _moving_avg_value(old_qty, old_value, delta,
+                                              unit_price or ZERO)
     db.add(StockLedger(
         product_id=product.id, warehouse_id=warehouse.id,
         biz_type="期初入库", doc_type="stock_opening", doc_id=0, doc_no=doc_no,
         qty_change=delta, qty_after=target_qty, unit_price=unit_price,
         created_by=getattr(user, "id", None), remark="期初建账导入",
     ))
-    db.flush()
-    from .stock_report_service import stock_value_of
+    if params.get("cost_method") != "moving_avg":
+        db.flush()
+        from .stock_report_service import stock_value_of
 
-    stock.stock_value = stock_value_of(db, product.id, warehouse.id)   # CR-032
+        stock.stock_value = stock_value_of(db, product.id, warehouse.id)   # CR-032
     return True
 
 
@@ -502,6 +518,23 @@ def fifo_weighted_price(db: Session, product_id: int, warehouse_id: int,
 
 def status_label(doc) -> str:
     return DOC_STATUS.get(doc.status, doc.status)
+
+
+def _moving_avg_value(old_qty, old_value, delta, unit_price) -> Decimal:
+    """移动加权平均：入库按单据价加；出库按当前均价扣减（CR-037）。
+
+    反审核的红冲沿用同一公式：红冲出库（delta>0）按单据价加回，
+    红冲入库（delta<0）按当前均价扣减（近似口径，已在 PRD 注明）。
+    """
+    old_qty = old_qty or ZERO
+    old_value = old_value or ZERO
+    unit_price = unit_price or ZERO
+    if delta > 0:
+        return old_value + delta * unit_price
+    if old_qty <= ZERO:
+        return old_value + delta * unit_price
+    avg = old_value / old_qty
+    return old_value + delta * avg
 
 
 # ==================== 退货单据审核（CR-034） ====================

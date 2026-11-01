@@ -146,3 +146,54 @@ def test_sales_return_post_in_and_rollback_shipped(client, h):
             StockLedger.doc_id == doc["id"])).scalars().first()
         assert led is not None and led.qty_change == Decimal("3")
         assert led.biz_type == "销售退货"
+
+
+# ==================== CR-037：成本口径（移动加权平均） ====================
+
+def test_moving_avg_cost_method(client, h):
+    """切换为移动加权：入库按单据价、出库按当前均价结转。"""
+    from app import dicts as app_dicts
+
+    m = _masters(with_qty="0")
+    with SessionLocal() as db:
+        params = app_dicts.get_sys_params(db)
+        params["cost_method"] = "moving_avg"
+        app_dicts.set_sys_params(db, {"cost_method": "moving_avg"})
+        db.commit()
+    try:
+        def do_in(qty: str, price: str):
+            doc = client.post("/api/stock/in-orders", headers=h, json={
+                "doc_date": "2026-11-01", "in_type": "其他入库",
+                "warehouse_id": m["wh"], "subject_code": "ZC",
+                "items": [{"product_id": m["product"], "qty": qty, "unit_price": price}]}).json()
+            client.post(f"/api/stock/in-orders/{doc['id']}/submit", headers=h)
+            assert client.post(f"/api/stock/in-orders/{doc['id']}/approve",
+                               headers=h).status_code == 200
+            return doc
+
+        do_in(10, 10)          # 库存 10，金额 100
+        do_in(10, 20)          # 库存 20，金额 300（均价 15）
+        out = client.post("/api/stock/out-orders", headers=h, json={
+            "doc_date": "2026-11-02", "out_type": "其他出库",
+            "warehouse_id": m["wh"], "subject_code": "ZC",
+            "items": [{"product_id": m["product"], "qty": 5, "unit_price": 15}]}).json()
+        client.post(f"/api/stock/out-orders/{out['id']}/submit", headers=h)
+        assert client.post(f"/api/stock/out-orders/{out['id']}/approve",
+                           headers=h).status_code == 200
+
+        with SessionLocal() as db:
+            st = db.execute(select(Stock).where(Stock.product_id == m["product"],
+                                                Stock.warehouse_id == m["wh"])).scalar_one()
+            assert Decimal(st.qty) == Decimal("15")
+            assert Decimal(st.stock_value) == Decimal("225")   # 300 - 5×15
+    finally:
+        with SessionLocal() as db:
+            app_dicts.set_sys_params(db, {"cost_method": "fifo"})
+            db.commit()
+
+
+def test_cost_method_param_meta_exposed(client, h):
+    data = client.get("/api/system/params", headers=h).json()
+    meta = {m["key"]: m for m in data["meta"]}
+    assert meta["cost_method"]["type"] == "select"
+    assert data["params"]["cost_method"] in ("fifo", "moving_avg")
