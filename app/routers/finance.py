@@ -635,10 +635,18 @@ async def invoice_import_file(request: Request, file: UploadFile = File(...),
     """
     from ..services import invoice_import_service
 
+    from ..config import MAX_UPLOAD_MB
+
+    name = file.filename or "upload.pdf"
+    low = name.lower()
+    if not (low.endswith(".pdf") or low.endswith(".zip")):
+        raise HTTPException(status_code=422, detail="只支持 PDF 单张发票或 ZIP 发票包")
     data = await file.read()
     if not data:
         raise HTTPException(status_code=422, detail="上传文件为空")
-    name = file.filename or "upload.pdf"
+    if len(data) > MAX_UPLOAD_MB * 1024 * 1024:
+        raise HTTPException(status_code=413,
+                            detail=f"文件过大（{len(data) / 1048576:.1f}MB），上限 {MAX_UPLOAD_MB}MB")
     try:
         entries = invoice_import_service.expand_upload(name, data)
     except Exception as exc:  # noqa: BLE001 - 非 zip/损坏

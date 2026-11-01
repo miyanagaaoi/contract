@@ -81,6 +81,9 @@
 
 ### CR-007 分包 Docker 交付（核心包 + 浏览器底座）
 
+> **已停用**（2026-10-28，CR-026）：Playwright 同步移除后不再有浏览器底座/同步包，
+> 现在只交付核心镜像；此处仅作历史溯源。
+
 - **问题**：整包 1.4GB+，每次更新都要重传 Chromium。
 - **规则**：三层——`ctms-browser:1`（Chromium+字体，固定，一次性）、`ctms:<版本>`（业务核心，~71MB gz）、
   `ctms:<版本>-sync`（服务器本地 `FROM ctms-browser:1` + 从核心镜像 COPY，**离线秒级组装**，不再传输 Chromium）。
@@ -150,6 +153,8 @@
 - **证据**：`web/src/components/SignaturePad.vue`（`enterFullscreen / resizeCanvas`）。
 
 ### CR-015 浏览器桥插件适配 DSH 0.2.1-rc.2
+
+> **已停用**（2026-10-28，CR-026）：发票桥接通道随同步一起移除，本条目仅作历史溯源。
 
 - **问题**：`@yuxianglin/dsh-bridge-browser@0.0.7` 的 peerDependencies 精确锁定 `0.2.0-rc.2`，
   宿主升级到 `0.2.1-rc.2` 后 peer 校验失败 → bundle 被跳过：`/ext/bridge-config` 返回 404、
@@ -272,7 +277,7 @@
 
 - **问题**（2026-10-24 业务要求）：出库后发生退货/退料时，目前只能手工新建入库单，
   容易漏记来源、数量对不上。
-- **规则（提议稿，待确认）**：
+- **规则（已按确认口径实现）**：
   1. 入口：出库单列表「更多」新增「退库」，仅 **已审核（approved）** 出库单可见可用；
   2. 交互：弹窗按行项展示「已出库 / 已退 / 可退」，可勾选行并填退库数量（≤可退数量），
      支持整单全退；
@@ -427,6 +432,24 @@
   批次报表「领用方」：`DEMO27-OUT-4`（领用出库，含红冲行）均显示「演示领用人」；
   全量 **518 passed**（未打包镜像，按业务要求等确认）
 
+### CR-030 2.6.2 整体 review 的问题修复
+
+- **问题**（2026-11-01 整体 review 发现）：
+  1. **P1 上传无限制**：`POST /api/finance/invoices/import-file` 未校验文件类型/大小，
+     ZIP 未限制条目数与解压总量（可 zip 炸弹 / 21MB 文件也能整体读入内存）；
+  2. **P2 上传按钮未受权限控制**：无 `finance.invoice.create` 的用户也能看到按钮（后端才 403）；
+  3. **P2 死代码/过期注释**：`canSync`/`onMounted` 未使用；提示文案仍写“上传发票包”；
+     `Dockerfile.single` 与 `deploy/docker-compose.full.yml` 仍提 V2.6.0/Playwright/同步镜像。
+- **规则**：
+  1. 上传端点：仅允许 `.pdf`/`.zip`（否则 422）；超过 `MAX_UPLOAD_MB`（20MB）→ 413；
+  2. `expand_upload`：ZIP 条目 ≤ 500、解压后总量 ≤ 200MB，超限 422 并给出具体数值；
+  3. 上传按钮按 `finance.invoice.create` 置灰；清理未用导入/文案；
+  4. 构建与部署文件注释同步 2.6.2「仅核心镜像、无 Playwright」口径。
+- **状态**：已实现（2026-11-01）
+- **证据**：`app/services/invoice_import_service.py`、`app/routers/finance.py`、
+  `web/src/views/finance/InvoiceList.vue`、`deploy/Dockerfile.single`、`deploy/docker-compose.full.yml`；
+  新增上传守卫测试 3 条；全量 **521 passed**；`vite build` 通过；`/api/health` 2.6.2
+
 ## 历史版本索引（已冻结，仅溯源，不再更新）
 
 | 版本 | 规格 / 验收文档 | 说明 |
@@ -446,6 +469,7 @@
 |---|---|---|---|
 | 2026-10-20 | 建立开发文档体系 | — | PRD/TODO/AGENTS/CLAUDE 首次落地；回填 V2.6.0（CR-001~007）与 V2.6.1（CR-008~014），状态均「已实现」 |
 | 2026-10-24 | 桥插件 peer 版本适配宿主 0.2.1-rc.2 | CR-015 | 本地插件清单 13 处 peer 由 `0.2.0-rc.2` 改为 `0.2.1-rc.2`；重启后 `/ext/bridge-config` 已返回 wsUrl、`browser_*` 工具已注册（扩展侧待填新端口） |
+| 2026-11-01 | 2.6.2 整体 review 修复 | CR-030 | 上传类型/大小/ZIP 炸弹限制；上传按钮按权限置灰；清理死代码与过期构建注释；521 passed |
 | 2026-11-01 | 库存明细金额改为当前库存总额度 | CR-029 | 列名改「当前库存总额度」；口径改为 FIFO 批次剩余金额（与批次报表同源）；核对领用方取值；518 passed（未打包） |
 | 2026-10-28 | 发票页白屏 hotfix | CR-028 | 删除孤立 async；新增前端语法守卫测试；页面冒烟通过；镜像与发布包重建（517 passed） |
 | 2026-10-28 | 版本升级 2.6.2 | CR-027 | APP_VERSION 2.6.2；镜像/部署模板/发布包统一 2.6.2；export 脚本改为仅核心镜像；516 passed |

@@ -12,7 +12,7 @@
  *   税率列新增；金额移到税额后；
  * - 确认状态徽标（未确认/已确认）随绑定弹窗流转。
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import DocListPage from '@/components/doc/DocListPage.vue'
@@ -45,7 +45,8 @@ const filterParams = computed<Dict>(() => ({
 
 const canConfirm = computed(() => auth.hasPerm('finance.invoice.confirm'))
 const canVoid = computed(() => auth.hasPerm('finance.invoice.void'))
-const canSync = computed(() => auth.hasPerm('finance.invoice.create'))
+/** CR-026：上传识别需要发票创建权限（后端同样校验） */
+const canUpload = computed(() => auth.hasPerm('finance.invoice.create'))
 
 
 
@@ -59,7 +60,7 @@ function flash(message: string) {
 async function printBulk(selected: DocRecord[]) {
   const withFile = selected.filter((r) => r.has_pdf)
   if (!withFile.length) {
-    ElMessage.warning('所选发票均未上传原始文件：请先在税务平台下载发票包并「上传发票包」导入。')
+    ElMessage.warning('所选发票均未上传原始文件：请先「上传发票（PDF / ZIP）」导入原始文件。')
     return
   }
   if (withFile.length < selected.length) {
@@ -108,7 +109,7 @@ async function onMore({ command, row }: { command: string; row: DocRecord }) {
       const pdf = files.find((f) => f.is_pdf)
       if (!pdf) {
         ElMessage.warning(
-          '该发票还没有原始文件：请在税务平台「下载→全部下载」后，用列表上方「上传发票包」导入。')
+          '该发票还没有原始文件：请在税务平台「下载→全部下载」后，用列表上方「上传发票（PDF / ZIP）」导入。')
         return
       }
       // 直链打开不带登录态 → 经 axios（带 token）取 blob 再打开
@@ -164,7 +165,8 @@ async function onMore({ command, row }: { command: string; row: DocRecord }) {
     <!-- V2.6：同步发票入口（财务/有创建权限者可见） -->
     <template #toolbar>
       <el-tooltip content="上传单张发票 PDF，或税务平台「下载→全部下载」得到的 ZIP 发票包；自动识别票面并入库" placement="top">
-        <el-button type="primary" plain :loading="uploadBusy" @click="pkgInput?.click()">
+        <el-button type="primary" plain :loading="uploadBusy" :disabled="!canUpload"
+                   @click="pkgInput?.click()">
           上传发票（PDF / ZIP）
         </el-button>
       </el-tooltip>

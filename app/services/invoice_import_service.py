@@ -28,6 +28,10 @@ from . import numbering_service
 
 ZERO = Decimal("0")
 
+# 上传/解包上限（CR-029 review）：防超大文件与 zip 炸弹
+MAX_ZIP_ENTRIES = 500          # 单个压缩包最多条目数
+MAX_ZIP_TOTAL_MB = 200         # 单个压缩包解压后总大小上限
+
 # ---------- PDF 文本解析规则（数电票/电子发票共用） ----------
 _PATTERNS = {
     "invoice_no": [r"发票号码[：:]\s*([0-9]{8,20})", r"数电发票号码[：:]\s*([0-9]{8,20})"],
@@ -202,8 +206,18 @@ def import_files(db: Session, files: list[tuple[str, bytes]]) -> dict:
 
 
 def expand_upload(file_name: str, data: bytes) -> list[tuple[str, bytes]]:
-    """把上传内容展开成 (文件名, 字节)：zip 解包，PDF 原样。"""
-    if file_name.lower().endswith(".zip"):
-        with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            return [(n, zf.read(n)) for n in zf.namelist() if not n.endswith("/")]
-    return [(file_name, data)]
+    """把上传内容展开成 (文件名, 字节)：zip 解包，PDF 原样。
+
+    安全限制（zip 炸弹防护）：条目数 ≤ `MAX_ZIP_ENTRIES`，解压后总量 ≤ `MAX_ZIP_TOTAL_MB`。
+    超限抛 `ValueError`，由路由转 422。
+    """
+    if not file_name.lower().endswith(".zip"):
+        return [(file_name, data)]
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        infos = [i for i in zf.infolist() if not i.is_dir()]
+        if len(infos) > MAX_ZIP_ENTRIES:
+            raise ValueError(f"压缩包内文件过多（{len(infos)} > {MAX_ZIP_ENTRIES}）")
+        total = sum(int(i.file_size or 0) for i in infos)
+        if total > MAX_ZIP_TOTAL_MB * 1024 * 1024:
+            raise ValueError(f"压缩包解压后过大（{total / 1048576:.1f}MB > {MAX_ZIP_TOTAL_MB}MB）")
+        return [(i.filename, zf.read(i.filename)) for i in infos]

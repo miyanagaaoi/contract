@@ -11,6 +11,8 @@ from __future__ import annotations
 import io
 import zipfile
 
+import pytest
+
 from sqlalchemy import select
 
 from app.database import SessionLocal
@@ -97,3 +99,44 @@ def test_zip_import_create_then_attach_only():
                                         Attachment.object_id == inv.id).delete()
             db.delete(inv)
         db.commit()
+
+
+class TestUploadGuards:
+    """CR-029 review：上传安全限制（类型白名单 / 大小 / zip 条目与解压总量）。"""
+
+    def test_zip_entries_limit(self, monkeypatch):
+        from app.services import invoice_import_service as svc
+
+        monkeypatch.setattr(svc, "MAX_ZIP_ENTRIES", 2)
+        data = _zip({f"dzfp_2614200000888800000{i}.pdf": b"%PDF" for i in range(3)})
+        with pytest.raises(ValueError) as exc:
+            svc.expand_upload("pack.zip", data)
+        assert "文件过多" in str(exc.value)
+
+    def test_zip_total_size_limit(self, monkeypatch):
+        from app.services import invoice_import_service as svc
+
+        monkeypatch.setattr(svc, "MAX_ZIP_TOTAL_MB", 1)
+        data = _zip({"dzfp_26142000008888000001.pdf": b"0" * (2 * 1024 * 1024)})
+        with pytest.raises(ValueError) as exc:
+            svc.expand_upload("pack.zip", data)
+        assert "解压后过大" in str(exc.value)
+
+    def test_non_pdf_zip_rejected(self):
+        import httpx
+
+        # 通过 TestClient 不便传大文件；这里只验证扩展名白名单（路由层）
+        from fastapi.testclient import TestClient
+
+        from app.init_db import ADMIN_INIT_PASSWORD, ADMIN_USERNAME
+        from app.main import app
+
+        with TestClient(app) as c:
+            token = c.post("/api/auth/login",
+                           json={"username": ADMIN_USERNAME,
+                                 "password": ADMIN_INIT_PASSWORD}).json()["token"]
+            r = c.post("/api/finance/invoices/import-file",
+                       headers={"Authorization": f"Bearer {token}"},
+                       files={"file": ("evil.exe", b"MZ", "application/octet-stream")})
+        assert r.status_code == 422
+        assert "PDF" in r.json()["detail"]
