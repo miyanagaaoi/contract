@@ -358,6 +358,66 @@ class StockOutOrderItem(Base, DocItemMixin):
     doc: Mapped[StockOutOrder] = relationship(back_populates="items")
 
 
+# ==================== 采购退货单 / 销售退货单（CR-034） ====================
+
+class PurchaseReturnOrder(Base, DocMixin):
+    """采购退货单：货物退回供应商，**出库方向**；审核后回冲采购单 received_qty。"""
+    __tablename__ = "purchase_return_orders"
+
+    doc_type = "purchase_return"
+    direction = -1
+    label = "采购退货单"
+
+    warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), nullable=False, index=True)
+    warehouse_name: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    supplier_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    supplier_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    total_amount: Mapped[Decimal] = mapped_column(
+        Numeric(16, 2), nullable=False, default=Decimal("0"))
+
+    items: Mapped[list["PurchaseReturnOrderItem"]] = relationship(
+        back_populates="doc", cascade="all, delete-orphan",
+        order_by="PurchaseReturnOrderItem.seq", lazy="selectin")
+
+
+class PurchaseReturnOrderItem(Base, DocItemMixin):
+    __tablename__ = "purchase_return_order_items"
+
+    doc_id: Mapped[int] = mapped_column(
+        ForeignKey("purchase_return_orders.id", ondelete="CASCADE"), index=True)
+
+    doc: Mapped[PurchaseReturnOrder] = relationship(back_populates="items")
+
+
+class SalesReturnOrder(Base, DocMixin):
+    """销售退货单：客户退货入库，**入库方向**；审核后回冲销售订单 shipped_qty。"""
+    __tablename__ = "sales_return_orders"
+
+    doc_type = "sales_return"
+    direction = 1
+    label = "销售退货单"
+
+    warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), nullable=False, index=True)
+    warehouse_name: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    customer_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    customer_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    total_amount: Mapped[Decimal] = mapped_column(
+        Numeric(16, 2), nullable=False, default=Decimal("0"))
+
+    items: Mapped[list["SalesReturnOrderItem"]] = relationship(
+        back_populates="doc", cascade="all, delete-orphan",
+        order_by="SalesReturnOrderItem.seq", lazy="selectin")
+
+
+class SalesReturnOrderItem(Base, DocItemMixin):
+    __tablename__ = "sales_return_order_items"
+
+    doc_id: Mapped[int] = mapped_column(
+        ForeignKey("sales_return_orders.id", ondelete="CASCADE"), index=True)
+
+    doc: Mapped[SalesReturnOrder] = relationship(back_populates="items")
+
+
 # ==================== 盘点单 ====================
 
 class StockTake(Base, DocMixin):
@@ -702,6 +762,9 @@ DOC_MODELS: dict[str, type] = {
     "stock_out": StockOutOrder,
     "stock_take": StockTake,
     "stock_transfer": StockTransfer,
+    # CR-034：退货单据
+    "purchase_return": PurchaseReturnOrder,
+    "sales_return": SalesReturnOrder,
     # V2.5：财务域（无物料行项，故不进 DOC_ITEM_MODELS）
     "payment": PaymentOrder,
     "receipt": ReceiptOrder,
@@ -716,6 +779,8 @@ DOC_ITEM_MODELS: dict[str, type] = {
     "stock_out": StockOutOrderItem,
     "stock_take": StockTakeItem,
     "stock_transfer": StockTransferItem,
+    "purchase_return": PurchaseReturnOrderItem,
+    "sales_return": SalesReturnOrderItem,
 }
 
 

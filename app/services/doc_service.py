@@ -155,7 +155,11 @@ def apply_items(db: Session, doc, rows: list[dict] | None, *,
         item.warehouse_id = warehouse.id if warehouse else None
         item.warehouse_name = warehouse_display_name(db, warehouse)
         item.remark = (str(raw.get("remark") or "").strip() or None)
-        if not getattr(item, "src_item_id", None) and inherited_src.get(seq):
+        # CR-034：调用方可直接指定来源行（退货/下推新建时）；否则按行号继承
+        raw_src = raw.get("src_item_id")
+        if raw_src:
+            item.src_item_id = int(raw_src)
+        elif not getattr(item, "src_item_id", None) and inherited_src.get(seq):
             item.src_item_id = inherited_src[seq]
         doc.items.append(item)
 

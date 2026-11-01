@@ -390,3 +390,41 @@ def rollback_shipped_qty(db: Session, stock_out_doc) -> None:
         target = items.get(line.src_item_id)
         if target is not None:
             target.shipped_qty = max(ZERO, (target.shipped_qty or ZERO) - (line.qty or ZERO))
+
+
+# ==================== 退货单据回冲（CR-034） ====================
+
+def _return_lines(db: Session, doc, source_type: str, attr: str, sign: int) -> int:
+    """按来源单行回冲数量：`received_qty`（采购）或 `shipped_qty`（销售）。"""
+    items = _source_items(db, doc, source_type)
+    if not items:
+        return 0
+    changed = 0
+    for line in doc.items:
+        target = items.get(line.src_item_id)
+        if target is None:
+            continue
+        base = getattr(target, attr) or ZERO
+        setattr(target, attr, max(ZERO, base + sign * (line.qty or ZERO)))
+        changed += 1
+    return changed
+
+
+def apply_purchase_return(db: Session, doc) -> int:
+    """采购退货审核：从采购单行项已收数量中扣回（退回供应商）。"""
+    return _return_lines(db, doc, "purchase_order", "received_qty", -1)
+
+
+def revert_purchase_return(db: Session, doc) -> int:
+    """采购退货反审核：恢复采购单已收数量。"""
+    return _return_lines(db, doc, "purchase_order", "received_qty", 1)
+
+
+def apply_sales_return(db: Session, doc) -> int:
+    """销售退货审核：从销售订单行项已发数量中扣回（客户退回）。"""
+    return _return_lines(db, doc, "sales_order", "shipped_qty", -1)
+
+
+def revert_sales_return(db: Session, doc) -> int:
+    """销售退货反审核：恢复销售订单已发数量。"""
+    return _return_lines(db, doc, "sales_order", "shipped_qty", 1)

@@ -60,6 +60,20 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
         _doc.subject_code, _doc.subject_name = doc_service.require_subject(
             _db, _payload.get("subject_code"))
 
+    def _apply_source(doc, payload: dict) -> None:
+        """CR-034：允许调用方显式指定来源单据（退货/下推新建时）。
+
+        仅接受白名单类型；来源单号只做快照展示，业务回写仍以 `source_doc_id` 为准。
+        """
+        if "source_doc_type" not in payload and "source_doc_id" not in payload:
+            return
+        stype = str(payload.get("source_doc_type") or "").strip() or None
+        if stype not in (None, "purchase_order", "sales_order"):
+            raise ValueError("来源单据类型只能是：采购单 / 销售订单")
+        doc.source_doc_type = stype
+        doc.source_doc_id = int(payload["source_doc_id"]) if payload.get("source_doc_id") else None
+        doc.source_doc_no = (str(payload.get("source_doc_no") or "").strip() or None)
+
     def _new_doc(db: Session, payload: dict, user: User):
         day = _guard(db, doc_service.parse_doc_date, payload.get("doc_date"))
         # V2.1（N1）：经办人默认当前账号，并同时落"姓名快照"
@@ -76,6 +90,7 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
             handler_name=handler_name,
             remark=(str(payload.get("remark") or "").strip() or None),
         )
+        _apply_source(doc, payload)   # CR-034：来源单据（退货）
         # 特有字段（含必填的仓库/供应商）必须在 flush 之前落值，否则会以 NULL 触发非空约束
         if create_hook is not None:
             _guard(db, create_hook, db, doc, payload)
@@ -211,6 +226,7 @@ def register_doc_routes(router: APIRouter, *, prefix: str, kind: str, model, per
                 db, doc_service.handler_snapshot, db, payload.get("handler_user_id"))
         if "contract_id" in payload:
             _guard(db, doc_service.bind_contract, db, doc, payload.get("contract_id"))
+        _guard(db, _apply_source, doc, payload)     # CR-034：允许草稿阶段绑定来源单
         # V2.3（N2）：签约公司必填，显式传值时必须命中我方公司字典（不接受清空）
         if sign_subject and "subject_code" in payload:
             _guard(db, doc_service.apply_subject, db, doc, payload)

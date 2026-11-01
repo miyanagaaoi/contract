@@ -304,6 +304,9 @@ DEFAULT_NUMBER_RULES: dict = {
     "stock_out": {"prefix": "OUT", "reset": "month", "seq_len": 6},
     "stock_take": {"prefix": "ST", "reset": "month", "seq_len": 6},
     "stock_transfer": {"prefix": "DB", "reset": "month", "seq_len": 6},   # V2.1/N13 调拨单
+    # CR-034：退货单据
+    "purchase_return": {"prefix": "PRT", "reset": "month", "seq_len": 6},
+    "sales_return": {"prefix": "SRT", "reset": "month", "seq_len": 6},
     # ---- V2.5：财务域（付款单/收款单/发票）----
     "payment": {"prefix": "PAY", "reset": "month", "seq_len": 6},
     "receipt": {"prefix": "RCP", "reset": "month", "seq_len": 6},
@@ -318,6 +321,7 @@ NUMBER_RULE_LABELS: dict[str, str] = {
     "sales_request": "销售申请单", "sales_order": "销售订单",
     "stock_in": "入库单", "stock_out": "出库单", "stock_take": "盘点单",
     "stock_transfer": "调拨单",
+    "purchase_return": "采购退货单", "sales_return": "销售退货单",
     "payment": "付款单", "receipt": "收款单", "invoice": "发票",   # V2.5 财务域
     "customer": "客户编码", "supplier": "供应商编码", "product": "物料编码",
 }

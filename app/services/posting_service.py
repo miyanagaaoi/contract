@@ -48,11 +48,16 @@ def biz_type_of(doc, item=None) -> str:
         return getattr(doc, "in_type", None) or "其他入库"
     if isinstance(doc, StockOutOrder):
         return getattr(doc, "out_type", None) or "其他出库"
+    # CR-034：退货单据
+    if getattr(doc, "doc_type", None) == "purchase_return":
+        return "采购退货"
+    if getattr(doc, "doc_type", None) == "sales_return":
+        return "销售退货"
     return "其他"
 
 
 def post_stock_doc(db: Session, doc, *, user, reverse: bool = False,
-                   skip_negative_check: bool = False) -> int:
+                   skip_negative_check: bool = False, apply_push: bool = True) -> int:
     """对入库/出库单过账（`reverse=True` 为红冲）。返回写入的流水条数。"""
     params = get_sys_params(db)
     if not reverse and doc.posted:
@@ -101,12 +106,13 @@ def post_stock_doc(db: Session, doc, *, user, reverse: bool = False,
     # （两个函数都按 source_doc_type 自行判断，不匹配则直接返回，故可同时调用）
     from . import push_service
 
-    if reverse:
-        push_service.rollback_received_qty(db, doc)
-        push_service.rollback_shipped_qty(db, doc)
-    else:
-        push_service.backfill_received_qty(db, doc)
-        push_service.backfill_shipped_qty(db, doc)
+    if apply_push:                       # 退货单据由各自审核函数处理回冲，跳过默认回写
+        if reverse:
+            push_service.rollback_received_qty(db, doc)
+            push_service.rollback_shipped_qty(db, doc)
+        else:
+            push_service.backfill_received_qty(db, doc)
+            push_service.backfill_shipped_qty(db, doc)
 
     audit_service.log(db, user, module="stock",
                       action="unapprove" if reverse else "approve",
@@ -496,3 +502,51 @@ def fifo_weighted_price(db: Session, product_id: int, warehouse_id: int,
 
 def status_label(doc) -> str:
     return DOC_STATUS.get(doc.status, doc.status)
+
+
+# ==================== 退货单据审核（CR-034） ====================
+
+def approve_purchase_return(db: Session, doc, user) -> int:
+    """采购退货审核：出库过账 + 回冲采购单 received_qty。"""
+    if doc.posted and doc.status == "approved":
+        return 0
+    from . import push_service
+
+    doc_service.approve(db, doc, user)
+    written = post_stock_doc(db, doc, user=user, apply_push=False)
+    push_service.apply_purchase_return(db, doc)
+    return written
+
+
+def unapprove_purchase_return(db: Session, doc, reason: str, user) -> int:
+    if not doc.posted:
+        return 0
+    from . import push_service
+
+    doc_service.unapprove(db, doc, reason, user)
+    written = post_stock_doc(db, doc, user=user, reverse=True, apply_push=False)
+    push_service.revert_purchase_return(db, doc)
+    return written
+
+
+def approve_sales_return(db: Session, doc, user) -> int:
+    """销售退货审核：入库过账 + 回冲销售订单 shipped_qty。"""
+    if doc.posted and doc.status == "approved":
+        return 0
+    from . import push_service
+
+    doc_service.approve(db, doc, user)
+    written = post_stock_doc(db, doc, user=user, apply_push=False)
+    push_service.apply_sales_return(db, doc)
+    return written
+
+
+def unapprove_sales_return(db: Session, doc, reason: str, user) -> int:
+    if not doc.posted:
+        return 0
+    from . import push_service
+
+    doc_service.unapprove(db, doc, reason, user)
+    written = post_stock_doc(db, doc, user=user, reverse=True, apply_push=False)
+    push_service.revert_sales_return(db, doc)
+    return written

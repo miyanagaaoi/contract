@@ -33,6 +33,7 @@ from .routers import (
     meta,
     print_templates,
     purchase,
+    returns,
     sales,
     settings,
     stock,
@@ -88,6 +89,7 @@ app.include_router(contracts.router)
 app.include_router(purchase.router)
 app.include_router(sales.router)
 app.include_router(stock.router)
+app.include_router(returns.router)
 app.include_router(attachments.router)
 app.include_router(export.router)
 app.include_router(imports.router)

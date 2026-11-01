@@ -371,6 +371,48 @@ const router = createRouter({
           component: () => import('@/views/stock/TransferForm.vue'),
           meta: { title: '调拨单详情', perm: 'stock.transfer.view' },
         },
+
+        // ---- 库存管理：退货单据（CR-034） ----
+        {
+          path: 'stock/purchase-returns', name: 'stock-purchase-returns',
+          component: () => import('@/views/stock/PurchaseReturnList.vue'),
+          meta: { title: '采购退货单', perm: 'stock.out.view' },
+        },
+        {
+          path: 'stock/purchase-returns/new', name: 'stock-purchase-return-form',
+          component: () => import('@/views/stock/PurchaseReturnForm.vue'),
+          meta: { title: '新增采购退货单', perm: 'stock.out.create' },
+        },
+        {
+          path: 'stock/purchase-returns/:id/edit', name: 'stock-purchase-return-edit',
+          component: () => import('@/views/stock/PurchaseReturnForm.vue'),
+          meta: { title: '编辑采购退货单', perm: 'stock.out.edit' },
+        },
+        {
+          path: 'stock/purchase-returns/:id', name: 'stock-purchase-return-detail',
+          component: () => import('@/views/stock/PurchaseReturnForm.vue'),
+          meta: { title: '采购退货单详情', perm: 'stock.out.view' },
+        },
+        {
+          path: 'stock/sales-returns', name: 'stock-sales-returns',
+          component: () => import('@/views/stock/SalesReturnList.vue'),
+          meta: { title: '销售退货单', perm: 'stock.in.view' },
+        },
+        {
+          path: 'stock/sales-returns/new', name: 'stock-sales-return-form',
+          component: () => import('@/views/stock/SalesReturnForm.vue'),
+          meta: { title: '新增销售退货单', perm: 'stock.in.create' },
+        },
+        {
+          path: 'stock/sales-returns/:id/edit', name: 'stock-sales-return-edit',
+          component: () => import('@/views/stock/SalesReturnForm.vue'),
+          meta: { title: '编辑销售退货单', perm: 'stock.in.edit' },
+        },
+        {
+          path: 'stock/sales-returns/:id', name: 'stock-sales-return-detail',
+          component: () => import('@/views/stock/SalesReturnForm.vue'),
+          meta: { title: '销售退货单详情', perm: 'stock.in.view' },
+        },
       ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/' },
