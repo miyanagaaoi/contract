@@ -807,6 +807,18 @@ export async function assignUserRoles(userId: number, roleIds: number[]): Promis
 
 // ---------- V2.6：发票同步与采购单绑定发票（docs/38） ----------
 
+/** CR-038：发票自动匹配候选 */
+export async function fetchInvoiceMatchCandidates(invoiceId: number): Promise<Dict> {
+  const { data } = await http.get(`/finance/invoices/${invoiceId}/match-candidates`)
+  return data
+}
+
+/** CR-038：发票自动匹配核销（唯一高分自动绑定采购单） */
+export async function autoMatchInvoice(invoiceId: number): Promise<Dict> {
+  const { data } = await http.post(`/finance/invoices/${invoiceId}/auto-match`)
+  return data
+}
+
 /** 采购单绑定进项发票（多选，CR-003） */
 export async function bindInvoices(purchaseOrderId: number, invoiceIds: number[]): Promise<Dict> {
   const { data } = await http.post('/finance/invoices/bind',

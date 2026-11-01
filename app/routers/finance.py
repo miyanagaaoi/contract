@@ -661,6 +661,40 @@ async def invoice_import_file(request: Request, file: UploadFile = File(...),
     return result
 
 
+@router.get(INVOICE_PREFIX + "/{invoice_id}/match-candidates",
+            summary="发票自动匹配候选（进项→采购单 / 销项→销售订单）")
+def invoice_match_candidates(invoice_id: int,
+                             user: User = Depends(require_perm("finance.invoice.view")),
+                             db: Session = Depends(get_db)):
+    from ..services import invoice_match_service
+
+    inv = db.get(Invoice, invoice_id)
+    if inv is None or inv.deleted:
+        raise HTTPException(status_code=404, detail="发票不存在")
+    return {"candidates": invoice_match_service.suggest_matches(db, inv)}
+
+
+@router.post(INVOICE_PREFIX + "/{invoice_id}/auto-match",
+             summary="发票自动匹配核销（唯一高分候选自动绑定采购单）")
+def invoice_auto_match(invoice_id: int, request: Request,
+                       user: User = Depends(require_perm("finance.invoice.confirm")),
+                       db: Session = Depends(get_db)):
+    from ..services import invoice_match_service
+
+    inv = db.get(Invoice, invoice_id)
+    if inv is None or inv.deleted:
+        raise HTTPException(status_code=404, detail="发票不存在")
+    result = invoice_match_service.auto_match(db, inv, user)
+    if result.get("matched"):
+        audit_service.log(db, user, module="finance", action="auto_match",
+                          object_type="invoice", object_id=inv.id,
+                          object_no=inv.invoice_no or inv.doc_no,
+                          detail=f"自动匹配采购单 {result.get('candidate', {}).get('target_no')}",
+                          request=request)
+        db.commit()
+    return result
+
+
 @router.get(INVOICE_PREFIX + "/print-package", summary="批量打印发票原始文件（合并 PDF）")
 def invoice_print_package(ids: str = Query(..., description="逗号分隔发票 id"),
                           user: User = Depends(require_perm("finance.invoice.view")),

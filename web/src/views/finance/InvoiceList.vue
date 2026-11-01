@@ -17,8 +17,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import DocListPage from '@/components/doc/DocListPage.vue'
 import {
-  confirmInvoice, downloadWithAuth, fetchInvoiceFiles, importInvoiceFile,
-  printInvoicePackages, unbindInvoice, verifyInvoice, voidInvoice, type Dict,
+  autoMatchInvoice, confirmInvoice, downloadWithAuth, fetchInvoiceFiles,
+  fetchInvoiceMatchCandidates, importInvoiceFile, printInvoicePackages,
+  unbindInvoice, verifyInvoice, voidInvoice, type Dict,
 } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { fmtDate, fmtMoney } from '@/utils/format'
@@ -115,6 +116,25 @@ async function onMore({ command, row }: { command: string; row: DocRecord }) {
       // 直链打开不带登录态 → 经 axios（带 token）取 blob 再打开
       const blob = await downloadWithAuth(String(pdf.preview_url))
       window.open(URL.createObjectURL(blob), '_blank')
+      return
+    }
+    if (command === 'invoice-auto-match') {
+      const res = await autoMatchInvoice(row.id)
+      if (res.matched) {
+        ElMessage.success(`已自动匹配并核销采购单 ${res.candidate?.target_no || ''}`)
+        listRef.value?.load()
+      } else {
+        const cands = (res.candidates || []) as Dict[]
+        const text = cands.length
+          ? cands.map((c) => `· ${c.target_no}｜${c.party || '—'}｜未开票 ${c.remain_amount}｜匹配度 ${c.score}`).join('\n')
+          : (res.reason || '未找到候选')
+        await ElMessageBox.alert(text, res.reason || '候选采购单（请手工选择）',
+                                 { type: 'info', confirmButtonText: '知道了' })
+        if (!cands.length) {
+          const more = await fetchInvoiceMatchCandidates(row.id).catch(() => null)
+          if (more?.candidates?.length) listRef.value?.load()
+        }
+      }
       return
     }
     if (command === 'invoice-confirm') {
@@ -288,6 +308,9 @@ async function onMore({ command, row }: { command: string; row: DocRecord }) {
     <template #more-actions="{ row }">
       <el-dropdown-item v-if="canConfirm" divided
                         command="invoice-print">打印发票</el-dropdown-item>
+      <el-dropdown-item v-if="canConfirm && row.status === 'draft'
+                                && row.invoice_direction === 'in'"
+                        command="invoice-auto-match">自动匹配采购单</el-dropdown-item>
       <el-dropdown-item v-if="canConfirm && row.status === 'draft'"
                         command="invoice-confirm">确认入账</el-dropdown-item>
       <el-dropdown-item v-if="canConfirm && row.status !== 'voided'
