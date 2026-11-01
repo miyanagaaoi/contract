@@ -90,3 +90,33 @@ def test_batch_report_export_over_limit_returns_413(client, h, monkeypatch):
     r = client.get("/api/stock/batch-report.xlsx", headers=h)
     assert r.status_code == 413, r.text
     assert "超过单次导出上限" in r.json()["detail"]
+
+
+def test_batch_report_cache_reuses_until_ledger_changes():
+    """CR-036：同一筛选的重复请求命中缓存；流水变化（max id）后自动失效。"""
+    from app.services import stock_report_service as svc
+
+    svc.clear_report_cache()
+    with SessionLocal() as db:
+        first = svc.build_batches_cached(db, keyword=None)
+        second = svc.build_batches_cached(db, keyword=None)
+    assert first is second, "同筛选应命中缓存（返回同一对象）"
+
+    # 新增一条流水 → 版本号变化 → 必须重新回放
+    from app.models_stock import StockLedger
+
+    with SessionLocal() as db:
+        any_stock = db.query(Stock).first()
+        if any_stock is None:
+            pytest.skip("无结存数据")
+        db.add(StockLedger(product_id=any_stock.product_id,
+                           warehouse_id=any_stock.warehouse_id, biz_type="其他入库",
+                           doc_type="stock_in", doc_id=0, doc_no="CACHE-TEST",
+                           # 用 0 数量流水：只改“流水最大 id”（触发缓存失效），
+                           # 不影响 stocks.qty == SUM(ledger.qty_change) 的全局一致性校验
+                           qty_change=Decimal("0"), qty_after=Decimal("0"),
+                           unit_price=Decimal("1")))
+        db.commit()
+        third = svc.build_batches_cached(db, keyword=None)
+    assert third is not first, "流水变化后缓存必须失效"
+    svc.clear_report_cache()

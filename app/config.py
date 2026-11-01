@@ -105,7 +105,7 @@ def _sqlite_file_of(url: str, fallback: Path) -> Path:
 DB_FILE = _sqlite_file_of(DB_URL, _DEFAULT_DB_FILE)
 
 APP_NAME = "CTMS"
-APP_VERSION = "2.6.4"  # V2.6.4（质量门禁、健康检查增强、附件去重、报表默认本月与导出保护）
+APP_VERSION = "2.6.5"  # V2.6.5（批次报表读缓存；质量门禁与运维增强已就位）
 
 # 附件限制
 MAX_UPLOAD_MB = 20

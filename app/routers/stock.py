@@ -677,9 +677,9 @@ def stock_batch_report(keyword: str | None = Query(None, description="物料编�
     if subject_code:
         wh_ids = [r[0] for r in db.query(Warehouse.id)
                   .filter(Warehouse.subject_code == subject_code).all()] or [-1]
-    rows = svc.build_batches(db, warehouse_id=warehouse_id, product_id=product_id,
-                             warehouse_ids=wh_ids, date_from=date_from, date_to=date_to,
-                             keyword=keyword)
+    rows = svc.build_batches_cached(db, warehouse_id=warehouse_id, product_id=product_id,
+                                    warehouse_ids=wh_ids, date_from=date_from, date_to=date_to,
+                                    keyword=keyword)
     summary = {"normal": 0, "reversal": 0, "orphan": 0}
     for r in rows:
         summary[r["row_kind"]] = summary.get(r["row_kind"], 0) + 1
@@ -712,9 +712,9 @@ def stock_batch_report_export(keyword: str | None = Query(None),
     if subject_code:
         wh_ids = [r[0] for r in db.query(Warehouse.id)
                   .filter(Warehouse.subject_code == subject_code).all()] or [-1]
-    rows = svc.build_batches(db, warehouse_id=warehouse_id, product_id=product_id,
-                             warehouse_ids=wh_ids, date_from=date_from, date_to=date_to,
-                             keyword=keyword)
+    rows = svc.build_batches_cached(db, warehouse_id=warehouse_id, product_id=product_id,
+                                    warehouse_ids=wh_ids, date_from=date_from, date_to=date_to,
+                                    keyword=keyword)
     if row_kind:
         rows = [r for r in rows if r["row_kind"] == row_kind]
     if len(rows) > DOC_EXPORT_LIMIT:

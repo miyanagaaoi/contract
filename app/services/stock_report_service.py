@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from collections import defaultdict
 from decimal import Decimal
+import threading
+import time
 
 from sqlalchemy.orm import Session
 
@@ -256,3 +258,52 @@ def stock_value_of(db: Session, product_id: int, warehouse_id: int) -> Decimal:
     """
     rows = build_batches(db, product_id=product_id, warehouse_id=warehouse_id)
     return sum((Decimal(str(r["stock_amount"])) for r in rows if r["stock_qty"]), ZERO)
+
+
+# ==================== 读路径缓存（CR-036：批次报表性能） ====================
+# 全量 FIFO 回放与流水条数线性相关（实测 1.9k 行≈0.07s，10 万行≈3.5s）。
+# 报表分页/异常区/导出会在几秒内重复请求同一筛选条件，这里做短 TTL + 流水版本号的进程内缓存：
+#   - 版本号 = stock_ledger 最大 id，任何过账/红冲都会改变它，自动失效（无需手工清缓存）；
+#   - TTL 30s 兜底；最多保留 8 个筛选组合，避免内存膨胀；
+#   - 只用于**读接口**（列表/导出）；过账/明细金额走 `stock_value_of`，不吃缓存。
+_CACHE_LOCK = threading.Lock()
+_CACHE: dict[tuple, tuple[int, float, list[dict]]] = {}
+_CACHE_TTL = 30.0
+_CACHE_MAX = 8
+
+
+def _ledger_version(db: Session) -> int:
+    from sqlalchemy import func
+
+    return int(db.query(func.coalesce(func.max(StockLedger.id), 0)).scalar() or 0)
+
+
+def build_batches_cached(db: Session, *, warehouse_id: int | None = None,
+                         product_id: int | None = None,
+                         warehouse_ids: list[int] | None = None,
+                         date_from: str | None = None, date_to: str | None = None,
+                         keyword: str | None = None) -> list[dict]:
+    """`build_batches` 的读路径缓存版（报表列表/导出共用，见上方注释）。"""
+    key = (warehouse_id, product_id, tuple(sorted(warehouse_ids or [])),
+           date_from, date_to, (keyword or "").strip().lower())
+    version = _ledger_version(db)
+    now = time.time()
+    with _CACHE_LOCK:
+        hit = _CACHE.get(key)
+        if hit is not None and hit[0] == version and (now - hit[1]) < _CACHE_TTL:
+            return hit[2]
+    rows = build_batches(db, warehouse_id=warehouse_id, product_id=product_id,
+                         warehouse_ids=warehouse_ids, date_from=date_from,
+                         date_to=date_to, keyword=keyword)
+    with _CACHE_LOCK:
+        if len(_CACHE) >= _CACHE_MAX:
+            oldest = min(_CACHE, key=lambda k: _CACHE[k][1])
+            _CACHE.pop(oldest, None)
+        _CACHE[key] = (version, now, rows)
+    return rows
+
+
+def clear_report_cache() -> None:
+    """测试/运维用：清空报表缓存。"""
+    with _CACHE_LOCK:
+        _CACHE.clear()
