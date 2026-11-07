@@ -115,3 +115,51 @@ def test_template_html_sanitized(client, h):
     assert "<script" not in body.lower() and "onclick" not in body.lower()
     assert "javascript:" not in body.lower()
     assert "正文" in body and "<h2>" in body
+
+
+def test_span_tokens_render(client, h):
+    """CR-049：富文本令牌 <span data-key> 也能被渲染成字段值（显示【字段名】）。"""
+    tpl = client.post("/api/contract-templates", headers=h, json={
+        "name": "令牌渲染模板", "contract_type": "采购",
+        "body_html": '<p>甲方：<span class="ct-field" data-key="party_a">【甲方名称】</span></p>',
+        "fields": [{"key": "party_a", "label": "甲方名称", "type": "text", "required": True}]})
+    assert tpl.status_code == 200, tpl.text
+    cid = _contract()
+    r = client.put(f"/api/contracts/{cid}/body", headers=h, json={
+        "template_id": tpl.json()["id"], "field_values": {"party_a": "智澈公司"}})
+    assert r.status_code == 200, r.text
+    body = r.json()["body_html"]
+    assert "智澈公司" in body and "【甲方名称】" not in body
+
+
+def _tiny_docx() -> bytes:
+    import io
+    import zipfile
+
+    xml = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+           '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+           '<w:body>'
+           '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>购销服务合同</w:t></w:r></w:p>'
+           '<w:p><w:r><w:t>甲方：{{party_a}}</w:t></w:r></w:p>'
+           '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>产品名称</w:t></w:r></w:p></w:tc>'
+           '<w:tc><w:p><w:r><w:t>数量</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'
+           '</w:body></w:document>')
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("word/document.xml", xml)
+    return buf.getvalue()
+
+
+def test_import_word_docx(client, h):
+    """CR-049：上传 .docx 解析为 HTML（标题/段落/表格）。"""
+    r = client.post("/api/contract-templates/import-docx", headers=h,
+                    files={"file": ("合同.docx", _tiny_docx(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")})
+    assert r.status_code == 200, r.text
+    html = r.json()["html"]
+    assert "<h1>购销服务合同</h1>" in html
+    assert "{{party_a}}" in html
+    assert "<table" in html and "产品名称" in html
+    # 非 docx 拒绝
+    bad = client.post("/api/contract-templates/import-docx", headers=h,
+                      files={"file": ("a.txt", b"x", "text/plain")})
+    assert bad.status_code == 422

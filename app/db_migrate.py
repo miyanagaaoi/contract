@@ -100,6 +100,8 @@ _ADD_COLUMNS: list[tuple[str, str, str]] = [
     ("contracts", "our_signed_by", "INTEGER"),
     ("contracts", "our_signed_name", "VARCHAR(64)"),
     ("contracts", "our_signed_at", "TIMESTAMP"),
+    # ---- CR-049：合同模板描述 ----
+    ("contract_templates", "description", "TEXT"),
     # ---- CR-046：附件存储后端 ----
     ("attachments", "storage_backend", "VARCHAR(16) NOT NULL DEFAULT 'local'"),
     # ---- CR-040：盘点复盘 ----

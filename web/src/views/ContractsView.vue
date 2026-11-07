@@ -1370,7 +1370,8 @@ onMounted(async () => {
         </el-row>
         <el-form v-if="bodySelected" label-width="110px">
           <el-row :gutter="12">
-            <el-col v-for="f in (bodySelected.fields || [])" :key="f.key" :span="12">
+            <el-col v-for="f in (bodySelected.fields || [])" :key="f.key"
+                       :span="f.width === 'full' ? 24 : 12">
               <el-form-item :label="f.label" :required="f.required">
                 <el-select v-if="f.type === 'select'" v-model="bodyValues[f.key]" style="width: 100%">
                   <el-option v-for="o in (f.options || [])" :key="o" :label="o" :value="o" />

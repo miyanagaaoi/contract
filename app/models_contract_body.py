@@ -23,6 +23,7 @@ class ContractTemplate(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     contract_type: Mapped[str] = mapped_column(String(16), nullable=False, default="采购")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     body_html: Mapped[str] = mapped_column(Text, nullable=False, default="")
     fields_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

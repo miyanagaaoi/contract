@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import hashlib
 import html
+import io
 import json
 import re
+import zipfile
+import xml.etree.ElementTree as ET
 from datetime import datetime
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
@@ -52,6 +55,7 @@ def _template_fmt(tpl: ContractTemplate) -> dict:
     except json.JSONDecodeError:
         fields = []
     return {"id": tpl.id, "name": tpl.name, "contract_type": tpl.contract_type,
+            "description": tpl.description,
             "body_html": tpl.body_html, "fields": fields, "enabled": tpl.enabled,
             "updated_at": tpl.updated_at.isoformat(sep=" ", timespec="minutes")
             if tpl.updated_at else None}
@@ -70,6 +74,78 @@ def _contract_fmt(c: Contract) -> dict:
             "our_signed_by": c.our_signed_by, "our_signed_name": c.our_signed_name,
             "our_signed_at": c.our_signed_at.isoformat(sep=" ", timespec="minutes")
             if c.our_signed_at else None}
+
+
+_W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+
+def _docx_to_html(data: bytes) -> str:
+    """把 .docx 转成基础 HTML（标题/段落/表格），不引入 python-docx 依赖。
+
+    仅读取 `word/document.xml`：段落按 `w:pStyle` 识别 Heading1~3 / Title，
+    表格转 `<table border=1>`；文字做 HTML 转义。图片/样式细节忽略（可在编辑器里再排版）。
+    """
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml")
+    root = ET.fromstring(xml)
+    body = root.find(_W_NS + "body")
+    if body is None:
+        return "<p></p>"
+
+    def para_html(el) -> str:
+        style_el = el.find(".//" + _W_NS + "pStyle")
+        style = (style_el.get(_W_NS + "val") if style_el is not None else "") or ""
+        text = "".join(node.text or "" for node in el.iter(_W_NS + "t")).strip()
+        if not text:
+            return "<p></p>"
+        safe = html.escape(text)
+        s = style.lower()
+        if s.startswith("heading1") or "title" in s:
+            return f"<h1>{safe}</h1>"
+        if s.startswith("heading2"):
+            return f"<h2>{safe}</h2>"
+        if s.startswith("heading3"):
+            return f"<h3>{safe}</h3>"
+        return f"<p>{safe}</p>"
+
+    def table_html(tbl) -> str:
+        rows = []
+        for tr in tbl.findall(_W_NS + "tr"):
+            cells = []
+            for tc in tr.findall(_W_NS + "tc"):
+                txt = "".join(node.text or "" for node in tc.iter(_W_NS + "t")).strip()
+                cells.append(f"<td>{html.escape(txt)}</td>")
+            rows.append("<tr>" + "".join(cells) + "</tr>")
+        return '<table border="1" cellspacing="0" cellpadding="4">' + "".join(rows) + "</table>"
+
+    parts: list[str] = []
+    for el in list(body):
+        tag = el.tag.rsplit("}", 1)[-1]
+        if tag == "p":
+            parts.append(para_html(el))
+        elif tag == "tbl":
+            parts.append(table_html(el))
+    return "\n".join(p for p in parts if p) or "<p></p>"
+
+
+@router.post("/api/contract-templates/import-docx", summary="导入 Word(.docx) 正文（CR-049）")
+async def import_template_docx(file: UploadFile = File(...),
+                               _user: User = Depends(require_superadmin)):
+    """上传 .docx → 转基础 HTML 返回，前端塞进富文本编辑器再插入字段占位符。"""
+    from ..config import MAX_UPLOAD_MB
+
+    name = (file.filename or "").lower()
+    if not name.endswith(".docx"):
+        raise HTTPException(status_code=422, detail="仅支持 .docx 文件（Word 2007+）")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=422, detail="文件为空")
+    if len(data) > MAX_UPLOAD_MB * 1024 * 1024:
+        raise HTTPException(status_code=413, detail=f"文件超过 {MAX_UPLOAD_MB}MB")
+    try:
+        return {"html": _docx_to_html(data), "file_name": file.filename}
+    except (zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
+        raise HTTPException(status_code=422, detail=f"Word 解析失败：{exc}")
 
 
 @router.get("/api/contract-templates", summary="合同模板列表（CR-045）")
@@ -99,8 +175,10 @@ def _validate_fields(raw_fields) -> list[dict]:
         ftype = str((f or {}).get("type") or "text").strip()
         if ftype not in FIELD_TYPES:
             raise HTTPException(status_code=422, detail=f"字段 {key} 类型不支持：{ftype}")
+        width = str((f or {}).get("width") or "half").strip()
         item = {"key": key, "label": str((f or {}).get("label") or key).strip(),
                 "type": ftype, "required": bool((f or {}).get("required")),
+                "width": width if width in ("half", "full") else "half",
                 "placeholder": str((f or {}).get("placeholder") or "").strip() or None}
         if ftype == "select":
             opts = (f or {}).get("options") or []
@@ -119,6 +197,10 @@ def _render(body_html: str, fields: list[dict], values: dict) -> str:
         value = values.get(f["key"], "")
         text = "" if value is None else str(value).strip()
         safe = html.escape(text).replace("\n", "<br/>")
+        # 富文本编辑器的占位符：<span class="ct-field" data-key="key">【名称】</span>
+        span_re = re.compile(
+            r'<span[^>]*data-key="' + re.escape(f["key"]) + r'"[^>]*>.*?</span>', re.S)
+        rendered = span_re.sub(lambda _m, _s=safe: _s, rendered)
         rendered = rendered.replace("{{" + f["key"] + "}}", safe)
     # 未定义但正文里出现的占位符：清空，避免模板语法外露
     rendered = re.sub(r"\{\{[A-Za-z_][A-Za-z0-9_]*\}\}", "", rendered)
@@ -134,6 +216,7 @@ def create_template(payload: dict = Body(...), user: User = Depends(require_supe
     fields = _validate_fields(payload.get("fields"))
     tpl = ContractTemplate(name=name,
                            contract_type=str(payload.get("contract_type") or "采购"),
+                           description=(str(payload.get("description") or "").strip() or None),
                            body_html=_sanitize_html(str(payload.get("body_html") or "")),
                            fields_json=json.dumps(fields, ensure_ascii=False),
                            created_by=user.id, created_by_name=user.real_name)
@@ -156,6 +239,8 @@ def update_template(tpl_id: int, payload: dict = Body(...),
         tpl.name = name
     if "contract_type" in payload:
         tpl.contract_type = str(payload.get("contract_type") or "采购")
+    if "description" in payload:
+        tpl.description = str(payload.get("description") or "").strip() or None
     if "body_html" in payload:
         tpl.body_html = _sanitize_html(str(payload.get("body_html") or ""))
     if "fields" in payload:

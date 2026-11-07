@@ -887,6 +887,14 @@ export async function compareRfq(id: number): Promise<Dict> {
   return data
 }
 
+/** CR-049：导入 Word(.docx) 作为模板正文（返回 HTML） */
+export async function importContractTemplateDocx(file: File): Promise<Dict> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const { data } = await http.post('/contract-templates/import-docx', fd, { timeout: 60000 })
+  return data
+}
+
 /** CR-046：附件存储配置 */
 export async function fetchAttachmentStorage(): Promise<Dict> {
   const { data } = await http.get('/system/attachment-storage')

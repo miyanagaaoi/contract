@@ -41,7 +41,7 @@ const block: { value: string; label: string }[] = [
 
 function syncFromProps() {
   if (editorEl.value && props.modelValue !== editorEl.value.innerHTML) {
-    editorEl.value.innerHTML = props.modelValue || ''
+    editorEl.value.innerHTML = normalizeTokens(props.modelValue || '')
   }
 }
 
@@ -68,11 +68,22 @@ function onBlockChange(e: Event) {
 }
 
 /** 在光标处插入字段占位符（显示为可识别的高亮文本，保存仍为 {{key}}） */
-function insertField(key: string) {
+function insertField(key: string, label?: string) {
   editorEl.value?.focus()
-  const html = `<span class="ct-field">{{${key}}}</span>`
+  const text = `【${label || key}】`
+  const html = `<span class="ct-field" data-key="${key}">${text}</span>&nbsp;`
   document.execCommand('insertHTML', false, html)
   emitValue()
+}
+
+/** 把旧模板里的 {{key}} 占位符转成可读的【字段名】令牌（保存仍兼容后端两种格式） */
+function normalizeTokens(raw: string): string {
+  let out = raw || ''
+  for (const f of props.fields || []) {
+    const token = `<span class="ct-field" data-key="${f.key}">【${f.label || f.key}】</span>`
+    out = out.split('{{' + f.key + '}}').join(token)
+  }
+  return out
 }
 
 /** 粘贴：优先保留富文本结构（后端会白名单清洗），否则纯文本 */
@@ -101,7 +112,7 @@ defineExpose({ insertField })
         <span class="re-sep" />
         <span class="re-hint">插入字段：</span>
         <button v-for="f in fields" :key="f.key" type="button" class="re-field"
-                :title="`插入 {{${f.key}}}`" @mousedown.prevent @click="insertField(f.key)">
+                :title="`插入【${f.label || f.key}】`" @mousedown.prevent @click="insertField(f.key, f.label)">
           {{ f.label || f.key }}
         </button>
       </template>

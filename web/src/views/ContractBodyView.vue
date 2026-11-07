@@ -124,7 +124,8 @@ onMounted(async () => { await load(); canManageTpl.value = true })
       </div>
 
       <el-form v-if="selected && body.sign_status === 'none'" label-width="120px" class="no-print">
-        <el-form-item v-for="f in (selected.fields || [])" :key="f.key" :label="f.label" :required="f.required">
+        <el-form-item v-for="f in (selected.fields || [])" :key="f.key" :label="f.label"
+                      :required="f.required" :class="{ 'full-field': f.width === 'full' }">
           <el-select v-if="f.type === 'select'" v-model="values[f.key]" style="width: 320px">
             <el-option v-for="o in (f.options || [])" :key="o" :label="o" :value="o" />
           </el-select>
