@@ -67,6 +67,10 @@ async def lifespan(_app: FastAPI):
     with SessionLocal() as db:
         seed_dicts(db)
         seed_auth(db)
+        # CR-045：内置合同模板（仅当库中无模板时插入，幂等）
+        from .tools.seed_contract_templates import seed_builtin_templates
+
+        seed_builtin_templates()
     # V2.4：飞书接入启用时才启动通知发送线程（默认关闭 → 不起线程，对既有行为零影响）
     feishu_notify.start_worker()
     try:
