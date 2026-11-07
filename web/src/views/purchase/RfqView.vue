@@ -221,57 +221,224 @@ function quoteTotals(): Record<number, number> {
 }
 
 function printCompare() {
-  const qs = detail.value.quotes || []
+  const qs = (detail.value.quotes || []) as Dict[]
   if (!qs.length) { ElMessage.warning('暂无报价，无法打印比价单'); return }
+  const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
   const totals = quoteTotals()
-  const head: [string, string][] = [
-    ['项目名称', detail.value.title || ''], ['项目内容', detail.value.project || ''],
+  const amounts = qs.map((q: Dict) => Number(totals[q.supplier_id] || 0))
+  const minAmount = Math.min(...amounts)
+  const maxAmount = Math.max(...amounts)
+  const budget = detail.value.budget_amount != null ? Number(detail.value.budget_amount) : null
+  const awardedId = detail.value.award_supplier_id
+  const money = (v: number) => fmtMoney(v)
+
+  const sectionRow = (title: string) =>
+    `<tr class="sec"><td colspan="${qs.length + 1}">${title}</td></tr>`
+
+  const row = (label: string, fn: (q: Dict) => string, cls = '') =>
+    `<tr class="${cls}"><th>${label}</th>` +
+    qs.map((q: Dict) => `<td>${fn(q)}</td>`).join('') + '</tr>'
+
+  const priceRow = row('报价（元）', (q) => {
+    const amount = Number(totals[q.supplier_id] || 0)
+    const isMin = amount === minAmount
+    const isAward = awardedId === q.supplier_id
+    const diff = amount - minAmount
+    const diffPct = minAmount ? (diff / minAmount * 100) : 0
+    return `<div class="price ${isMin ? 'is-low' : ''} ${isAward ? 'is-award' : ''}">${money(amount)}</div>` +
+      (isMin ? '<span class="tag tag-low">最低价</span>'
+        : `<div class="sub diff">+${money(diff)}（较最低 +${diffPct.toFixed(1)}%）</div>`) +
+      (isAward ? '<span class="tag tag-award">中选</span>' : '')
+  })
+
+  const budgetRow = row('预算对比', (q) => {
+    if (budget == null) return '<span class="muted">未填预算</span>'
+    const amount = Number(totals[q.supplier_id] || 0)
+    const diff = budget - amount
+    if (diff >= 0) {
+      return `<span class="ok">节余 ${money(diff)}</span>` +
+        `<div class="sub">低于预算 ${(diff / budget * 100).toFixed(1)}%</div>`
+    }
+    return `<span class="over">超预算 ${money(-diff)}</span>` +
+      `<div class="sub">超出 ${(amount / budget * 100 - 100).toFixed(1)}%</div>`
+  })
+
+  const scoreBar = (score: number | null | undefined, cls: string) => {
+    if (score == null) return '<span class="muted">—</span>'
+    const pct = Math.max(0, Math.min(100, Number(score) / 10 * 100))
+    return `<div class="bar"><span style="width:${pct}%" class="${cls}"></span></div>` +
+      `<span class="score">${Number(score).toFixed(2)}</span>`
+  }
+
+  const condRow = row('商务条件', (q) => `
+    <div class="cond"><span>交期</span><b>${esc(q.delivery_period || '—')}</b></div>
+    <div class="cond"><span>付款</span><b>${esc(q.payment_terms || '—')}</b></div>
+    <div class="cond"><span>售后</span><b>${esc(q.after_sales || '—')}</b></div>
+    <div class="cond"><span>联系</span><b>${esc([q.contact_name, q.contact_phone].filter(Boolean).join(' / ') || '—')}</b></div>
+    ${q.remark ? `<div class="cond"><span>备注</span><b>${esc(q.remark)}</b></div>` : ''}`)
+
+  const scoreRows = [
+    sectionRow('综合评分（满分 10 分）'),
+    row('价格评分', (q) => scoreBar(q.price_score, 'fill-price')),
+    row('质量/技术评分', (q) => scoreBar(q.quality_score, 'fill-quality')),
+    row('服务/货期评分', (q) => scoreBar(q.service_score, 'fill-service')),
+    row('综合得分', (q) => `<div class="total-score ${awardedId === q.supplier_id ? 'win' : ''}">` +
+      `${q.score_avg == null ? '—' : Number(q.score_avg).toFixed(2)}` +
+      `<small> / 10</small></div>`),
+  ].join('')
+
+  const awardRow = row('比价结论', (q) => awardedId === q.supplier_id
+    ? '<span class="check">✓ 中选</span>' : '<span class="muted">—</span>')
+  const reasonRow = row('推荐理由', (q) => awardedId === q.supplier_id
+    ? `<div class="reason">${esc(detail.value.award_reason || '')}</div>` : '<span class="muted">—</span>')
+
+  const headCells = qs.map((q: Dict) => {
+    const isAward = awardedId === q.supplier_id
+    return `<th class="sup ${isAward ? 'win' : ''}">
+      <div class="sup-name">${esc(q.supplier_name)}</div>
+      <div class="sup-meta">${esc(q.channel || '报价')}${q.quote_date ? ' · ' + esc(q.quote_date) : ''}</div>
+      ${isAward ? '<div class="ribbon">中选供应商</div>' : ''}
+    </th>`
+  }).join('')
+
+  const info = [
+    ['项目名称', detail.value.title || ''],
+    ['项目内容', detail.value.project || ''],
     ['责任部门', detail.value.responsibility_dept || ''],
-    ['预算金额', detail.value.budget_amount != null ? fmtMoney(detail.value.budget_amount) : ''],
+    ['预算金额', budget == null ? '' : money(budget)],
     ['比价日期', (detail.value.deadline || detail.value.created_at || '').slice(0, 10)],
     ['比价人', detail.value.created_by_name || ''],
   ]
-  const rows: [string, (q: Dict) => string][] = [
-    ['供应商名称', (q) => q.supplier_name || ''],
-    ['联系人/电话', (q) => [q.contact_name, q.contact_phone].filter(Boolean).join(' / ')],
-    ['报价（元）', (q) => fmtMoney(totals[q.supplier_id] || 0)],
-    ['交货周期', (q) => q.delivery_period || ''],
-    ['付款条件', (q) => q.payment_terms || ''],
-    ['售后服务', (q) => q.after_sales || ''],
-    ['备注', (q) => q.remark || ''],
-    ['价格评分', (q) => q.price_score == null ? '' : String(q.price_score)],
-    ['质量/技术评分', (q) => q.quality_score == null ? '' : String(q.quality_score)],
-    ['服务/货期评分', (q) => q.service_score == null ? '' : String(q.service_score)],
-    ['综合得分', (q) => q.score_avg == null ? '' : q.score_avg.toFixed(2)],
-    ['比价结论', (q) => detail.value.award_supplier_id === q.supplier_id ? '√' : ''],
-    ['推荐理由', (q) => detail.value.award_supplier_id === q.supplier_id
-      ? (detail.value.award_reason || '') : ''],
-  ]
-  const info = head.map(([k, v]) => `<tr><th>${k}</th><td colspan="3">${v}</td></tr>`).join('')
-  const supHead = `<tr><th style="width:140px">供应商</th>` +
-    qs.map((q: Dict) => `<th>${q.supplier_name}</th>`).join('') + '</tr>'
-  const body = rows.map(([label, fn]) =>
-    `<tr><th>${label}</th>` + qs.map((q: Dict) => `<td>${fn(q)}</td>`).join('') + '</tr>').join('')
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>比价单</title>
-  <style>@page{size:A4 landscape;margin:12mm}body{font-family:"SimSun","宋体",serif;font-size:12px}
-  h1{text-align:center;font-size:20px;margin:0 0 12px}table{border-collapse:collapse;width:100%;table-layout:fixed}
-  th,td{border:1px solid #333;padding:5px 6px;vertical-align:middle;word-break:break-all}
-  tr>th:first-child{width:140px;background:#f2f2f2;text-align:left}thead th{background:#e8e8e8;text-align:center}
-  .concl{margin-top:10px}.concl th{width:90px;background:#f2f2f2;text-align:left;vertical-align:top}
-  .sign{display:flex;justify-content:space-between;margin-top:28px}</style></head><body>
-  <h1>比 价 单</h1><table>${info}</table>
-  <table style="margin-top:10px"><thead>${supHead}</thead><tbody>${body}</tbody></table>
-  <table class="concl"><tr><th>结论</th><td>${detail.value.award_conclusion || ''}</td></tr></table>
-  <div class="sign"><span>制表人：${detail.value.created_by_name || ''}</span><span>部门负责人：</span>
-  <span>单位负责人：</span></div></body></html>`
-  const w = window.open('', '_blank', 'width=1100,height=760')
+
+  const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>比价单 · ${esc(detail.value.title || detail.value.doc_no || '')}</title>
+<style>
+  @page { size: A4 landscape; margin: 12mm 12mm 10mm; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; color: #2B3440; font-family: "PingFang SC", "Microsoft YaHei", "SimSun", serif; font-size: 11.5px; line-height: 1.55; }
+  .sheet { width: 100%; }
+  /* 头部 */
+  .hdr { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #0E4F4A; padding-bottom: 10px; }
+  .brand { display: flex; gap: 12px; align-items: center; }
+  .logo { width: 40px; height: 40px; border-radius: 9px; background: #0E4F4A; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; letter-spacing: 1px; }
+  h1 { margin: 0; font-size: 22px; letter-spacing: 4px; color: #0B3B37; }
+  .sub-title { margin-top: 2px; color: #5A6672; font-size: 11px; }
+  .hdr-right { text-align: right; font-size: 10.5px; color: #5A6672; max-width: 360px; }
+  .hdr-right b { color: #2B3440; }
+  .docno { margin-top: 3px; font-family: Consolas, monospace; color: #0E4F4A; font-weight: 700; }
+
+  /* 信息条 */
+  .info { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 12px 0 14px; }
+  .cell { background: #F6F7F9; border: 1px solid #E4E7EC; border-left: 3px solid #0E4F4A; border-radius: 4px; padding: 6px 9px; }
+  .cell span { display: block; color: #7C8794; font-size: 10px; letter-spacing: .5px; }
+  .cell b { font-weight: 600; }
+  .cell.hl { background: #FFFBEB; border-left-color: #F5D77A; }
+
+  /* 对比表 */
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  th, td { border: 1px solid #DDE1E6; padding: 7px 9px; vertical-align: top; }
+  thead th { background: #F1F8F7; text-align: center; vertical-align: bottom; }
+  thead th:first-child { width: 108px; background: #E4F2F0; text-align: left; color: #0E4F4A; }
+  th.sup { position: relative; }
+  .sup-name { font-size: 12.5px; font-weight: 700; color: #0B3B37; }
+  .sup-meta { font-size: 10px; color: #7C8794; margin-top: 2px; }
+  th.win { background: #E4F2F0; box-shadow: inset 0 -3px 0 #0E4F4A; }
+  .ribbon { display: inline-block; margin-top: 5px; background: #0E4F4A; color: #fff; font-size: 10px; padding: 1px 8px; border-radius: 10px; }
+  tbody th { width: 108px; background: #F8FAFA; text-align: left; font-weight: 600; color: #2B3440; }
+  tr.sec td { background: #0E4F4A; color: #fff; font-weight: 600; letter-spacing: 1px; font-size: 11px; padding: 5px 9px; }
+  td { text-align: left; font-size: 11px; }
+  .price { font-family: Consolas, "JetBrains Mono", monospace; font-weight: 700; font-size: 14px; }
+  .price.is-low { color: #8A5A00; }
+  .price.is-award { text-decoration: underline; text-decoration-color: #0E4F4A; text-underline-offset: 3px; }
+  .tag { display: inline-block; margin-top: 3px; font-size: 9.5px; padding: 0 6px; border-radius: 8px; }
+  .tag-low { background: #FFFBEB; border: 1px solid #F5D77A; color: #8A5A00; }
+  .tag-award { background: #0E4F4A; color: #fff; margin-left: 3px; }
+  .ok { color: #0F7B4F; font-weight: 600; }
+  .over { color: #B42318; font-weight: 600; }
+  .sub { color: #7C8794; font-size: 10px; }
+  .muted { color: #A6AFB9; }
+  .cond { display: flex; gap: 6px; font-size: 10.5px; margin-bottom: 1px; }
+  .cond span { color: #7C8794; min-width: 30px; }
+  .cond b { font-weight: 500; }
+  .bar { height: 6px; background: #EFF1F4; border-radius: 3px; overflow: hidden; margin-bottom: 2px; }
+  .bar span { display: block; height: 100%; border-radius: 3px; }
+  .fill-price { background: #1B5FA8; }
+  .fill-quality { background: #0F7B4F; }
+  .fill-service { background: #A8590B; }
+  .score { font-family: Consolas, monospace; font-size: 10.5px; }
+  .total-score { font-family: Consolas, monospace; font-weight: 700; font-size: 16px; color: #0E4F4A; }
+  .total-score small { font-size: 9px; color: #7C8794; font-weight: 400; }
+  .total-score.win { background: #E4F2F0; display: inline-block; padding: 0 8px; border-radius: 4px; }
+  .check { color: #0E4F4A; font-weight: 700; font-size: 13px; }
+  .reason { color: #2B3440; }
+
+  /* 结论 */
+  .conclusion { margin-top: 12px; border: 1px solid #CBD2DA; border-left: 4px solid #0E4F4A; background: #F1F8F7; border-radius: 4px; padding: 9px 12px; }
+  .conclusion .k { font-weight: 700; color: #0E4F4A; margin-bottom: 3px; }
+  /* 签字 */
+  .sign { display: flex; justify-content: space-between; margin-top: 26px; gap: 24px; }
+  .sign .item { flex: 1; color: #5A6672; font-size: 11px; }
+  .sign .line { border-bottom: 1px solid #A6AFB9; height: 30px; margin-top: 4px; }
+  .foot { margin-top: 10px; display: flex; justify-content: space-between; color: #A6AFB9; font-size: 9.5px; border-top: 1px dashed #DDE1E6; padding-top: 6px; }
+</style></head><body><div class="sheet">
+  <div class="hdr">
+    <div class="brand">
+      <div class="logo">比</div>
+      <div>
+        <h1>比 价 单</h1>
+        <div class="sub-title">供应商比价与定标确认 · 采购内部资料</div>
+      </div>
+    </div>
+    <div class="hdr-right">
+      <div class="docno">${esc(detail.value.doc_no || '')}</div>
+      <div>报价家数：<b>${qs.length}</b> 家 · 最低报价：<b>${money(minAmount)}</b></div>
+      <div>最高报价：${money(maxAmount)} · 价差率：${minAmount ? ((maxAmount - minAmount) / minAmount * 100).toFixed(1) : '0.0'}%</div>
+    </div>
+  </div>
+
+  <div class="info">
+    ${info.map(([k, v], i) => `<div class="cell ${i === 3 ? 'hl' : ''}"><span>${k}</span><b>${esc(v)}</b></div>`).join('')}
+    <div class="cell hl"><span>中选供应商</span><b>${esc(detail.value.award_supplier_name || '未定标')}</b></div>
+    <div class="cell"><span>定标人 / 时间</span><b>${esc(detail.value.awarded_by_name || '—')}${detail.value.awarded_at ? ' · ' + esc(detail.value.awarded_at) : ''}</b></div>
+  </div>
+
+  <table>
+    <thead><tr><th>比价项目</th>${headCells}</tr></thead>
+    <tbody>
+      ${sectionRow('一、报价对比')}
+      ${priceRow}
+      ${budgetRow}
+      ${sectionRow('二、商务条件')}
+      ${condRow}
+      ${scoreRows}
+      ${sectionRow('三、比价结论')}
+      ${awardRow}
+      ${reasonRow}
+    </tbody>
+  </table>
+
+  <div class="conclusion">
+    <div class="k">定标结论</div>
+    <div>${esc(detail.value.award_conclusion || '（尚未填写定标结论）')}</div>
+  </div>
+
+  <div class="sign">
+    <div class="item"><span>制表人：${esc(detail.value.created_by_name || '')}</span><div class="line"></div></div>
+    <div class="item"><span>部门负责人：</span><div class="line"></div></div>
+    <div class="item"><span>单位负责人：</span><div class="line"></div></div>
+    <div class="item"><span>日期：</span><div class="line"></div></div>
+  </div>
+  <div class="foot"><span>颜色说明：琥珀底=该行最低报价；深墨青=中选供应商；评分进度条按 10 分制换算</span>
+  <span>CTMS · ${esc(detail.value.doc_no || '')}</span></div>
+</div></body></html>`
+  const w = window.open('', '_blank', 'width=1180,height=820')
   if (!w) { ElMessage.warning('浏览器拦截了打印窗口，请允许弹窗后重试'); return }
   w.document.write(html)
   w.document.close()
   w.focus()
-  setTimeout(() => w.print(), 400)
+  setTimeout(() => w.print(), 500)
 }
-
 onMounted(load)
 </script>
 
