@@ -31,7 +31,10 @@ def _target(kind: str):
     if kind in DOC_MODELS:
         model = DOC_MODELS[kind]
         return model, model.doc_no
+    from ..models_rfq import Rfq
+
     mapping = {
+        "rfq": (Rfq, Rfq.doc_no),
         "customer": (Customer, Customer.code),
         "supplier": (Supplier, Supplier.code),
         "product": (Product, Product.code),

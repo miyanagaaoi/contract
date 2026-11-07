@@ -217,6 +217,11 @@ const router = createRouter({
         },
 
         {
+          path: 'purchase/rfq', name: 'purchase-rfq',
+          component: () => import('@/views/purchase/RfqView.vue'),
+          meta: { title: '询价单', perm: 'purchase.view' },
+        },
+        {
           path: 'purchase/orders', name: 'purchase-orders',
           component: () => import('@/views/purchase/OrderList.vue'),
           meta: { title: '采购单', perm: 'purchase.order.view' },

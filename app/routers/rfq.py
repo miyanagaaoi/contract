@@ -1,0 +1,352 @@
+"""询价报价 API（CR-044，部门内部版）。
+
+权限：沿用 `purchase.view` / `purchase.create`（不新增权限点）；
+数据：询价行自由文本；供应商来自系统「供应商档案」；一家供应商一张单最多一份报价（可改）。
+"""
+from __future__ import annotations
+
+from datetime import date, datetime
+from decimal import Decimal
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from ..database import get_db
+from ..models_auth import User
+from ..models_master import Supplier
+from ..models_rfq import QUOTE_CHANNELS, RFQ_STATUS, Rfq, RfqLine, RfqQuote, RfqQuoteItem
+from ..services import audit_service, numbering_service
+from ..services.permission_service import require_perm
+from .export import DOC_EXPORT_LIMIT, build_xlsx_response
+
+router = APIRouter(prefix="/api/rfq", tags=["rfq"])
+
+ZERO = Decimal("0")
+
+
+def _dec(value, field: str) -> Decimal:
+    try:
+        return Decimal(str(value if value is not None else 0))
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail=f"{field}格式错误")
+
+
+def _dt(value) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace(" ", "T"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="日期时间格式错误（应为 YYYY-MM-DDTHH:MM）")
+
+
+def _date(value) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        raise HTTPException(status_code=422, detail="日期格式错误（应为 YYYY-MM-DD）")
+
+
+def _get(db: Session, rfq_id: int) -> Rfq:
+    rfq = db.get(Rfq, rfq_id)
+    if rfq is None:
+        raise HTTPException(status_code=404, detail="询价单不存在")
+    return rfq
+
+
+def _fmt_header(rfq: Rfq) -> dict:
+    return {
+        "id": rfq.id, "doc_no": rfq.doc_no, "title": rfq.title, "project": rfq.project,
+        "deadline": rfq.deadline.isoformat(sep=" ", timespec="minutes") if rfq.deadline else None,
+        "status": rfq.status, "status_label": RFQ_STATUS.get(rfq.status, rfq.status),
+        "remark": rfq.remark,
+        "created_by_name": rfq.created_by_name,
+        "published_at": rfq.published_at.isoformat(sep=" ", timespec="minutes") if rfq.published_at else None,
+        "closed_at": rfq.closed_at.isoformat(sep=" ", timespec="minutes") if rfq.closed_at else None,
+        "created_at": rfq.created_at.isoformat(sep=" ", timespec="minutes") if rfq.created_at else None,
+        "line_count": len(rfq.lines or []),
+        "quote_count": len(rfq.quotes or []),
+    }
+
+
+def _fmt_line(line: RfqLine) -> dict:
+    return {"id": line.id, "seq": line.seq, "material_name": line.material_name,
+            "spec": line.spec, "unit": line.unit, "qty": float(line.qty or 0),
+            "need_date": line.need_date.isoformat() if line.need_date else None,
+            "remark": line.remark}
+
+
+def _fmt_quote(quote: RfqQuote) -> dict:
+    return {"id": quote.id, "supplier_id": quote.supplier_id,
+            "supplier_name": quote.supplier_name,
+            "quote_date": quote.quote_date.isoformat() if quote.quote_date else None,
+            "contact_name": quote.contact_name, "contact_phone": quote.contact_phone,
+            "channel": quote.channel, "remark": quote.remark,
+            "items": [{"line_id": it.line_id, "unit_price": float(it.unit_price or 0),
+                       "tax_rate": float(it.tax_rate or 0),
+                       "moq": float(it.moq) if it.moq is not None else None,
+                       "lead_days": it.lead_days, "remark": it.remark}
+                      for it in (quote.items or [])]}
+
+
+def _fmt_detail(rfq: Rfq) -> dict:
+    return {**_fmt_header(rfq),
+            "lines": [_fmt_line(x) for x in (rfq.lines or [])],
+            "quotes": [_fmt_quote(q) for q in (rfq.quotes or [])]}
+
+
+@router.get("", summary="询价单列表")
+def list_rfqs(keyword: str | None = Query(None), status: str | None = Query(None),
+              page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
+              _user: User = Depends(require_perm("purchase.view")),
+              db: Session = Depends(get_db)):
+    q = db.query(Rfq)
+    if status:
+        q = q.filter(Rfq.status == status)
+    if keyword and keyword.strip():
+        like = f"%{keyword.strip()}%"
+        q = q.filter((Rfq.doc_no.like(like)) | (Rfq.title.like(like)) | (Rfq.project.like(like)))
+    total = int(q.count() or 0)
+    rows = q.order_by(Rfq.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return {"items": [_fmt_header(r) for r in rows], "total": total, "page": page,
+            "page_size": page_size,
+            "statuses": [{"code": k, "label": v} for k, v in RFQ_STATUS.items()]}
+
+
+@router.post("", summary="新建询价单（草稿）")
+def create_rfq(request: Request, payload: dict = Body(...),
+               user: User = Depends(require_perm("purchase.create")),
+               db: Session = Depends(get_db)):
+    title = str(payload.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="询价单标题必填")
+    rfq = Rfq(doc_no=numbering_service.next_doc_no(db, "rfq", date.today()),
+              title=title, project=(str(payload.get("project") or "").strip() or None),
+              deadline=_dt(payload.get("deadline")), remark=payload.get("remark"),
+              status="draft", org_id=getattr(user, "org_id", None),
+              created_by=getattr(user, "id", None),
+              created_by_name=getattr(user, "real_name", None))
+    rfq.lines = [_build_line(i, row) for i, row in enumerate(payload.get("lines") or [], 1)]
+    db.add(rfq)
+    db.commit()
+    audit_service.log(db, user, module="purchase", action="create", object_type="rfq",
+                      object_id=rfq.id, object_no=rfq.doc_no,
+                      detail=f"新建询价单（{len(rfq.lines)} 行）", request=request)
+    db.commit()
+    return _fmt_detail(rfq)
+
+
+def _build_line(seq: int, row: dict) -> RfqLine:
+    name = str(row.get("material_name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail=f"第 {seq} 行：物料名称必填")
+    qty = _dec(row.get("qty"), "数量")
+    if qty <= 0:
+        raise HTTPException(status_code=422, detail=f"第 {seq} 行：数量必须大于 0")
+    return RfqLine(seq=seq, material_name=name,
+                   spec=(str(row.get("spec") or "").strip() or None),
+                   unit=(str(row.get("unit") or "").strip() or None),
+                   qty=qty, need_date=_date(row.get("need_date")),
+                   remark=(str(row.get("remark") or "").strip() or None))
+
+
+@router.get("/export.xlsx", summary="询价单导出（当前筛选）")
+def export_rfqs(keyword: str | None = Query(None), status: str | None = Query(None),
+                _user: User = Depends(require_perm("purchase.view")),
+                db: Session = Depends(get_db)):
+    q = db.query(Rfq)
+    if status:
+        q = q.filter(Rfq.status == status)
+    if keyword and keyword.strip():
+        like = f"%{keyword.strip()}%"
+        q = q.filter((Rfq.doc_no.like(like)) | (Rfq.title.like(like)) | (Rfq.project.like(like)))
+    rows = q.order_by(Rfq.id.desc()).limit(DOC_EXPORT_LIMIT).all()
+    columns = [("单号", 18), ("标题", 28), ("项目", 20), ("截止时间", 20), ("状态", 10),
+               ("行数", 8), ("报价家数", 10), ("创建人", 12), ("创建时间", 20)]
+    data = [[r.doc_no, r.title, r.project or "",
+             r.deadline.isoformat(sep=" ", timespec="minutes") if r.deadline else "",
+             RFQ_STATUS.get(r.status, r.status), len(r.lines or []), len(r.quotes or []),
+             r.created_by_name or "",
+             r.created_at.isoformat(sep=" ", timespec="minutes") if r.created_at else ""]
+            for r in rows]
+    return build_xlsx_response("询价单", columns, data, "询价单")
+
+
+@router.get("/{rfq_id}", summary="询价单详情（含各家报价）")
+def get_rfq(rfq_id: int, _user: User = Depends(require_perm("purchase.view")),
+            db: Session = Depends(get_db)):
+    return _fmt_detail(_get(db, rfq_id))
+
+
+@router.put("/{rfq_id}", summary="修改询价单（仅草稿）")
+def update_rfq(rfq_id: int, request: Request, payload: dict = Body(...),
+               user: User = Depends(require_perm("purchase.create")),
+               db: Session = Depends(get_db)):
+    rfq = _get(db, rfq_id)
+    if rfq.status != "draft":
+        raise HTTPException(status_code=422, detail="仅草稿可修改")
+    if "title" in payload:
+        title = str(payload.get("title") or "").strip()
+        if not title:
+            raise HTTPException(status_code=422, detail="询价单标题必填")
+        rfq.title = title
+    if "project" in payload:
+        rfq.project = str(payload.get("project") or "").strip() or None
+    if "deadline" in payload:
+        rfq.deadline = _dt(payload.get("deadline"))
+    if "remark" in payload:
+        rfq.remark = payload.get("remark")
+    if "lines" in payload:
+        rfq.lines = [_build_line(i, row) for i, row in enumerate(payload.get("lines") or [], 1)]
+    db.commit()
+    audit_service.log(db, user, module="purchase", action="edit", object_type="rfq",
+                      object_id=rfq.id, object_no=rfq.doc_no, detail="修改询价单", request=request)
+    db.commit()
+    return _fmt_detail(rfq)
+
+
+@router.delete("/{rfq_id}", summary="删除询价单（仅草稿）")
+def delete_rfq(rfq_id: int, _user: User = Depends(require_perm("purchase.create")),
+               db: Session = Depends(get_db)):
+    rfq = _get(db, rfq_id)
+    if rfq.status != "draft":
+        raise HTTPException(status_code=422, detail="仅草稿可删除")
+    db.delete(rfq)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/{rfq_id}/publish", summary="发布询价单（草稿→询价中）")
+def publish_rfq(rfq_id: int, user: User = Depends(require_perm("purchase.create")),
+                db: Session = Depends(get_db)):
+    rfq = _get(db, rfq_id)
+    if rfq.status != "draft":
+        raise HTTPException(status_code=422, detail="仅草稿可发布")
+    if not rfq.lines:
+        raise HTTPException(status_code=422, detail="至少需要一行询价明细")
+    rfq.status, rfq.published_at = "open", datetime.now()
+    db.commit()
+    return _fmt_header(rfq)
+
+
+@router.post("/{rfq_id}/close", summary="截止询价单（询价中→已截止）")
+def close_rfq(rfq_id: int, user: User = Depends(require_perm("purchase.create")),
+              db: Session = Depends(get_db)):
+    rfq = _get(db, rfq_id)
+    if rfq.status != "open":
+        raise HTTPException(status_code=422, detail="仅询价中可截止")
+    rfq.status, rfq.closed_at = "closed", datetime.now()
+    db.commit()
+    return _fmt_header(rfq)
+
+
+@router.put("/{rfq_id}/quotes/{supplier_id}", summary="录入/修改某供应商报价")
+def upsert_quote(rfq_id: int, supplier_id: int, request: Request, payload: dict = Body(...),
+                 user: User = Depends(require_perm("purchase.create")),
+                 db: Session = Depends(get_db)):
+    rfq = _get(db, rfq_id)
+    if rfq.status == "draft":
+        raise HTTPException(status_code=422, detail="询价单发布后才能录入报价")
+    supplier = db.get(Supplier, supplier_id)
+    if supplier is None:
+        raise HTTPException(status_code=422, detail="供应商不存在")
+    channel = str(payload.get("channel") or "").strip() or None
+    if channel and channel not in QUOTE_CHANNELS:
+        raise HTTPException(status_code=422, detail="报价渠道不合法")
+
+    quote = next((q for q in rfq.quotes if q.supplier_id == supplier_id), None)
+    if quote is None:
+        quote = RfqQuote(rfq_id=rfq.id, supplier_id=supplier_id,
+                         supplier_name=supplier.name,
+                         created_by=getattr(user, "id", None),
+                         created_by_name=getattr(user, "real_name", None))
+        db.add(quote)
+    quote.supplier_name = supplier.name
+    quote.quote_date = _date(payload.get("quote_date")) or date.today()
+    quote.contact_name = (str(payload.get("contact_name") or "").strip() or None)
+    quote.contact_phone = (str(payload.get("contact_phone") or "").strip() or None)
+    quote.channel = channel
+    quote.remark = payload.get("remark")
+
+    line_ids = {line.id for line in rfq.lines}
+    existing = {it.line_id: it for it in (quote.items or [])}
+    new_items: list[RfqQuoteItem] = []
+    for row in payload.get("items") or []:
+        try:
+            line_id = int(row.get("line_id"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="报价行缺少 line_id")
+        if line_id not in line_ids:
+            raise HTTPException(status_code=422, detail=f"报价行不属于该询价单：{line_id}")
+        price = _dec(row.get("unit_price"), "含税单价")
+        if price < 0:
+            raise HTTPException(status_code=422, detail="含税单价不能为负")
+        item = existing.pop(line_id, None) or RfqQuoteItem(quote=quote, line_id=line_id)
+        item.unit_price = price
+        item.tax_rate = _dec(row.get("tax_rate", 13), "税率")
+        moq = row.get("moq")
+        item.moq = _dec(moq, "MOQ") if moq not in (None, "") else None
+        lead = row.get("lead_days")
+        item.lead_days = int(lead) if lead not in (None, "") else None
+        item.remark = (str(row.get("remark") or "").strip() or None)
+        new_items.append(item)
+    quote.items = new_items
+    db.commit()
+    audit_service.log(db, user, module="purchase", action="quote", object_type="rfq",
+                      object_id=rfq.id, object_no=rfq.doc_no,
+                      detail=f"录入报价：{supplier.name}（{len(new_items)} 行）", request=request)
+    db.commit()
+    return _fmt_quote(quote)
+
+
+@router.delete("/{rfq_id}/quotes/{quote_id}", summary="删除某供应商报价")
+def delete_quote(rfq_id: int, quote_id: int,
+                 _user: User = Depends(require_perm("purchase.create")),
+                 db: Session = Depends(get_db)):
+    rfq = _get(db, rfq_id)
+    quote = next((q for q in rfq.quotes if q.id == quote_id), None)
+    if quote is None:
+        raise HTTPException(status_code=404, detail="报价不存在")
+    db.delete(quote)
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/{rfq_id}/compare", summary="比价报表（各行最低/次低/差额）")
+def compare_rfq(rfq_id: int, _user: User = Depends(require_perm("purchase.view")),
+                db: Session = Depends(get_db)):
+    rfq = _get(db, rfq_id)
+    quotes = rfq.quotes or []
+    rows = []
+    totals: dict[str, Decimal] = {}
+    for line in rfq.lines or []:
+        offers = []
+        for q in quotes:
+            hit = next((it for it in (q.items or []) if it.line_id == line.id), None)
+            if hit is None or float(hit.unit_price or 0) <= 0:
+                continue
+            offers.append({"quote_id": q.id, "supplier_id": q.supplier_id,
+                           "supplier_name": q.supplier_name,
+                           "unit_price": float(hit.unit_price), "tax_rate": float(hit.tax_rate or 0),
+                           "moq": float(hit.moq) if hit.moq is not None else None,
+                           "lead_days": hit.lead_days,
+                           "amount": float(_dec(hit.unit_price, "x") * (line.qty or 0))})
+        offers.sort(key=lambda x: x["unit_price"])
+        low = offers[0] if offers else None
+        second = offers[1] if len(offers) > 1 else None
+        diff = (second["unit_price"] - low["unit_price"]) if low and second else None
+        diff_pct = (diff / low["unit_price"] * 100) if low and low["unit_price"] else None
+        for offer in offers:
+            totals[offer["supplier_name"]] = totals.get(offer["supplier_name"], ZERO) + \
+                _dec(offer["amount"], "x")
+        rows.append({**_fmt_line(line), "offers": offers,
+                     "lowest": low, "second": second,
+                     "diff": diff, "diff_pct": diff_pct})
+    return {**_fmt_header(rfq), "rows": rows,
+            "supplier_totals": [{"supplier_name": k, "amount": float(v)}
+                                for k, v in sorted(totals.items(), key=lambda kv: kv[1])]}
+
+

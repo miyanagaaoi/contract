@@ -34,6 +34,7 @@ from .routers import (
     print_templates,
     purchase,
     returns,
+    rfq,
     sales,
     settings,
     stock,
@@ -43,6 +44,7 @@ from .routers import (
 from .services.feishu import notify_service as feishu_notify
 from . import models_auth  # noqa: F401  V2.0：让 create_all 感知权限/组织/账号表
 from . import models_master  # noqa: F401  V2.0：让 create_all 感知主数据表
+from . import models_rfq  # noqa: F401  CR-044：询价表
 from . import models_doc  # noqa: F401  V2.0/M2：单据表
 from . import models_stock  # noqa: F401  V2.0/M2：库存结存与流水
 from . import models_notify  # noqa: F401  V2.4：飞书通知 outbox 表
@@ -90,6 +92,7 @@ app.include_router(purchase.router)
 app.include_router(sales.router)
 app.include_router(stock.router)
 app.include_router(returns.router)
+app.include_router(rfq.router)
 app.include_router(attachments.router)
 app.include_router(export.router)
 app.include_router(imports.router)

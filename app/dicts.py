@@ -306,6 +306,7 @@ SYS_PARAM_META: list[dict] = [
 DEFAULT_NUMBER_RULES: dict = {
     "purchase_request": {"prefix": "PR", "reset": "month", "seq_len": 6},
     "purchase_order": {"prefix": "PO", "reset": "month", "seq_len": 6},
+    "rfq": {"prefix": "RFQ", "reset": "month", "seq_len": 6},   # CR-044 询价单
     "sales_request": {"prefix": "SR", "reset": "month", "seq_len": 6},
     "sales_order": {"prefix": "SO", "reset": "month", "seq_len": 6},
     "stock_in": {"prefix": "IN", "reset": "month", "seq_len": 6},
@@ -325,7 +326,7 @@ DEFAULT_NUMBER_RULES: dict = {
 }
 
 NUMBER_RULE_LABELS: dict[str, str] = {
-    "purchase_request": "采购申请单", "purchase_order": "采购单",
+    "purchase_request": "采购申请单", "purchase_order": "采购单", "rfq": "询价单",
     "sales_request": "销售申请单", "sales_order": "销售订单",
     "stock_in": "入库单", "stock_out": "出库单", "stock_take": "盘点单",
     "stock_transfer": "调拨单",

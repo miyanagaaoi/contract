@@ -813,6 +813,44 @@ export async function fetchStockReturnRecords(outId: number): Promise<Dict> {
   return data
 }
 
+/** CR-044：询价单列表 / 详情 / 增删改 / 发布截止 / 报价 / 比价 / 导出 */
+export async function fetchRfqs(params: Dict = {}): Promise<Dict> {
+  const { data } = await http.get('/rfq', { params })
+  return data
+}
+export async function fetchRfqDetail(id: number): Promise<Dict> {
+  const { data } = await http.get(`/rfq/${id}`)
+  return data
+}
+export async function createRfq(payload: Dict): Promise<Dict> {
+  const { data } = await http.post('/rfq', payload)
+  return data
+}
+export async function updateRfq(id: number, payload: Dict): Promise<Dict> {
+  const { data } = await http.put(`/rfq/${id}`, payload)
+  return data
+}
+export async function deleteRfq(id: number): Promise<Dict> {
+  const { data } = await http.delete(`/rfq/${id}`)
+  return data
+}
+export async function publishRfq(id: number): Promise<Dict> {
+  const { data } = await http.post(`/rfq/${id}/publish`)
+  return data
+}
+export async function closeRfq(id: number): Promise<Dict> {
+  const { data } = await http.post(`/rfq/${id}/close`)
+  return data
+}
+export async function saveRfqQuote(id: number, supplierId: number, payload: Dict): Promise<Dict> {
+  const { data } = await http.put(`/rfq/${id}/quotes/${supplierId}`, payload)
+  return data
+}
+export async function compareRfq(id: number): Promise<Dict> {
+  const { data } = await http.get(`/rfq/${id}/compare`)
+  return data
+}
+
 /** CR-046：附件存储配置 */
 export async function fetchAttachmentStorage(): Promise<Dict> {
   const { data } = await http.get('/system/attachment-storage')
