@@ -559,11 +559,20 @@ function itemsTableHtml(): string {
         `<td style="text-align:right">${amount.toFixed(2)}</td>` +
         `<td>${esc(r.remark)}</td></tr>`
     })
+  const valid = (form.items || []).filter((r: Dict) => String(r.name || '').trim())
+  const totalQty = valid.reduce((s: number, r: Dict) => s + (Number(r.qty) || 0), 0)
+  const totalAmount = valid.reduce((s: number, r: Dict) =>
+    s + (Number(r.qty) || 0) * (Number(r.unit_price) || 0), 0)
   if (!rows.length) rows.push('<tr><td colspan="8" style="text-align:center">（请先填写合同行项）</td></tr>')
+  const foot = '<tfoot>' +
+    '<tr><td colspan="3" style="text-align:right;font-weight:600">合计</td>' +
+    `<td style="text-align:right;font-weight:600">${totalQty}</td><td></td><td></td>` +
+    `<td style="text-align:right;font-weight:600">${totalAmount.toFixed(2)}</td><td></td></tr>` +
+    `<tr><td colspan="8">金额大写：人民币 ${amountWords(totalAmount)}</td></tr></tfoot>`
   return '<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%">' +
     '<thead><tr><th>序号</th><th>产品名称</th><th>规格型号</th><th>数量</th><th>单位</th>' +
     '<th>含税单价</th><th>金额</th><th>备注</th></tr></thead><tbody>' +
-    rows.join('') + '</tbody></table>'
+    rows.join('') + '</tbody>' + foot + '</table>'
 }
 
 const bodyPreview = computed(() => {
@@ -581,6 +590,13 @@ const bodyPreview = computed(() => {
     /<p[^>]*>\s*(?:<span[^>]*data-key="items_table"[^>]*>[\s\S]*?<\/span>|\{\{items_table\}\})\s*<\/p>/g,
     table)
   html = html.split('{{items_table}}').join(table)
+  const total = (form.items || []).filter((r: Dict) => String(r.name || '').trim())
+    .reduce((s: number, r: Dict) => s + (Number(r.qty) || 0) * (Number(r.unit_price) || 0), 0)
+  html = html.split('{{amount_total}}').join(total.toFixed(2))
+  html = html.split('{{amount_words}}').join(`人民币 ${amountWords(total)}`)
+  html = html.replace(/<span[^>]*data-key="amount_total"[^>]*>[\s\S]*?<\/span>/g, total.toFixed(2))
+  html = html.replace(/<span[^>]*data-key="amount_words"[^>]*>[\s\S]*?<\/span>/g,
+    `人民币 ${amountWords(total)}`)
   html = html.replace(/<span[^>]*data-key="items_table"[^>]*>[\s\S]*?<\/span>/g, table)
   return html
 })

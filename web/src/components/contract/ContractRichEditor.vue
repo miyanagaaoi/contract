@@ -88,12 +88,14 @@ function normalizeTokens(raw: string): string {
 }
 
 /** 粘贴：优先保留富文本结构（后端会白名单清洗），否则纯文本 */
-function insertItemsTable() {
+function insertToken(key: string, label: string) {
   editorEl.value?.focus()
-  const html = '<span class="ct-field" data-key="items_table">【标的物表格】</span>&nbsp;'
+  const html = `<span class="ct-field" data-key="${key}">【${label}】</span>&nbsp;`
   document.execCommand('insertHTML', false, html)
   emitValue()
 }
+
+function insertItemsTable() { insertToken('items_table', '标的物表格') }
 
 /** 表格行/列调整（光标所在单元格）：+行 / -行 / -列 */
 function tableOp(op: 'addRow' | 'delRow' | 'delCol') {
@@ -164,6 +166,10 @@ defineExpose({ insertField, setContent })
         <span class="re-sep" />
         <button type="button" class="re-field" title="插入合同标的物表格（生成时按合同行项填充）"
                 @mousedown.prevent @click="insertItemsTable">插入标的物表格</button>
+        <button type="button" class="re-field" title="插入金额大写令牌（生成时按合同金额填充）"
+                @mousedown.prevent @click="insertToken('amount_words', '金额大写')">金额大写</button>
+        <button type="button" class="re-field" title="插入金额小写令牌"
+                @mousedown.prevent @click="insertToken('amount_total', '金额小写')">金额小写</button>
       </template>
       <span class="re-sep" />
       <button type="button" class="re-btn" title="插入 3 列空白表格（可用 +行/-行/-列 调整）"

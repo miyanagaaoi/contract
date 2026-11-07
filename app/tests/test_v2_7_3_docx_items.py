@@ -121,3 +121,35 @@ def test_warning_filter_ignores_tblprex():
         SimpleNamespace(type="error", message="An unrecognised element was ignored: w:tblPrEx"),
     ]
     assert _filter_warnings(msgs) == ["图片格式不支持"]
+
+
+def test_amount_words_unit():
+    """人民币大写（含中间零、万/亿分组、角分）。"""
+    from app.routers.contract_body import amount_words
+
+    assert amount_words(0) == "零元整"
+    assert amount_words(1000) == "壹仟元整"
+    assert amount_words(10001) == "壹万零壹元整"
+    assert amount_words(100000) == "壹拾万元整"
+    assert amount_words(100000001) == "壹亿零壹元整"
+    assert amount_words(1234.56) == "壹仟贰佰叁拾肆元伍角陆分"
+
+
+def test_items_table_summary_and_amount_tokens(client, h):
+    """标的物表格带合计行/金额大写；合同金额令牌同时输出小写与大写。"""
+    tpl = client.post("/api/contract-templates", headers=h, json={
+        "name": "金额大小写模板", "contract_type": "采购",
+        "body_html": '<p>合同总金额：{{amount_total}} 元</p>'
+                     '<p>大写：{{amount_words}}</p>'
+                     '<p><span class="ct-field" data-key="items_table">【标的物表格】</span></p>',
+        "fields": []})
+    assert tpl.status_code == 200, tpl.text
+    cid = _contract_with_item()
+    r = client.put(f"/api/contracts/{cid}/body", headers=h,
+                   json={"template_id": tpl.json()["id"], "field_values": {}})
+    assert r.status_code == 200, r.text
+    body = r.json()["body_html"]
+    assert "1,000.00" in body
+    assert "壹仟元整" in body
+    assert "合计" in body and "金额大写：人民币 壹仟元整" in body
+    assert "{{" not in body

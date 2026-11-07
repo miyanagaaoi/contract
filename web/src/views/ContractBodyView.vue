@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
- * 合同正文与签署（CR-045）：选模板 → 填字段 → 生成正文快照 → 我方在线签 → 上传对方扫描件生效。
- * 模板维护（仅管理员）：名称/类型/富文本 HTML/字段定义。
+ * 合同正文与签署（CR-045/049/054）：与模板页一致的左右两栏——
+ * 左：正文（预览 A4 / 富文本编辑）；右：合同信息 + 模板与字段 + 签署操作。
  */
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -18,7 +18,6 @@ const router = useRouter()
 const contractId = Number(route.params.id)
 const loading = ref(false)
 const templates = ref<Dict[]>([])
-const fieldTypes = ref<Dict[]>([])
 const body = ref<Dict>({})
 const templateId = ref<number | null>(null)
 const values = ref<Dict>({})
@@ -29,7 +28,6 @@ async function load() {
   try {
     const [t, b] = await Promise.all([fetchContractTemplates(), fetchContractBody(contractId)])
     templates.value = (t.items || []) as Dict[]
-    fieldTypes.value = (t.field_types || []) as Dict[]
     body.value = b
     templateId.value = b.template_id || null
     values.value = { ...(b.field_values || {}) }
@@ -76,42 +74,7 @@ async function saveEdit() {
 
 function printBody() { window.print() }
 
-// ---------------- 模板维护 ----------------
-const tplDlg = ref(false)
-const tplForm = ref<Dict>({ id: null, name: '', contract_type: '采购', body_html: '', fields: [] })
-const canManageTpl = ref(false)
-
-async function openTpl() {
-  tplDlg.value = true
-  if (!tplForm.value.id) {
-    tplForm.value = { id: null, name: '', contract_type: '采购',
-      body_html: '<h1>合同标题</h1><p>甲方：{{party_a}}</p><p>乙方：{{party_b}}</p>',
-      fields: [{ key: 'party_a', label: '甲方', type: 'text', required: true },
-               { key: 'party_b', label: '乙方', type: 'text', required: true }] }
-  }
-}
-
-function editTpl(t: Dict) {
-  tplForm.value = { id: t.id, name: t.name, contract_type: t.contract_type,
-    body_html: t.body_html, fields: JSON.parse(JSON.stringify(t.fields || [])) }
-}
-
-function addField() { tplForm.value.fields.push({ key: '', label: '', type: 'text', required: false }) }
-function delField(i: number) { tplForm.value.fields.splice(i, 1) }
-
-async function saveTpl() {
-  const payload = { ...tplForm.value }
-  if (tplForm.value.id) await updateContractTemplate(tplForm.value.id, payload)
-  else await createContractTemplate(payload)
-  ElMessage.success('模板已保存')
-  tplDlg.value = false
-  await load()
-}
-
-function printCss() {
-  return `@media print { .no-print { display:none !important } .a4 { box-shadow:none; margin:0 } }`
-}
-onMounted(async () => { await load(); canManageTpl.value = true })
+onMounted(load)
 </script>
 
 <template>
@@ -133,71 +96,100 @@ onMounted(async () => { await load(); canManageTpl.value = true })
         </template>
         <el-button size="small" @click="printBody">打印 / 另存 PDF</el-button>
       </div>
-
-      <div class="bar no-print">
-        <span>模板</span>
-        <el-select v-model="templateId" filterable clearable placeholder="选择合同模板"
-                   style="width: 260px" :disabled="body.sign_status !== 'none'">
-          <el-option v-for="t in templates" :key="t.id" :label="`${t.name}（${t.contract_type}）`"
-                     :value="t.id" />
-        </el-select>
-        <el-button type="primary" :disabled="body.sign_status !== 'none' || !templateId"
-                   @click="saveBody">生成/刷新正文</el-button>
-      </div>
-
-      <el-form v-if="selected && body.sign_status === 'none'" label-width="120px" class="no-print">
-        <el-form-item v-for="f in (selected.fields || [])" :key="f.key" :label="f.label"
-                      :required="f.required" :class="{ 'full-field': f.width === 'full' }">
-          <el-select v-if="f.type === 'select'" v-model="values[f.key]" style="width: 320px">
-            <el-option v-for="o in (f.options || [])" :key="o" :label="o" :value="o" />
-          </el-select>
-          <el-input v-else-if="f.type === 'textarea'" v-model="values[f.key]" type="textarea" :rows="3"
-                    style="width: 420px" :placeholder="f.placeholder || ''" />
-          <el-input-number v-else-if="f.type === 'number'" v-model="values[f.key]" :controls="false"
-                           style="width: 220px" />
-          <el-date-picker v-else-if="f.type === 'date'" v-model="values[f.key]" type="date"
-                          value-format="YYYY-MM-DD" style="width: 220px" />
-          <el-input v-else v-model="values[f.key]" style="width: 320px" :placeholder="f.placeholder || ''" />
-        </el-form-item>
-      </el-form>
-
-      <div class="bar no-print">
-        <el-button v-if="body.body_html && body.sign_status === 'none'" type="warning" @click="onSign">
-          我方在线签署（使用我的手写签名）
-        </el-button>
-        <template v-if="body.sign_status === 'our_signed'">
-          <el-button type="success" @click="() => (document.getElementById('scan-input') as HTMLInputElement)?.click()">
-            上传对方签署扫描件（置生效）
-          </el-button>
-          <input id="scan-input" type="file" accept=".pdf,.png,.jpg,.jpeg" style="display:none"
-                 @change="uploadScan" />
-        </template>
-        <span v-if="body.our_signed_name" class="tip">我方签署人：{{ body.our_signed_name }}
-          （{{ body.our_signed_at }}）</span>
-      </div>
-
-      <ContractRichEditor v-if="editing" v-model="editHtml" :items-table="true" />
-      <div class="a4" v-else-if="body.body_html">
-        <div v-html="body.body_html"></div>
-        <div class="sign-area" v-if="body.sign_status !== 'none'">
-          <div>我方（签字）：{{ body.our_signed_name }}</div>
-          <div>签署时间：{{ body.our_signed_at }}</div>
-        </div>
-      </div>
-      <el-empty v-else description="尚未生成正文：选择模板并点击「生成/刷新正文」" />
     </el-card>
 
+    <el-row :gutter="12" style="margin-top: 12px">
+      <!-- 左：正文 -->
+      <el-col :span="17">
+        <el-card shadow="never">
+          <ContractRichEditor v-if="editing" v-model="editHtml" :items-table="true" />
+          <div class="a4" v-else-if="body.body_html">
+            <div v-html="body.body_html"></div>
+            <div class="sign-area" v-if="body.sign_status !== 'none'">
+              <div>我方（签字）：{{ body.our_signed_name }}</div>
+              <div>签署时间：{{ body.our_signed_at }}</div>
+            </div>
+          </div>
+          <el-empty v-else description="尚未生成正文：右侧选择模板并点击「生成/刷新正文」" />
+        </el-card>
+      </el-col>
 
+      <!-- 右：合同信息 + 模板与字段 + 签署 -->
+      <el-col :span="7">
+        <el-card shadow="never" class="side-card">
+          <b>合同信息</b>
+          <el-descriptions :column="1" size="small" border class="mt8">
+            <el-descriptions-item label="合同编号">{{ body.contract_no || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="合同名称">{{ body.name || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="签署状态">{{ body.sign_status_label }}</el-descriptions-item>
+            <el-descriptions-item label="我方签署人">{{ body.our_signed_name || '—' }}</el-descriptions-item>
+          </el-descriptions>
+
+          <el-divider content-position="left">模板与字段</el-divider>
+          <div class="no-print">
+            <el-select v-model="templateId" filterable clearable placeholder="选择合同模板"
+                       style="width: 100%" :disabled="body.sign_status !== 'none'">
+              <el-option v-for="t in templates" :key="t.id" :label="`${t.name}（${t.contract_type}）`"
+                         :value="t.id" />
+            </el-select>
+            <el-button class="mt8" type="primary" style="width: 100%"
+                       :disabled="body.sign_status !== 'none' || !templateId" @click="saveBody">
+              生成/刷新正文
+            </el-button>
+          </div>
+          <el-form v-if="selected && body.sign_status === 'none'" label-position="top"
+                   class="no-print mt8">
+            <el-form-item v-for="f in (selected.fields || [])" :key="f.key" :label="f.label"
+                          :required="f.required">
+              <el-select v-if="f.type === 'select'" v-model="values[f.key]" style="width: 100%">
+                <el-option v-for="o in (f.options || [])" :key="o" :label="o" :value="o" />
+              </el-select>
+              <el-input v-else-if="f.type === 'textarea'" v-model="values[f.key]" type="textarea"
+                        :rows="2" :placeholder="f.placeholder || ''" />
+              <el-input-number v-else-if="f.type === 'number'" v-model="values[f.key]"
+                               :controls="false" style="width: 100%" />
+              <el-date-picker v-else-if="f.type === 'date'" v-model="values[f.key]" type="date"
+                              value-format="YYYY-MM-DD" style="width: 100%" />
+              <el-input v-else v-model="values[f.key]" :placeholder="f.placeholder || ''" />
+            </el-form-item>
+          </el-form>
+          <div class="tip">标的物表格与金额大写会在生成时按“合同行项 / 合同金额”自动填充。</div>
+
+          <el-divider content-position="left">签署</el-divider>
+          <div class="no-print">
+            <el-button v-if="body.body_html && body.sign_status === 'none'" type="warning"
+                       style="width: 100%" @click="onSign">
+              我方在线签署（使用我的手写签名）
+            </el-button>
+            <template v-if="body.sign_status === 'our_signed'">
+              <el-button type="success" style="width: 100%"
+                         @click="() => (document.getElementById('scan-input') as HTMLInputElement)?.click()">
+                上传对方签署扫描件（置生效）
+              </el-button>
+              <input id="scan-input" type="file" accept=".pdf,.png,.jpg,.jpeg" style="display:none"
+                     @change="uploadScan" />
+            </template>
+            <div v-if="body.our_signed_name" class="tip mt8">我方签署人：{{ body.our_signed_name }}
+              （{{ body.our_signed_at }}）</div>
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
 <style scoped>
-.bar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.bar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
 .tip { color: var(--el-text-color-secondary); font-size: 12px; }
 .mt8 { margin-top: 8px; }
+.side-card { position: sticky; top: 8px; }
 .a4 { max-width: 21cm; min-height: 29.7cm; margin: 0 auto; padding: 2cm 1.6cm;
-  background: #fff; box-shadow: 0 0 8px rgba(0,0,0,.12); }
+  background: #fff; box-shadow: 0 0 8px rgba(0, 0, 0, .12); }
 .a4 :deep(h1) { text-align: center; font-size: 22px; margin-bottom: 18px; }
+.a4 :deep(table) { border-collapse: collapse; width: 100%; margin: 8px 0; }
+.a4 :deep(td), .a4 :deep(th) { border: 1px solid #cbd2da; padding: 6px 8px; vertical-align: top; }
+.a4 :deep(tfoot td) { background: #f6f7f9; }
+.a4 :deep(img) { max-width: 100%; }
 .sign-area { margin-top: 48px; display: flex; gap: 80px; }
 @media print {
   .no-print { display: none !important; }

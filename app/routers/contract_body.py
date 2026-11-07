@@ -195,6 +195,74 @@ def _validate_fields(raw_fields) -> list[dict]:
     return out
 
 
+_CN_DIGITS = "零壹贰叁肆伍陆柒捌玖"
+_CN_UNITS = ("", "拾", "佰", "仟")
+_CN_BIG = ("", "万", "亿", "万亿")
+
+
+def _four_words(num: int) -> str:
+    """0~9999 的中文大写（组内零合并）。"""
+    out = ""
+    zero = False
+    for i in range(3, -1, -1):
+        digit = (num // (10 ** i)) % 10
+        if digit == 0:
+            if out:
+                zero = True
+            continue
+        if zero:
+            out += "零"
+            zero = False
+        out += _CN_DIGITS[digit] + _CN_UNITS[i]
+    return out
+
+
+def _int_words(yuan: int) -> str:
+    """整数元 → 中文大写（按四位分组：万/亿）。"""
+    if yuan == 0:
+        return "零"
+    chunks: list[int] = []
+    n = yuan
+    while n > 0:
+        chunks.append(n % 10000)
+        n //= 10000
+    parts: list[str] = []
+    for idx in range(len(chunks) - 1, -1, -1):
+        chunk = chunks[idx]
+        big = _CN_BIG[idx] if idx < len(_CN_BIG) else ""
+        if chunk == 0:
+            if parts and any(chunks[j] for j in range(idx)) and parts[-1] != "零":
+                parts.append("零")
+            continue
+        if parts and chunk < 1000 and parts[-1] != "零":
+            parts.append("零")
+        parts.append(_four_words(chunk) + big)
+    return "".join(parts)
+
+
+def amount_words(amount) -> str:
+    """金额 → 人民币大写（支持到万亿，含角分）。0 → 零元整。"""
+    try:
+        value = round(float(amount or 0), 2)
+    except (TypeError, ValueError):
+        value = 0.0
+    if value < 0:
+        return "负" + amount_words(-value)
+    yuan = int(value)
+    cents = int(round((value - yuan) * 100))
+    jiao, fen = divmod(cents, 10)
+    text = _int_words(yuan) + "元"
+    if jiao == 0 and fen == 0:
+        return text + "整"
+    if jiao:
+        text += _CN_DIGITS[jiao] + "角"
+    elif fen:
+        text += "零"
+    if fen:
+        text += _CN_DIGITS[fen] + "分"
+    return text
+
+
 def _items_table_html(items) -> str:
     """把合同行项渲染成正文里的“合同标的”表格（可后续在正文编辑里调整）。"""
     rows: list[str] = []
@@ -214,16 +282,28 @@ def _items_table_html(items) -> str:
             f"<td style=\"text-align:right\">{price:,.2f}</td>"
             f"<td style=\"text-align:right\">{total:,.2f}</td>"
             f"<td>{remark}</td></tr>")
+    total_qty = sum(float(getattr(it, "qty", 0) or 0) for it in (items or []))
+    total_amount = sum(float(getattr(it, "total", 0) or 0) for it in (items or []))
     if not rows:
         rows.append('<tr><td colspan="8" style="text-align:center">（本合同暂无行项）</td></tr>')
     head = ("<tr><th>序号</th><th>产品名称</th><th>规格型号</th><th>数量</th><th>单位</th>"
             "<th>含税单价</th><th>金额</th><th>备注</th></tr>")
+    foot = (
+        "<tfoot>"
+        '<tr><td colspan="3" style="text-align:right;font-weight:600">合计</td>'
+        f'<td style="text-align:right;font-weight:600">{total_qty:g}</td>'
+        '<td></td><td></td>'
+        f'<td style="text-align:right;font-weight:600">{total_amount:,.2f}</td>'
+        "<td></td></tr>"
+        f'<tr><td colspan="8">金额大写：人民币 {html.escape(amount_words(total_amount))}</td></tr>'
+        "</tfoot>")
     return ('<table border="1" cellspacing="0" cellpadding="6" '
             'style="border-collapse:collapse;width:100%;">'
-            f"<thead>{head}</thead><tbody>{''.join(rows)}</tbody></table>")
+            f"<thead>{head}</thead><tbody>{''.join(rows)}</tbody>{foot}</table>")
 
 
-def _render(body_html: str, fields: list[dict], values: dict, items=None) -> str:
+def _render(body_html: str, fields: list[dict], values: dict, items=None,
+            amount=None) -> str:
     missing = [f["label"] for f in fields
                if f.get("required") and not str(values.get(f["key"]) or "").strip()]
     if missing:
@@ -240,6 +320,16 @@ def _render(body_html: str, fields: list[dict], values: dict, items=None) -> str
         rendered = rendered.replace("{{" + f["key"] + "}}", safe)
     # 合同标的物表格：{{items_table}} 或 <span data-key="items_table">【标的物表格】</span>
     items_html = _items_table_html(items)
+    amount_val = amount if amount is not None else sum(
+        float(getattr(it, "total", 0) or 0) for it in (items or []))
+    amount_total = f"{float(amount_val or 0):,.2f}"
+    amount_upper = "人民币 " + amount_words(amount_val)
+    for token, val in (("{{amount_total}}", amount_total), ("{{amount_words}}", amount_upper)):
+        rendered = rendered.replace(token, val)
+    rendered = re.sub(r'<span[^>]*data-key="amount_total"[^>]*>.*?</span>',
+                      lambda _m: amount_total, rendered, flags=re.S)
+    rendered = re.sub(r'<span[^>]*data-key="amount_words"[^>]*>.*?</span>',
+                      lambda _m: amount_upper, rendered, flags=re.S)
     # 令牌独占一段时，连 <p> 一起替换成表格（table 不能嵌在 p 内）
     block_re = re.compile(
         r'<p[^>]*>\s*(?:<span[^>]*data-key="items_table"[^>]*>.*?</span>'
@@ -339,7 +429,8 @@ def save_body(contract_id: int, payload: dict = Body(...),
         raise HTTPException(status_code=422, detail="字段值格式错误")
     fields = _validate_fields(json.loads(tpl.fields_json or "[]"))
     body = _sanitize_html(_render(tpl.body_html, fields, values,
-                                  items=list(getattr(c, "items", []) or [])))
+                                  items=list(getattr(c, "items", []) or []),
+                                  amount=getattr(c, "amount", None)))
     c.template_id = tpl.id
     c.field_values = json.dumps(values, ensure_ascii=False)
     c.body_html = body
