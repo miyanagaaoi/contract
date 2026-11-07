@@ -1084,6 +1084,8 @@ onMounted(async () => {
         <el-table-column label="操作" width="176" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="view(row)">详情</el-button>
+            <el-button link type="primary" size="small"
+                       @click="router.push({ name: 'contract-body', params: { id: row.id } })">正文</el-button>
             <template v-if="row.deleted">
               <el-button link type="success" size="small" @click="restore(row)">恢复</el-button>
             </template>

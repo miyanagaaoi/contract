@@ -140,6 +140,15 @@ class Contract(Base):
     expected_arrival_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default=DEFAULT_STATUS, index=True)  # BR4
     owner_name: Mapped[str | None] = mapped_column(String(64), nullable=True)                 # 经办人(BR9)
+    # ---- CR-045：合同正文与签署 ----
+    template_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    body_html: Mapped[str | None] = mapped_column(Text, nullable=True)
+    field_values: Mapped[str | None] = mapped_column(Text, nullable=True)   # JSON
+    body_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sign_status: Mapped[str] = mapped_column(String(16), nullable=False, default="none")
+    our_signed_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    our_signed_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    our_signed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # ---- V2.0：数据范围与审计 ----
     org_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)            # 归属组织节点（数据范围）
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)        # 创建人账号 id

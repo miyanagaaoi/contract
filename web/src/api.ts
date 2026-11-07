@@ -813,6 +813,38 @@ export async function fetchStockReturnRecords(outId: number): Promise<Dict> {
   return data
 }
 
+/** CR-045：合同模板与正文/签署 */
+export async function fetchContractTemplates(): Promise<Dict> {
+  const { data } = await http.get('/contract-templates')
+  return data
+}
+export async function createContractTemplate(payload: Dict): Promise<Dict> {
+  const { data } = await http.post('/contract-templates', payload)
+  return data
+}
+export async function updateContractTemplate(id: number, payload: Dict): Promise<Dict> {
+  const { data } = await http.put(`/contract-templates/${id}`, payload)
+  return data
+}
+export async function fetchContractBody(contractId: number): Promise<Dict> {
+  const { data } = await http.get(`/contracts/${contractId}/body`)
+  return data
+}
+export async function saveContractBody(contractId: number, payload: Dict): Promise<Dict> {
+  const { data } = await http.put(`/contracts/${contractId}/body`, payload)
+  return data
+}
+export async function signContract(contractId: number): Promise<Dict> {
+  const { data } = await http.post(`/contracts/${contractId}/sign`)
+  return data
+}
+export async function uploadCounterpartScan(contractId: number, file: File): Promise<Dict> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const { data } = await http.post(`/contracts/${contractId}/counterpart-scan`, fd)
+  return data
+}
+
 /** CR-044：询价单列表 / 详情 / 增删改 / 发布截止 / 报价 / 比价 / 导出 */
 export async function fetchRfqs(params: Dict = {}): Promise<Dict> {
   const { data } = await http.get('/rfq', { params })

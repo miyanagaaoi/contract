@@ -91,6 +91,15 @@ _ADD_COLUMNS: list[tuple[str, str, str]] = [
     ("invoices", "our_company_code", "VARCHAR(8)"),
     ("invoices", "our_company_name", "VARCHAR(64)"),
     ("invoices", "is_red", "BOOLEAN NOT NULL DEFAULT FALSE"),  # PG 不接受整数默认值
+    # ---- CR-045：合同正文与签署 ----
+    ("contracts", "template_id", "INTEGER"),
+    ("contracts", "body_html", "TEXT"),
+    ("contracts", "field_values", "TEXT"),
+    ("contracts", "body_hash", "VARCHAR(64)"),
+    ("contracts", "sign_status", "VARCHAR(16) NOT NULL DEFAULT 'none'"),
+    ("contracts", "our_signed_by", "INTEGER"),
+    ("contracts", "our_signed_name", "VARCHAR(64)"),
+    ("contracts", "our_signed_at", "TIMESTAMP"),
     # ---- CR-046：附件存储后端 ----
     ("attachments", "storage_backend", "VARCHAR(16) NOT NULL DEFAULT 'local'"),
     # ---- CR-040：盘点复盘 ----

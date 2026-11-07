@@ -56,6 +56,11 @@ const router = createRouter({
           component: () => import('@/views/ContractsView.vue'),
           meta: { title: '合同台账', perm: 'contract.view' },
         },
+        {
+          path: 'contracts/:id/body', name: 'contract-body',
+          component: () => import('@/views/ContractBodyView.vue'),
+          meta: { title: '合同正文', perm: 'contract.view' },
+        },
 
         // ---- 资料库：往来单位 ----
         {
