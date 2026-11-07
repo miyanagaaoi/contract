@@ -3,7 +3,7 @@
  * 合同模板管理（CR-045 / CR-049）：左富文本正文 + 右字段设计（属性/插入），支持导入 Word。
  * 字段占位符在正文中显示为【字段名称】，保存为 <span data-key> 令牌（后端渲染两种格式兼容）。
  */
-import { onMounted, ref } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import ContractRichEditor from '@/components/contract/ContractRichEditor.vue'
@@ -41,6 +41,7 @@ function edit(t: Dict) {
     description: t.description || '', body_html: t.body_html,
     fields: JSON.parse(JSON.stringify(t.fields || [])),
   }
+  nextTick(() => editorRef.value?.setContent(t.body_html || ''))
 }
 
 let seq = 0
@@ -95,6 +96,9 @@ async function onWordPicked(e: Event) {
   }
   const data = await importContractTemplateDocx(file)
   form.value.body_html = data.html || ''
+  await nextTick()
+  // 强制回填编辑器：否则光标还停在编辑区内时 watch 会跳过同步，表现为“导入好几遍才显示”
+  editorRef.value?.setContent(data.html || '')
   if ((data.warnings || []).length) ElMessage.warning(data.warnings.join('；'))
   ElMessage.success('Word 内容已导入（保留标题/段落/表格/图片），可继续插入字段占位符')
 }

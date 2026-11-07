@@ -125,7 +125,29 @@ function onPaste(e: ClipboardEvent) {
   emitValue()
 }
 
-defineExpose({ insertField })
+function insertTable() {
+  editorEl.value?.focus()
+  const head = ['序号', '项目', '内容']
+  const th = head.map((h) => `<th style="border:1px solid #cbd2da;padding:6px 8px">${h}</th>`).join('')
+  const cells = (n: number) => Array.from({ length: n },
+    () => '<td style="border:1px solid #cbd2da;padding:6px 8px">&nbsp;</td>').join('')
+  const body = Array.from({ length: 2 }, (_, i) =>
+    `<tr><td style="border:1px solid #cbd2da;padding:6px 8px">${i + 1}</td>${cells(2)}</tr>`).join('')
+  const html = '<table border="1" cellspacing="0" cellpadding="6" '
+    + 'style="border-collapse:collapse;width:100%">'
+    + `<thead><tr>${th}</tr></thead><tbody>${body}</tbody></table><p><br/></p>`
+  document.execCommand('insertHTML', false, html)
+  emitValue()
+}
+
+/** 外部强制回填（导入 Word / 切换模板后用，绕开“编辑中不同步”的保护） */
+function setContent(raw: string) {
+  if (!editorEl.value) return
+  editorEl.value.innerHTML = normalizeTokens(raw || '')
+  emit('update:modelValue', editorEl.value.innerHTML)
+}
+
+defineExpose({ insertField, setContent })
 </script>
 
 <template>
@@ -144,6 +166,8 @@ defineExpose({ insertField })
                 @mousedown.prevent @click="insertItemsTable">插入标的物表格</button>
       </template>
       <span class="re-sep" />
+      <button type="button" class="re-btn" title="插入 3 列空白表格（可用 +行/-行/-列 调整）"
+              @mousedown.prevent @click="insertTable">插入表格</button>
       <button type="button" class="re-btn" title="表格加一行" @mousedown.prevent @click="tableOp('addRow')">+行</button>
       <button type="button" class="re-btn" title="删除当前行" @mousedown.prevent @click="tableOp('delRow')">-行</button>
       <button type="button" class="re-btn" title="删除当前列" @mousedown.prevent @click="tableOp('delCol')">-列</button>
