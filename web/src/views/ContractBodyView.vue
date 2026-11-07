@@ -72,7 +72,35 @@ async function saveEdit() {
   ElMessage.success('正文已保存（可继续签署）')
 }
 
-function printBody() { window.print() }
+/** 打印/另存 PDF：只输出正文，不带侧栏/顶栏（避免“预览了整个网页”） */
+function printBody() {
+  const content = body.value.body_html || ''
+  if (!content) { ElMessage.warning('尚未生成正文'); return }
+  const sign = body.value.sign_status !== 'none'
+    ? `<div class="sign-area"><div>我方（签字）：${body.value.our_signed_name || ''}</div>` +
+      `<div>签署时间：${body.value.our_signed_at || ''}</div></div>`
+    : ''
+  const w = window.open('', '_blank', 'width=900,height=1000')
+  if (!w) { ElMessage.warning('浏览器拦截了打印窗口，请允许弹窗后重试'); return }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+    <title>${body.value.contract_no || '合同正文'}</title>
+    <style>
+      @page { size: A4; margin: 18mm; }
+      body { margin: 0; font-family: "SimSun", "宋体", "PingFang SC", serif; font-size: 14px; line-height: 1.8; }
+      .a4 { max-width: 21cm; margin: 0 auto; }
+      h1 { text-align: center; font-size: 22px; margin: 0 0 18px; }
+      h2 { font-size: 16px; margin: 14px 0 8px; }
+      table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+      td, th { border: 1px solid #333; padding: 6px 8px; vertical-align: top; }
+      thead th { background: #f2f2f2; }
+      tfoot td { background: #f7f7f7; }
+      img { max-width: 100%; }
+      .sign-area { margin-top: 48px; display: flex; gap: 80px; }
+    </style></head><body><div class="a4">${content}${sign}</div></body></html>`)
+  w.document.close()
+  w.focus()
+  setTimeout(() => { w.print() }, 400)
+}
 
 onMounted(load)
 </script>

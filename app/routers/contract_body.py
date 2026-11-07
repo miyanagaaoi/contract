@@ -302,8 +302,26 @@ def _items_table_html(items) -> str:
             f"<thead>{head}</thead><tbody>{''.join(rows)}</tbody>{foot}</table>")
 
 
+def _auto_tokens(contract) -> dict[str, str]:
+    """模板可直接使用的合同自动令牌（无需手工填写字段）。"""
+    if contract is None:
+        return {}
+
+    def s(v) -> str:
+        return html.escape(str(v if v is not None else ""))
+
+    sign_date = getattr(contract, "sign_date", None)
+    return {
+        "contract_no": s(getattr(contract, "contract_no", "")),
+        "contract_name": s(getattr(contract, "name", "")),
+        "party_a": s(getattr(contract, "party_a", "")),
+        "party_b": s(getattr(contract, "party_b", "")),
+        "sign_date": s(sign_date.isoformat() if hasattr(sign_date, "isoformat") else sign_date or ""),
+    }
+
+
 def _render(body_html: str, fields: list[dict], values: dict, items=None,
-            amount=None) -> str:
+            amount=None, contract=None) -> str:
     missing = [f["label"] for f in fields
                if f.get("required") and not str(values.get(f["key"]) or "").strip()]
     if missing:
@@ -318,12 +336,18 @@ def _render(body_html: str, fields: list[dict], values: dict, items=None,
             r'<span[^>]*data-key="' + re.escape(f["key"]) + r'"[^>]*>.*?</span>', re.S)
         rendered = span_re.sub(lambda _m, _s=safe: _s, rendered)
         rendered = rendered.replace("{{" + f["key"] + "}}", safe)
+        # 兜底：编辑器/Word 粘贴可能把令牌变成纯文本【字段名】，仍按字段值替换
+        rendered = rendered.replace("【" + f["label"] + "】", safe)
     # 合同标的物表格：{{items_table}} 或 <span data-key="items_table">【标的物表格】</span>
     items_html = _items_table_html(items)
     amount_val = amount if amount is not None else sum(
         float(getattr(it, "total", 0) or 0) for it in (items or []))
     amount_total = f"{float(amount_val or 0):,.2f}"
     amount_upper = "人民币 " + amount_words(amount_val)
+    for key, val in _auto_tokens(contract).items():
+        rendered = rendered.replace("{{" + key + "}}", val)
+        rendered = re.sub(r'<span[^>]*data-key="' + re.escape(key) + r'"[^>]*>.*?</span>',
+                          lambda _m, _v=val: _v, rendered, flags=re.S)
     for token, val in (("{{amount_total}}", amount_total), ("{{amount_words}}", amount_upper)):
         rendered = rendered.replace(token, val)
     rendered = re.sub(r'<span[^>]*data-key="amount_total"[^>]*>.*?</span>',
@@ -430,7 +454,8 @@ def save_body(contract_id: int, payload: dict = Body(...),
     fields = _validate_fields(json.loads(tpl.fields_json or "[]"))
     body = _sanitize_html(_render(tpl.body_html, fields, values,
                                   items=list(getattr(c, "items", []) or []),
-                                  amount=getattr(c, "amount", None)))
+                                  amount=getattr(c, "amount", None),
+                                  contract=c))
     c.template_id = tpl.id
     c.field_values = json.dumps(values, ensure_ascii=False)
     c.body_html = body

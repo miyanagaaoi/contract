@@ -153,3 +153,32 @@ def test_items_table_summary_and_amount_tokens(client, h):
     assert "壹仟元整" in body
     assert "合计" in body and "金额大写：人民币 壹仟元整" in body
     assert "{{" not in body
+
+
+def test_label_fallback_and_auto_tokens(client, h):
+    """表格内纯文本【字段名】也能渲染；合同自动令牌取合同字段。"""
+    tpl = client.post("/api/contract-templates", headers=h, json={
+        "name": "表格内字段模板", "contract_type": "采购",
+        "body_html": '<h1>{{contract_name}}</h1><p>编号：{{contract_no}}</p>'
+                     '<table><tr><td>甲方</td><td>【甲方名称】</td></tr>'
+                     '<tr><td>乙方</td><td>【乙方名称】</td></tr></table>',
+        "fields": [
+            {"key": "party_a", "label": "甲方名称", "type": "text", "required": True},
+            {"key": "party_b", "label": "乙方名称", "type": "text", "required": True},
+        ]})
+    assert tpl.status_code == 200, tpl.text
+    with SessionLocal() as db:
+        sfx = uuid.uuid4().hex[:6]
+        c = Contract(contract_no=f"HTC{sfx}", name="自动令牌合同", type="采购",
+                     party_a="甲方公司", party_b="乙方公司", amount=500)
+        db.add(c)
+        db.commit()
+        cid = c.id
+    r = client.put(f"/api/contracts/{cid}/body", headers=h,
+                   json={"template_id": tpl.json()["id"],
+                         "field_values": {"party_a": "甲方公司", "party_b": "乙方公司"}})
+    assert r.status_code == 200, r.text
+    body = r.json()["body_html"]
+    assert "自动令牌合同" in body and "HTC" in body
+    assert "甲方公司" in body and "乙方公司" in body
+    assert "【甲方名称】" not in body and "{{" not in body

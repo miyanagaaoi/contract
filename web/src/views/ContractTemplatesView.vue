@@ -18,6 +18,24 @@ const fieldTypes = ref<Dict[]>([])
 const editorRef = ref<InstanceType<typeof ContractRichEditor> | null>(null)
 const form = ref<Dict>({ id: null, name: '', contract_type: '采购', description: '', body_html: '', fields: [] })
 
+/** 通用项目：新建模板时默认带上（可按需删改） */
+const COMMON_FIELDS: Dict[] = [
+  { key: 'service_content', label: '服务内容', type: 'textarea', width: 'full', required: true, placeholder: '' },
+  { key: 'party_a_sign_date', label: '甲方签订日期', type: 'date', width: 'half', required: false, placeholder: '' },
+  { key: 'party_b_sign_date', label: '乙方签订日期', type: 'date', width: 'half', required: false, placeholder: '' },
+  { key: 'start_date', label: '开始日期', type: 'date', width: 'half', required: false, placeholder: '' },
+  { key: 'end_date', label: '结束日期', type: 'date', width: 'half', required: false, placeholder: '' },
+  { key: 'pay_date', label: '付款日期', type: 'date', width: 'half', required: false, placeholder: '' },
+]
+
+function addCommonFields() {
+  for (const f of COMMON_FIELDS) {
+    if (!form.value.fields.some((x: Dict) => x.key === f.key)) {
+      form.value.fields.push(JSON.parse(JSON.stringify(f)))
+    }
+  }
+}
+
 async function load() {
   loading.value = true
   try {
@@ -30,8 +48,12 @@ async function load() {
 function reset() {
   form.value = {
     id: null, name: '', contract_type: '采购', description: '',
-    body_html: '<h1>合同标题</h1><p>甲方：【请插入甲方字段】</p>',
-    fields: [],
+    body_html: '<h1>合同标题</h1>'
+      + '<p>合同编号：{{contract_no}}</p>'
+      + '<p>甲方：{{party_a}}　　乙方：{{party_b}}</p>'
+      + '<p>签订日期：{{sign_date}}</p>'
+      + '<p>合同金额：{{amount_total}} 元（大写：{{amount_words}}）</p>',
+    fields: JSON.parse(JSON.stringify(COMMON_FIELDS)),
   }
 }
 

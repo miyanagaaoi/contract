@@ -597,6 +597,17 @@ const bodyPreview = computed(() => {
   html = html.replace(/<span[^>]*data-key="amount_total"[^>]*>[\s\S]*?<\/span>/g, total.toFixed(2))
   html = html.replace(/<span[^>]*data-key="amount_words"[^>]*>[\s\S]*?<\/span>/g,
     `人民币 ${amountWords(total)}`)
+  const autos: Record<string, string> = {
+    contract_no: editingId.value ? form.contract_no : previewNo.value,
+    contract_name: form.name || '',
+    party_a: form.party_a || '',
+    party_b: form.party_b || '',
+    sign_date: form.sign_date || '',
+  }
+  for (const [k, v] of Object.entries(autos)) {
+    html = html.split('{{' + k + '}}').join(v)
+    html = html.replace(new RegExp(`<span[^>]*data-key="${k}"[^>]*>[\\s\\S]*?<\\/span>`, 'g'), v)
+  }
   html = html.replace(/<span[^>]*data-key="items_table"[^>]*>[\s\S]*?<\/span>/g, table)
   return html
 })
