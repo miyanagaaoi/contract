@@ -228,7 +228,7 @@ function quoteTotals(): Record<number, number> {
 async function printCompare() {
   let cfg: Dict = { title: '比 价 单', orientation: 'portrait',
     sections: { budget: true, conditions: true, scores: true, reason: true, conclusion: true },
-    extra_rows: [], footer_note: '' }
+    extra_rows: [], signatures: ['制表人', '部门负责人', '单位负责人', '日期'], footer_note: '' }
   try { cfg = await fetchRfqPrintTemplate() } catch { /* 用默认模板 */ }
   const show = (k: string) => (cfg.sections || {})[k] !== false
   const qs = (detail.value.quotes || []) as Dict[]
@@ -439,10 +439,8 @@ async function printCompare() {
   </div>
 
   <div class="sign">
-    <div class="item"><span>制表人：${esc(detail.value.created_by_name || '')}</span><div class="line"></div></div>
-    <div class="item"><span>部门负责人：</span><div class="line"></div></div>
-    <div class="item"><span>单位负责人：</span><div class="line"></div></div>
-    <div class="item"><span>日期：</span><div class="line"></div></div>
+    ${(cfg.signatures || ['制表人', '部门负责人', '单位负责人', '日期']).map((label: string) =>
+      `<div class="item"><span>${esc(label)}：${label.includes('制表') ? esc(detail.value.created_by_name || '') : ''}</span><div class="line"></div></div>`).join('')}
   </div>
   <div class="foot"><span>${esc(cfg.footer_note || '颜色说明：琥珀底=该行最低报价；深墨青=中选供应商；评分进度条按 10 分制换算')}</span>
   <span>CTMS · ${esc(detail.value.doc_no || '')}</span></div>

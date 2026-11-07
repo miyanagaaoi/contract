@@ -180,3 +180,26 @@ def test_print_template_config(client, h):
         "sections": {"budget": True, "conditions": True, "scores": True,
                      "reason": True, "conclusion": True},
         "extra_rows": [{"label": "备注", "value": ""}], "footer_note": ""}).status_code == 200
+
+
+def test_print_template_signatures(client, h):
+    """签字栏可自定义（增删/文字），非法值 422。"""
+    g = client.get(f"{RFQ}/print-template", headers=h).json()
+    assert g["signatures"] == ["制表人", "部门负责人", "单位负责人", "日期"]
+
+    r = client.put(f"{RFQ}/print-template", headers=h, json={
+        "signatures": ["制表人", "财务负责人", "见证人"]})
+    assert r.status_code == 200, r.text
+    assert r.json()["signatures"] == ["制表人", "财务负责人", "见证人"]
+    assert client.get(f"{RFQ}/print-template", headers=h).json()["signatures"][1] == "财务负责人"
+
+    too_many = client.put(f"{RFQ}/print-template", headers=h,
+                          json={"signatures": [f"签字{i}" for i in range(9)]})
+    assert too_many.status_code == 422
+    too_long = client.put(f"{RFQ}/print-template", headers=h,
+                          json={"signatures": ["超长签字项" * 5]})
+    assert too_long.status_code == 422
+
+    # 还原默认
+    client.put(f"{RFQ}/print-template", headers=h,
+               json={"signatures": ["制表人", "部门负责人", "单位负责人", "日期"]})

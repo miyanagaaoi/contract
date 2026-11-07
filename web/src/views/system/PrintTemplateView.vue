@@ -58,11 +58,13 @@ const openPanels = ref<string[]>(['text', 'blocks', 'head', 'items', 'sign'])
 const rfqTpl = ref<Dict>({
   title: '比 价 单', orientation: 'portrait',
   sections: { budget: true, conditions: true, scores: true, reason: true, conclusion: true },
-  extra_rows: [], footer_note: '',
+  extra_rows: [], signatures: ['制表人', '部门负责人', '单位负责人', '日期'], footer_note: '',
 })
 const rfqSaving = ref(false)
 
 function addRfqRow() { (rfqTpl.value.extra_rows as Dict[]).push({ label: '', value: '' }) }
+function addRfqSign() { (rfqTpl.value.signatures as string[]).push('') }
+function delRfqSign(i: number) { (rfqTpl.value.signatures as string[]).splice(i, 1) }
 function delRfqRow(i: number) { (rfqTpl.value.extra_rows as Dict[]).splice(i, 1) }
 
 async function loadRfqTpl() {
@@ -337,6 +339,23 @@ onMounted(async () => {
               </el-table-column>
             </el-table>
             <el-button v-if="canEdit" class="mt8" size="small" @click="addRfqRow">+ 新增行</el-button>
+          </div>
+        </el-form-item>
+        <el-form-item label="签字栏">
+          <div style="width: 100%">
+            <div class="tip-line">打印时依次排布；「制表人」自动带当前制表人，「日期」可按需手填。</div>
+            <el-row :gutter="8">
+              <el-col v-for="(s, i) in rfqTpl.signatures" :key="i" :span="6">
+                <div style="display: flex; gap: 4px; margin-bottom: 6px">
+                  <el-input v-model="rfqTpl.signatures[i]" maxlength="20" size="small"
+                            :disabled="!canEdit" placeholder="签字项（如 制表人）" />
+                  <el-button v-if="canEdit" link type="danger" size="small" @click="delRfqSign(i)">
+                    删除
+                  </el-button>
+                </div>
+              </el-col>
+            </el-row>
+            <el-button v-if="canEdit" size="small" @click="addRfqSign">+ 新增签字项</el-button>
           </div>
         </el-form-item>
         <el-form-item label="页脚说明">

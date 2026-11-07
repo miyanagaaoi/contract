@@ -33,6 +33,7 @@ DEFAULT_PRINT_TEMPLATE: dict = {
     "sections": {"budget": True, "conditions": True, "scores": True,
                  "reason": True, "conclusion": True},
     "extra_rows": [{"label": "备注", "value": ""}],
+    "signatures": ["制表人", "部门负责人", "单位负责人", "日期"],
     "footer_note": "",
 }
 
@@ -40,7 +41,8 @@ DEFAULT_PRINT_TEMPLATE: dict = {
 def _load_print_template(db: Session) -> dict:
     row = db.get(KVSetting, PRINT_KEY)
     data = {**DEFAULT_PRINT_TEMPLATE, "sections": dict(DEFAULT_PRINT_TEMPLATE["sections"]),
-            "extra_rows": [dict(r) for r in DEFAULT_PRINT_TEMPLATE["extra_rows"]]}
+            "extra_rows": [dict(r) for r in DEFAULT_PRINT_TEMPLATE["extra_rows"]],
+            "signatures": list(DEFAULT_PRINT_TEMPLATE["signatures"])}
     if row is not None:
         try:
             stored = json.loads(row.value)
@@ -52,6 +54,8 @@ def _load_print_template(db: Session) -> dict:
                         if k in data["sections"]}}
                 if isinstance(stored.get("extra_rows"), list):
                     data["extra_rows"] = stored["extra_rows"]
+                if isinstance(stored.get("signatures"), list):
+                    data["signatures"] = [str(s) for s in stored["signatures"]]
         except (json.JSONDecodeError, TypeError):
             pass
     return data
@@ -90,8 +94,25 @@ def _load_print_template_payload(payload: dict) -> dict:
     footer = str(payload.get("footer_note") or "").strip()
     if len(footer) > 200:
         raise HTTPException(status_code=422, detail="页脚说明不能超过 200 字")
+    # 签字栏：可自定义行数与文字（如增加“财务负责人”“见证人”）
+    signatures = []
+    raw_sigs = payload.get("signatures")
+    if raw_sigs is None:
+        signatures = list(DEFAULT_PRINT_TEMPLATE["signatures"])
+    else:
+        if not isinstance(raw_sigs, list):
+            raise HTTPException(status_code=422, detail="签字栏格式错误")
+        for i, item in enumerate(raw_sigs, 1):
+            label = str(item or "").strip()
+            if not label:
+                continue
+            if len(label) > 20:
+                raise HTTPException(status_code=422, detail=f"签字栏第 {i} 项文字过长")
+            signatures.append(label)
+        if len(signatures) > 8:
+            raise HTTPException(status_code=422, detail="签字栏最多 8 项")
     return {"title": title, "orientation": orientation, "sections": sections,
-            "extra_rows": rows, "footer_note": footer}
+            "extra_rows": rows, "signatures": signatures, "footer_note": footer}
 
 
 def _dec(value, field: str) -> Decimal:
