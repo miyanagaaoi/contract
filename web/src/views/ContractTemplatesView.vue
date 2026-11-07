@@ -4,6 +4,8 @@
  * 仅管理员可保存（后端 require_superadmin），普通账号只读。
  */
 import { onMounted, ref } from 'vue'
+
+import ContractRichEditor from '@/components/contract/ContractRichEditor.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import {
@@ -98,8 +100,8 @@ onMounted(async () => { await load(); reset() })
             <el-option v-for="t in ['采购', '销售', '框架', '补充协议']" :key="t" :label="t" :value="t" />
           </el-select>
         </el-form-item>
-        <el-form-item label="正文 HTML">
-          <el-input v-model="form.body_html" type="textarea" :rows="10" />
+        <el-form-item label="正文内容">
+          <ContractRichEditor v-model="form.body_html" :fields="form.fields" />
         </el-form-item>
       </el-form>
       <el-table :data="form.fields" border size="small">

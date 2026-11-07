@@ -754,6 +754,25 @@
 - **证据**：`web/src/views/purchase/RfqView.vue`（matrixRows/winCount/conclusion、交叉表、品牌令牌）；
   前端构建通过；后端无改动（全量 549 passed）
 
+### CR-048 合同模板富文本编辑器（参考 TechFunWay/contract）
+
+- **来源**：2026-11-07 业务要求“参考我给的 github 项目，改造为富文本模式”。
+- **参考实现**：`TechFunWay/contract` 的 `web/src/components/contract/RichEditor.vue` —— **不引入第三方富文本库**，
+  用 `contenteditable` + `document.execCommand` 实现工具栏（标题/加粗/斜体/下划线/删除线/列表/对齐/撤销/重做/清除格式），
+  字段以可点击按钮插入占位符。
+- **规则**：
+  1. 新增 `web/src/components/contract/ContractRichEditor.vue`：上述工具栏 + 段落格式下拉 +
+     「插入字段」按钮（字段来自当前模板定义，插入 `{{key}}` 并以高亮样式显示）；
+  2. 「合同模板」页的正文编辑由 HTML 文本域改为富文本编辑器（存储仍为 HTML，旧模板兼容）；
+  3. 粘贴优先保留富文本结构；
+  4. **服务端白名单清洗**：保存模板与生成正文时移除 `script/style/iframe/object/embed/form`、
+     单标签 `input/link/meta/button`、`on*` 事件属性与 `javascript:` 链接，防存储型 XSS；
+  5. 字段插入仍为 `{{key}}` 文本，后端渲染逻辑不变（快照 + 打印沿用）。
+- **状态**：已实现（2026-11-07，替代 TODO-015）
+- **证据**：`ContractRichEditor.vue`、`ContractTemplatesView.vue`、`app/routers/contract_body.py`
+  （`_sanitize_html`）；新增清洗测试（script/onclick/javascript: 被移除，正常排版保留）；
+  全量 **550 passed**；前端构建通过
+
 ## 版本计划（2.7.0，两批）
 
 | 批次 | 内容 | 说明 |
@@ -780,6 +799,7 @@
 |---|---|---|---|
 | 2026-10-20 | 建立开发文档体系 | — | PRD/TODO/AGENTS/CLAUDE 首次落地；回填 V2.6.0（CR-001~007）与 V2.6.1（CR-008~014），状态均「已实现」 |
 | 2026-10-24 | 桥插件 peer 版本适配宿主 0.2.1-rc.2 | CR-015 | 本地插件清单 13 处 peer 由 `0.2.0-rc.2` 改为 `0.2.1-rc.2`；重启后 `/ext/bridge-config` 已返回 wsUrl、`browser_*` 工具已注册（扩展侧待填新端口） |
+| 2026-11-07 | 合同模板富文本编辑 | CR-048 | 免依赖 contenteditable 工具栏（标题/加粗/列表/对齐/撤销/插入字段）+ 服务端 HTML 白名单清洗；550 passed |
 | 2026-11-07 | 内置购销合同模板 | CR-045 | 按业务 docx 内置「购销服务合同（标准）」18 字段模板，启动按名称幂等播种；记录 TODO-016（上传合同自动生成模板） |
 | 2026-11-07 | 比价视觉与对比表 | CR-047 | 引用 xunjia 设计令牌（深墨青+最低价琥珀）、图标；交叉表（行×供应商、最低价高亮、胜出次数、统计列）；截止后结论条 |
 | 2026-11-07 | 合同正文并入新增合同 + 模板子页 + 菜单修正 | CR-045 | 新增/编辑弹窗内选模板填字段并生成正文；合同模板独立子页；菜单补询价单/合同模板入口；富文本编辑登记 TODO-015；549 passed |

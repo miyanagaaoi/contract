@@ -101,3 +101,17 @@ def test_body_render_and_snapshot(client, h, tpl):
                        files={"file": ("counterpart.png", png, "image/png")})
     assert scan.status_code == 200, scan.text
     assert scan.json()["sign_status"] == "completed"
+
+
+def test_template_html_sanitized(client, h):
+    """CR-048：模板正文做白名单清洗（脚本/事件属性/javascript: 链接被移除）。"""
+    r = client.post("/api/contract-templates", headers=h, json={
+        "name": "清洗测试模板", "contract_type": "采购",
+        "body_html": '<script>alert(1)</script><p onclick="alert(2)">正文</p>'
+                     '<a href="javascript:alert(3)">链接</a><h2>标题</h2>',
+        "fields": []})
+    assert r.status_code == 200, r.text
+    body = r.json()["body_html"]
+    assert "<script" not in body.lower() and "onclick" not in body.lower()
+    assert "javascript:" not in body.lower()
+    assert "正文" in body and "<h2>" in body

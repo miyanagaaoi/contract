@@ -23,6 +23,28 @@ router = APIRouter(tags=["contracts"])
 FIELD_TYPES = ("text", "textarea", "number", "date", "select")
 SIGN_STATES = {"none": "未签", "our_signed": "我方已签", "completed": "已生效"}
 
+_DANGEROUS_TAGS = ("script", "style", "iframe", "object", "embed", "form")
+_SELF_CLOSING_TAGS = ("input", "link", "meta", "button")
+_ON_ATTR_RE = re.compile(r"\son[a-zA-Z]+\s*=\s*(\"[^\"]*\"|'[^']*'|[^\s>]+)", re.I)
+_JS_URL_RE = re.compile(r"\b(?:href|src)\s*=\s*[\"']?\s*javascript:[^\s>]*", re.I)
+
+
+def _strip_tag(raw: str, tag: str) -> str:
+    raw = re.sub("<" + tag + r"\b[^>]*>.*?</" + tag + r"\s*>", "", raw, flags=re.S | re.I)
+    return re.sub("<" + tag + r"\b[^>]*/?>", "", raw, flags=re.I)
+
+
+def _sanitize_html(raw: str) -> str:
+    """合同正文 HTML 白名单清洗：去掉脚本/样式/表单/事件属性与 javascript: 链接。"""
+    text = raw or ""
+    for tag in _DANGEROUS_TAGS:
+        text = _strip_tag(text, tag)
+    for tag in _SELF_CLOSING_TAGS:
+        text = _strip_tag(text, tag)
+    text = _ON_ATTR_RE.sub("", text)
+    text = _JS_URL_RE.sub("", text)
+    return text
+
 
 def _template_fmt(tpl: ContractTemplate) -> dict:
     try:
@@ -112,7 +134,7 @@ def create_template(payload: dict = Body(...), user: User = Depends(require_supe
     fields = _validate_fields(payload.get("fields"))
     tpl = ContractTemplate(name=name,
                            contract_type=str(payload.get("contract_type") or "采购"),
-                           body_html=str(payload.get("body_html") or ""),
+                           body_html=_sanitize_html(str(payload.get("body_html") or "")),
                            fields_json=json.dumps(fields, ensure_ascii=False),
                            created_by=user.id, created_by_name=user.real_name)
     db.add(tpl)
@@ -135,7 +157,7 @@ def update_template(tpl_id: int, payload: dict = Body(...),
     if "contract_type" in payload:
         tpl.contract_type = str(payload.get("contract_type") or "采购")
     if "body_html" in payload:
-        tpl.body_html = str(payload.get("body_html") or "")
+        tpl.body_html = _sanitize_html(str(payload.get("body_html") or ""))
     if "fields" in payload:
         tpl.fields_json = json.dumps(_validate_fields(payload.get("fields")), ensure_ascii=False)
     if "enabled" in payload:
@@ -185,7 +207,7 @@ def save_body(contract_id: int, payload: dict = Body(...),
     if not isinstance(values, dict):
         raise HTTPException(status_code=422, detail="字段值格式错误")
     fields = _validate_fields(json.loads(tpl.fields_json or "[]"))
-    body = _render(tpl.body_html, fields, values)
+    body = _sanitize_html(_render(tpl.body_html, fields, values))
     c.template_id = tpl.id
     c.field_values = json.dumps(values, ensure_ascii=False)
     c.body_html = body
