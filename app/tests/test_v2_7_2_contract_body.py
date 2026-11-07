@@ -163,3 +163,57 @@ def test_import_word_docx(client, h):
     bad = client.post("/api/contract-templates/import-docx", headers=h,
                       files={"file": ("a.txt", b"x", "text/plain")})
     assert bad.status_code == 422
+
+
+def _styled_docx() -> bytes:
+    """带格式的 docx：居中标题(加粗/字号)、首行缩进段落、合并单元格表格、图片。"""
+    import io
+    import zipfile
+
+    png = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+                        "0000000a49444154789c6360000002000154a24f5f0000000049454e44ae426082")
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+        ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+        ' xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+        ' xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">'
+        '<w:body>'
+        '<w:p><w:pPr><w:jc w:val="center"/></w:pPr>'
+        '<w:r><w:rPr><w:b/><w:sz w:val="32"/></w:rPr><w:t>购销服务合同</w:t></w:r></w:p>'
+        '<w:p><w:pPr><w:ind w:firstLineChars="200"/></w:pPr>'
+        '<w:r><w:t>甲乙双方经协商一致。</w:t></w:r></w:p>'
+        '<w:tbl><w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/></w:tcPr>'
+        '<w:p><w:r><w:t>合并表头</w:t></w:r></w:p></w:tc></w:tr>'
+        '<w:tr><w:tc><w:p><w:r><w:t>物料</w:t></w:r></w:p></w:tc>'
+        '<w:tc><w:p><w:r><w:t>数量</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'
+        '<w:p><w:r><w:drawing><wp:inline><a:graphic><a:graphicData>'
+        '<a:blip r:embed="rId5"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>'
+        '</w:body></w:document>'
+    )
+    rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"'
+        ' Target="media/image1.png"/></Relationships>'
+    )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("word/document.xml", xml)
+        zf.writestr("word/_rels/document.xml.rels", rels)
+        zf.writestr("word/media/image1.png", png)
+    return buf.getvalue()
+
+
+def test_import_word_preserves_formatting(client, h):
+    """CR-050：标题居中/加粗字号、首行缩进、表格合并单元格、图片均保留。"""
+    r = client.post("/api/contract-templates/import-docx", headers=h,
+                    files={"file": ("样式.docx", _styled_docx(),
+                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document")})
+    assert r.status_code == 200, r.text
+    html = r.json()["html"]
+    assert "text-align:center" in html
+    assert "font-weight:700" in html and "font-size:" in html
+    assert "text-indent:2em" in html
+    assert 'colspan="2"' in html
+    assert "data:image/png;base64," in html

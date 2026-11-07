@@ -795,6 +795,25 @@
   `db_migrate`（`contract_templates.description`）；测试：令牌渲染 + Word 解析（标题/段落/表格/非 docx 拦截）；
   全量 **552 passed**；前端构建通过
 
+### CR-050 Word 导入保真（格式/表格/图片）
+
+- **问题**（2026-11-07 业务反馈）：上传 Word 后“只有文本，没有原格式”，合同排版全丢。
+- **规则**：新增 `app/services/docx_import_service.py` 做 OOXML 级保真转换（仍不依赖 python-docx）：
+  1. **段落**：标题样式（Heading1~3/Title）→ h1~h3；对齐（居中/右/两端）→ `text-align`；
+     首行缩进 → `text-indent:2em`；空段落保留为占位行；
+  2. **文字**：加粗/斜体/下划线/删除线 → 内联样式；字号（半磅→px）、字体颜色、上下标；
+     换行 `<br/>`、制表符转空格；文本全部 HTML 转义；
+  3. **列表**：`w:numPr` 段落聚合为 `<ul>/<ol>`（按 numId 奇偶区分，简化处理）；
+  4. **表格**：边框/内边距；`gridSpan` → `colspan`；`vMerge` → `rowspan`（含纵向合并延续行处理）；
+  5. **图片**：`w:drawing` → 关系表 → `word/media/*` → base64 `data:` URI 内嵌；
+     总大小上限 4MB，超出跳过并返回 warnings 提示；
+  6. 编辑器补充表格/图片/列表样式，导入后所见即所得；服务端 HTML 清洗追加 `expression(` /
+     `url(javascript:` 过滤。
+- **状态**：已实现（2026-11-07）
+- **证据**：`app/services/docx_import_service.py`、`app/routers/contract_body.py`（端点改用保真转换、
+  返回 warnings）、`ContractRichEditor.vue`（表格/图片/列表样式）、`ContractTemplatesView.vue`（导入提示）；
+  测试：居中/加粗字号/首行缩进/colspan/内嵌图片全部命中；全量 **553 passed**
+
 ## 版本计划（2.7.0，两批）
 
 | 批次 | 内容 | 说明 |
@@ -821,6 +840,7 @@
 |---|---|---|---|
 | 2026-10-20 | 建立开发文档体系 | — | PRD/TODO/AGENTS/CLAUDE 首次落地；回填 V2.6.0（CR-001~007）与 V2.6.1（CR-008~014），状态均「已实现」 |
 | 2026-10-24 | 桥插件 peer 版本适配宿主 0.2.1-rc.2 | CR-015 | 本地插件清单 13 处 peer 由 `0.2.0-rc.2` 改为 `0.2.1-rc.2`；重启后 `/ext/bridge-config` 已返回 wsUrl、`browser_*` 工具已注册（扩展侧待填新端口） |
+| 2026-11-07 | Word 导入保真 | CR-050 | OOXML 解析保留标题/对齐/缩进/加粗字号/列表/表格合并/图片（base64，4MB 上限）；553 passed |
 | 2026-11-07 | 模板编辑器左右布局/字段设计/Word 导入 | CR-049 | 正文令牌显示【字段名】；右侧字段卡片（属性+插入）；Word(.docx) 转 HTML 导入；字段宽度；552 passed |
 | 2026-11-07 | 合同模板富文本编辑 | CR-048 | 免依赖 contenteditable 工具栏（标题/加粗/列表/对齐/撤销/插入字段）+ 服务端 HTML 白名单清洗；550 passed |
 | 2026-11-07 | 内置购销合同模板 | CR-045 | 按业务 docx 内置「购销服务合同（标准）」18 字段模板，启动按名称幂等播种；记录 TODO-016（上传合同自动生成模板） |

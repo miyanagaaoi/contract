@@ -95,7 +95,8 @@ async function onWordPicked(e: Event) {
   }
   const data = await importContractTemplateDocx(file)
   form.value.body_html = data.html || ''
-  ElMessage.success('Word 内容已导入，可继续插入字段占位符')
+  if ((data.warnings || []).length) ElMessage.warning(data.warnings.join('；'))
+  ElMessage.success('Word 内容已导入（保留标题/段落/表格/图片），可继续插入字段占位符')
 }
 
 onMounted(async () => { await load(); reset() })

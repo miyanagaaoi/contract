@@ -46,6 +46,9 @@ def _sanitize_html(raw: str) -> str:
         text = _strip_tag(text, tag)
     text = _ON_ATTR_RE.sub("", text)
     text = _JS_URL_RE.sub("", text)
+    # 富文本导入可能带内联样式，去掉 CSS 注入面
+    text = re.sub(r"expression\s*\(", "", text, flags=re.I)
+    text = re.sub(r"url\s*\(\s*['\"]?\s*javascript:", "url(", text, flags=re.I)
     return text
 
 
@@ -142,10 +145,15 @@ async def import_template_docx(file: UploadFile = File(...),
         raise HTTPException(status_code=422, detail="文件为空")
     if len(data) > MAX_UPLOAD_MB * 1024 * 1024:
         raise HTTPException(status_code=413, detail=f"文件超过 {MAX_UPLOAD_MB}MB")
+    from ..services import docx_import_service
+
     try:
-        return {"html": _docx_to_html(data), "file_name": file.filename}
-    except (zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
+        result = docx_import_service.docx_to_html(data)
+    except ValueError as exc:
         raise HTTPException(status_code=422, detail=f"Word 解析失败：{exc}")
+    except Exception as exc:  # noqa: BLE001 - 损坏 XML 等
+        raise HTTPException(status_code=422, detail=f"Word 解析失败：{type(exc).__name__}: {exc}")
+    return {**result, "file_name": file.filename}
 
 
 @router.get("/api/contract-templates", summary="合同模板列表（CR-045）")

@@ -141,6 +141,12 @@ defineExpose({ insertField })
 .re-body :deep(h3) { font-size: 14px; margin: 12px 0 6px; }
 .re-body :deep(blockquote) { margin: 8px 0; padding-left: 10px; border-left: 3px solid #cbe3e0;
   color: #5a6672; }
+.re-body :deep(table) { border-collapse: collapse; width: 100%; margin: 8px 0; }
+.re-body :deep(td), .re-body :deep(th) { border: 1px solid var(--el-border-color); padding: 6px 8px;
+  vertical-align: top; }
+.re-body :deep(img) { max-width: 100%; height: auto; }
+.re-body :deep(ul), .re-body :deep(ol) { margin: 6px 0 6px 22px; }
+.re-body :deep(li) { margin: 2px 0; }
 .re-body :deep(.ct-field) { display: inline-block; padding: 0 6px; border-radius: 4px;
   background: #f1f8f7; color: #0e4f4a; border: 1px solid #cbe3e0; font-weight: 600; }
 </style>
