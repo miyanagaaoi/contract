@@ -105,3 +105,18 @@ def test_items_table_in_body(client, h):
                       json={"body_html": body.replace("球阀", "球阀（改）")})
     assert edit.status_code == 200, edit.text
     assert "球阀（改）" in edit.json()["body_html"]
+
+
+def test_warning_filter_ignores_tblprex():
+    """w:tblPrEx 等无害提示不应展示给用户；真实告警保留。"""
+    from types import SimpleNamespace
+
+    from app.services.docx_import_service import _filter_warnings
+
+    msgs = [
+        SimpleNamespace(type="warning", message="An unrecognised element was ignored: w:tblPrEx"),
+        SimpleNamespace(type="warning", message="An unrecognised element was ignored: w:proofErr"),
+        SimpleNamespace(type="warning", message="图片格式不支持"),
+        SimpleNamespace(type="error", message="An unrecognised element was ignored: w:tblPrEx"),
+    ]
+    assert _filter_warnings(msgs) == ["图片格式不支持"]

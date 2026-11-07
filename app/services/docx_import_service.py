@@ -29,6 +29,14 @@ p[style-name='标题 3'] => h3:fresh
 p[style-name='标题 4'] => h4:fresh
 """
 
+#: 无害提示：Word 的表格属性例外（tblPrEx）等，转换不受影响，不展示给用户
+_IGNORED_WARNING_PREFIXES = (
+    "An unrecognised element was ignored: w:tblPrEx",
+    "An unrecognised element was ignored: w:proofErr",
+    "An unrecognised element was ignored: w:bookmarkStart",
+    "An unrecognised element was ignored: w:bookmarkEnd",
+)
+
 _BLOCK_RE = re.compile(r"<(p|h[1-6])([^>]*)>(.*?)</\1>", re.S | re.I)
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -113,14 +121,26 @@ def _decorate_tables(html_text: str) -> str:
     )
 
 
+def _filter_warnings(messages) -> list[str]:
+    """只保留对用户有意义的提示；`w:tblPrEx` 等无害元素忽略提示不展示。"""
+    out: list[str] = []
+    for m in messages or []:
+        if getattr(m, "type", "") not in ("warning", "error"):
+            continue
+        msg = m.message or ""
+        if any(msg.startswith(p) for p in _IGNORED_WARNING_PREFIXES):
+            continue
+        out.append(msg)
+    return out
+
+
 def docx_to_html(data: bytes) -> dict:
     """docx → {html, warnings, images_bytes}。失败抛 ValueError。"""
     try:
         result = mammoth.convert_to_html(io.BytesIO(data), style_map=STYLE_MAP)
     except Exception as exc:  # noqa: BLE001
         raise ValueError(f"不是有效的 docx 文件：{exc}")
-    warnings = [m.message for m in (result.messages or [])
-                if getattr(m, "type", "") in ("warning", "error")]
+    warnings = _filter_warnings(result.messages)
     html_text = result.value or "<p></p>"
     html_text = _enhance_with_docx(html_text, data, warnings)
     html_text = _decorate_tables(html_text)

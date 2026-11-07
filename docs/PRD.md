@@ -821,7 +821,10 @@
   1. mammoth 负责标题样式映射（Title/Heading 1~4 中英文样式）、加粗/斜体、列表、表格合并单元格、图片（内嵌 data URI）；
   2. python-docx 读取段落补齐 mammoth 不保留的**对齐（居中/右/两端）、首行缩进、字号**，按文本顺序回填样式；
   3. 表格补统一边框样式；输出仍走服务端 HTML 白名单清洗；
-  4. 依赖加入 `app/requirements.txt`：`mammoth>=1.8,<2`、`python-docx>=1.1,<2`（镜像构建时装包）。
+  4. 依赖加入 `app/requirements.txt`：`mammoth>=1.8,<2`、`python-docx>=1.1,<2`（镜像构建时装包）；
+  5. **无害提示过滤**：mammoth 对 Word 表格属性例外（`w:tblPrEx`）、修订标记（`w:proofErr`）、
+     书签等元素会报“unrecognised element”，属正常忽略、不影响转换，不再展示给用户；
+     真实告警（如图片/样式问题）仍照常提示。
 - **状态**：已实现（2026-11-07）
 - **证据**：`app/services/docx_import_service.py`（mammoth + python-docx 增强）、
   `test_v2_7_3_docx_items.py`（python-docx 生成带标题/居中加粗字号/首行缩进/合并单元格/图片的 docx，
