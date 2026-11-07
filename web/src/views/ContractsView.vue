@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+
+import { amountWords } from '@/utils/rmb'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -14,6 +16,8 @@ import {
   downloadBlobFile,
   fetchAttachments,
   fetchContract,
+  fetchContractBody,
+  fetchContractTemplates,
   fetchContracts,
   fetchLogs,
   fetchMasterOptions,
@@ -23,6 +27,7 @@ import {
   previewAttachment,
   previewNumber,
   renameTag,
+  saveContractBody,
   restoreContract,
   saveItemTypes,
   softDeleteContract,
@@ -617,7 +622,11 @@ async function ensureBodyTemplates() {
   try {
     const data = await fetchContractTemplates()
     bodyTemplates.value = ((data.items || []) as Dict[]).filter((x) => x.enabled !== false)
-  } catch { bodyTemplates.value = [] }
+  } catch (e) {
+    bodyTemplates.value = []
+    console.error('加载合同模板失败', e)
+    ElMessage.warning('合同模板加载失败，请刷新重试')
+  }
 }
 
 function resetBody() {
