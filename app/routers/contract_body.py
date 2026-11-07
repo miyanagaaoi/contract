@@ -240,6 +240,11 @@ def _render(body_html: str, fields: list[dict], values: dict, items=None) -> str
         rendered = rendered.replace("{{" + f["key"] + "}}", safe)
     # 合同标的物表格：{{items_table}} 或 <span data-key="items_table">【标的物表格】</span>
     items_html = _items_table_html(items)
+    # 令牌独占一段时，连 <p> 一起替换成表格（table 不能嵌在 p 内）
+    block_re = re.compile(
+        r'<p[^>]*>\s*(?:<span[^>]*data-key="items_table"[^>]*>.*?</span>'
+        r'|\{\{items_table\}\})\s*</p>', re.S)
+    rendered = block_re.sub(lambda _m: items_html, rendered)
     rendered = rendered.replace("{{items_table}}", items_html)
     rendered = re.sub(r'<span[^>]*data-key="items_table"[^>]*>.*?</span>',
                       lambda _m: items_html, rendered, flags=re.S)

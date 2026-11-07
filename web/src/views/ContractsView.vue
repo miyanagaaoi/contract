@@ -544,6 +544,28 @@ const bodyTemplates = ref<Dict[]>([])
 const bodyTplId = ref<number | null>(null)
 const bodyValues = ref<Dict>({})
 const bodySelected = computed(() => bodyTemplates.value.find((x) => x.id === bodyTplId.value))
+function itemsTableHtml(): string {
+  const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+  const rows = (form.items || [])
+    .filter((r: Dict) => String(r.name || '').trim())
+    .map((r: Dict, i: number) => {
+      const qty = Number(r.qty) || 0
+      const price = Number(r.unit_price) || 0
+      const amount = qty * price
+      return '<tr>' +
+        `<td>${i + 1}</td><td>${esc(r.name)}</td><td>${esc(r.spec)}</td>` +
+        `<td style="text-align:right">${qty}</td><td></td>` +
+        `<td style="text-align:right">${price.toFixed(2)}</td>` +
+        `<td style="text-align:right">${amount.toFixed(2)}</td>` +
+        `<td>${esc(r.remark)}</td></tr>`
+    })
+  if (!rows.length) rows.push('<tr><td colspan="8" style="text-align:center">（请先填写合同行项）</td></tr>')
+  return '<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%">' +
+    '<thead><tr><th>序号</th><th>产品名称</th><th>规格型号</th><th>数量</th><th>单位</th>' +
+    '<th>含税单价</th><th>金额</th><th>备注</th></tr></thead><tbody>' +
+    rows.join('') + '</tbody></table>'
+}
+
 const bodyPreview = computed(() => {
   const tpl = bodySelected.value
   if (!tpl) return ''
@@ -553,6 +575,13 @@ const bodyPreview = computed(() => {
     const safe = v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>')
     html = html.split('{{' + f.key + '}}').join(safe)
   }
+  // 标的物表格：按当前录入的合同行项实时预览
+  const table = itemsTableHtml()
+  html = html.replace(
+    /<p[^>]*>\s*(?:<span[^>]*data-key="items_table"[^>]*>[\s\S]*?<\/span>|\{\{items_table\}\})\s*<\/p>/g,
+    table)
+  html = html.split('{{items_table}}').join(table)
+  html = html.replace(/<span[^>]*data-key="items_table"[^>]*>[\s\S]*?<\/span>/g, table)
   return html
 })
 

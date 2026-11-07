@@ -100,6 +100,7 @@ def test_items_table_in_body(client, h):
     assert r.status_code == 200, r.text
     body = r.json()["body_html"]
     assert "<table" in body and "球阀" in body and "DN25" in body
+    assert "<p><table" not in body.replace("\n", "")
     assert "【标的物表格】" not in body
     edit = client.put(f"/api/contracts/{cid}/body-html", headers=h,
                       json={"body_html": body.replace("球阀", "球阀（改）")})

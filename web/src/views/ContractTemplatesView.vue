@@ -139,6 +139,10 @@ onMounted(async () => { await load(); reset() })
     <el-row :gutter="12">
       <el-col :span="17">
         <el-card shadow="never">
+          <div class="tip" style="margin-bottom:6px">
+            标的物表格：点工具栏「插入标的物表格」放在“合同标的”位置；这里只显示令牌，
+            新增合同并录入行项后生成正文时，会自动替换成该合同的行项表格（签署前可编辑调整）。
+          </div>
           <ContractRichEditor ref="editorRef" v-model="form.body_html" :fields="form.fields"
                                :items-table="true" />
         </el-card>
