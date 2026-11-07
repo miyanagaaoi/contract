@@ -26,6 +26,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   fetchPrintTemplate,
   fetchPrintTemplates,
+  fetchRfqPrintTemplate,
+  saveRfqPrintTemplate,
   previewPrintTemplate,
   resetPrintTemplate,
   savePrintTemplate,
@@ -51,6 +53,29 @@ const dirty = ref(false)
 const loadError = ref('')
 /** 折叠面板默认全部展开：调版面时最常做的是在几个区块之间来回切换 */
 const openPanels = ref<string[]>(['text', 'blocks', 'head', 'items', 'sign'])
+
+// ---------------- 比价单打印模板（CR-060） ----------------
+const rfqTpl = ref<Dict>({
+  title: '比 价 单', orientation: 'portrait',
+  sections: { budget: true, conditions: true, scores: true, reason: true, conclusion: true },
+  extra_rows: [], footer_note: '',
+})
+const rfqSaving = ref(false)
+
+function addRfqRow() { (rfqTpl.value.extra_rows as Dict[]).push({ label: '', value: '' }) }
+function delRfqRow(i: number) { (rfqTpl.value.extra_rows as Dict[]).splice(i, 1) }
+
+async function loadRfqTpl() {
+  try { rfqTpl.value = await fetchRfqPrintTemplate() } catch { /* 拦截器已提示 */ }
+}
+
+async function saveRfqTpl() {
+  rfqSaving.value = true
+  try {
+    rfqTpl.value = await saveRfqPrintTemplate(rfqTpl.value)
+    ElMessage.success('比价单打印模板已保存')
+  } finally { rfqSaving.value = false }
+}
 
 /**
  * 服务端回填期间抑制脏标记。
@@ -250,6 +275,7 @@ onMounted(async () => {
     await loadSummaries()
     const first = (meta.value.kinds as Dict[] | undefined)?.[0]?.kind as string | undefined
     if (first) await selectKind(first)
+    await loadRfqTpl()
   } catch {
     // 拦截器已提示
   } finally {
@@ -260,6 +286,66 @@ onMounted(async () => {
 
 <template>
   <div v-loading="loading" class="print-tpl">
+    <el-card shadow="never" class="mb">
+      <template #header>
+        <div class="head">
+          <div>
+            <span class="title">比价单打印模板</span>
+            <span class="subtitle">默认一页竖向打印；可开关区块、增删自定义行（供应商列按报价自动生成）</span>
+          </div>
+          <div>
+            <el-button v-if="canEdit" type="primary" :loading="rfqSaving" @click="saveRfqTpl">
+              保存比价单模板
+            </el-button>
+          </div>
+        </div>
+      </template>
+      <el-form label-width="110px" size="small">
+        <el-row :gutter="12">
+          <el-col :span="8">
+            <el-form-item label="标题">
+              <el-input v-model="rfqTpl.title" maxlength="50" :disabled="!canEdit" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="16">
+            <el-form-item label="显示区块">
+              <el-checkbox v-model="rfqTpl.sections.budget" :disabled="!canEdit">预算对比</el-checkbox>
+              <el-checkbox v-model="rfqTpl.sections.conditions" :disabled="!canEdit">商务条件</el-checkbox>
+              <el-checkbox v-model="rfqTpl.sections.scores" :disabled="!canEdit">综合评分</el-checkbox>
+              <el-checkbox v-model="rfqTpl.sections.reason" :disabled="!canEdit">推荐理由</el-checkbox>
+              <el-checkbox v-model="rfqTpl.sections.conclusion" :disabled="!canEdit">定标结论</el-checkbox>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="自定义行">
+          <div style="width: 100%">
+            <el-table :data="rfqTpl.extra_rows" border size="small">
+              <el-table-column label="行标题" width="200">
+                <template #default="{ row }">
+                  <el-input v-model="row.label" maxlength="30" :disabled="!canEdit" placeholder="如：备注" />
+                </template>
+              </el-table-column>
+              <el-table-column label="内容（整行显示）">
+                <template #default="{ row }">
+                  <el-input v-model="row.value" maxlength="300" :disabled="!canEdit" />
+                </template>
+              </el-table-column>
+              <el-table-column label="" width="70">
+                <template #default="{ $index }">
+                  <el-button v-if="canEdit" link type="danger" @click="delRfqRow($index)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <el-button v-if="canEdit" class="mt8" size="small" @click="addRfqRow">+ 新增行</el-button>
+          </div>
+        </el-form-item>
+        <el-form-item label="页脚说明">
+          <el-input v-model="rfqTpl.footer_note" maxlength="200" :disabled="!canEdit"
+                    placeholder="留空则使用默认颜色说明" />
+        </el-form-item>
+      </el-form>
+    </el-card>
+
     <el-card shadow="never" class="mb">
       <template #header>
         <div class="head">

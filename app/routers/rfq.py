@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import json
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -16,6 +17,7 @@ from ..database import get_db
 from ..models_auth import User
 from ..models_master import Supplier
 from ..models_rfq import QUOTE_CHANNELS, RFQ_STATUS, Rfq, RfqLine, RfqQuote, RfqQuoteItem
+from ..models import KVSetting
 from ..services import audit_service, numbering_service
 from ..services.permission_service import require_perm
 from .export import DOC_EXPORT_LIMIT, build_xlsx_response
@@ -23,6 +25,73 @@ from .export import DOC_EXPORT_LIMIT, build_xlsx_response
 router = APIRouter(prefix="/api/rfq", tags=["rfq"])
 
 ZERO = Decimal("0")
+
+PRINT_KEY = "rfq_print_template"
+DEFAULT_PRINT_TEMPLATE: dict = {
+    "title": "比 价 单",
+    "orientation": "portrait",   # 默认一页竖向
+    "sections": {"budget": True, "conditions": True, "scores": True,
+                 "reason": True, "conclusion": True},
+    "extra_rows": [{"label": "备注", "value": ""}],
+    "footer_note": "",
+}
+
+
+def _load_print_template(db: Session) -> dict:
+    row = db.get(KVSetting, PRINT_KEY)
+    data = {**DEFAULT_PRINT_TEMPLATE, "sections": dict(DEFAULT_PRINT_TEMPLATE["sections"]),
+            "extra_rows": [dict(r) for r in DEFAULT_PRINT_TEMPLATE["extra_rows"]]}
+    if row is not None:
+        try:
+            stored = json.loads(row.value)
+            if isinstance(stored, dict):
+                data.update({k: v for k, v in stored.items() if k in data})
+                if isinstance(stored.get("sections"), dict):
+                    data["sections"] = {**data["sections"], **{
+                        k: bool(v) for k, v in stored["sections"].items()
+                        if k in data["sections"]}}
+                if isinstance(stored.get("extra_rows"), list):
+                    data["extra_rows"] = stored["extra_rows"]
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return data
+
+
+def _validate_print_template(payload: dict) -> dict:
+    data = _load_print_template_payload(payload)
+    return data
+
+
+def _load_print_template_payload(payload: dict) -> dict:
+    base = dict(DEFAULT_PRINT_TEMPLATE)
+    title = str(payload.get("title") or base["title"]).strip() or base["title"]
+    if len(title) > 50:
+        raise HTTPException(status_code=422, detail="标题不能超过 50 字")
+    orientation = str(payload.get("orientation") or "portrait")
+    if orientation not in ("portrait", "landscape"):
+        raise HTTPException(status_code=422, detail="纸张方向只能是纵向/横向")
+    sections = {}
+    raw_sections = payload.get("sections") or {}
+    for key in base["sections"]:
+        sections[key] = bool(raw_sections.get(key, True))
+    rows = []
+    for i, row in enumerate(payload.get("extra_rows") or [], 1):
+        if not isinstance(row, dict):
+            raise HTTPException(status_code=422, detail=f"第 {i} 个自定义行格式错误")
+        label = str(row.get("label") or "").strip()
+        value = str(row.get("value") or "").strip()
+        if not label and not value:
+            continue
+        if len(label) > 30 or len(value) > 300:
+            raise HTTPException(status_code=422, detail=f"第 {i} 行文字过长")
+        rows.append({"label": label, "value": value})
+    if len(rows) > 20:
+        raise HTTPException(status_code=422, detail="自定义行最多 20 行")
+    footer = str(payload.get("footer_note") or "").strip()
+    if len(footer) > 200:
+        raise HTTPException(status_code=422, detail="页脚说明不能超过 200 字")
+    return {"title": title, "orientation": orientation, "sections": sections,
+            "extra_rows": rows, "footer_note": footer}
 
 
 def _dec(value, field: str) -> Decimal:
@@ -217,6 +286,27 @@ def export_rfqs(keyword: str | None = Query(None), status: str | None = Query(No
              r.created_at.isoformat(sep=" ", timespec="minutes") if r.created_at else ""]
             for r in rows]
     return build_xlsx_response("询价单", columns, data, "询价单")
+
+
+@router.get("/print-template", summary="比价单打印模板（系统管理 · 打印模板）")
+def get_print_template(_user: User = Depends(require_perm("purchase.order.view")),
+                       db: Session = Depends(get_db)):
+    return _load_print_template(db)
+
+
+@router.put("/print-template", summary="保存比价单打印模板")
+def save_print_template(payload: dict = Body(...),
+                        _user: User = Depends(require_perm("purchase.order.create")),
+                        db: Session = Depends(get_db)):
+    data = _load_print_template_payload(payload)
+    raw = json.dumps(data, ensure_ascii=False)
+    row = db.get(KVSetting, PRINT_KEY)
+    if row is None:
+        db.add(KVSetting(key=PRINT_KEY, value=raw))
+    else:
+        row.value = raw
+    db.commit()
+    return _load_print_template(db)
 
 
 @router.get("/{rfq_id}", summary="询价单详情（含各家报价）")

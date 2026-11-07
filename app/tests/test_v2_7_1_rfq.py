@@ -147,3 +147,36 @@ def test_award_with_scores(client, h, suppliers):
     # 取消定标
     clear = client.post(f"{RFQ}/{rfq_id}/award", headers=h, json={"supplier_id": None})
     assert clear.status_code == 200 and clear.json()["award_supplier_id"] is None
+
+
+def test_print_template_config(client, h):
+    """比价单打印模板：默认纵向一页；可改标题/区块/自定义行；非法值 422。"""
+    g = client.get(f"{RFQ}/print-template", headers=h)
+    assert g.status_code == 200, g.text
+    assert g.json()["orientation"] == "portrait"
+
+    r = client.put(f"{RFQ}/print-template", headers=h, json={
+        "title": "比价单（长城博物馆）", "orientation": "portrait",
+        "sections": {"budget": False, "conditions": True, "scores": True,
+                     "reason": True, "conclusion": True},
+        "extra_rows": [{"label": "备注", "value": "此报价含税含运费"}],
+        "footer_note": "内部资料"})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["title"] == "比价单（长城博物馆）"
+    assert data["sections"]["budget"] is False
+    assert data["extra_rows"][0]["value"] == "此报价含税含运费"
+    assert client.get(f"{RFQ}/print-template", headers=h).json()["footer_note"] == "内部资料"
+
+    bad = client.put(f"{RFQ}/print-template", headers=h, json={"orientation": "diagonal"})
+    assert bad.status_code == 422
+    too_many = client.put(f"{RFQ}/print-template", headers=h,
+                          json={"extra_rows": [{"label": f"行{i}", "value": "x"} for i in range(21)]})
+    assert too_many.status_code == 422
+
+    # 还原默认
+    assert client.put(f"{RFQ}/print-template", headers=h, json={
+        "title": "比 价 单", "orientation": "portrait",
+        "sections": {"budget": True, "conditions": True, "scores": True,
+                     "reason": True, "conclusion": True},
+        "extra_rows": [{"label": "备注", "value": ""}], "footer_note": ""}).status_code == 200

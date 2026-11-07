@@ -8,8 +8,10 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { DataAnalysis, Download, Plus, Search } from '@element-plus/icons-vue'
 
 import {
-  awardRfq, closeRfq, compareRfq, createRfq, deleteRfq, fetchMasterOptions,
-  fetchRfqDetail, fetchRfqs, publishRfq, saveRfqQuote, updateRfq, type Dict,
+  awardRfq, closeRfq, compareRfq, createRfq, deleteRfq, downloadBlobFile,
+  fetchMasterOptions,
+  fetchRfqDetail, fetchRfqPrintTemplate, fetchRfqs, publishRfq, saveRfqQuote,
+  updateRfq, type Dict,
 } from '@/api'
 import { fmtMoney, fmtQty } from '@/utils/format'
 
@@ -180,10 +182,13 @@ async function onDelete(row: Dict) {
   await ElMessageBox.confirm(`删除草稿 ${row.doc_no}？`, '删除询价单', { type: 'warning' })
   await deleteRfq(row.id); await load()
 }
-function onExport() {
-  const qs = new URLSearchParams({ ...(query.value.status ? { status: query.value.status } : {}),
-    ...(query.value.keyword ? { keyword: query.value.keyword } : {}) })
-  window.open(`/api/rfq/export.xlsx?${qs.toString()}`, '_blank')
+async function onExport() {
+  // 走 axios 带 token 下载；直链 window.open 不带 token 会 401「未登录，请先登录」
+  const params = {
+    ...(query.value.status ? { status: query.value.status } : {}),
+    ...(query.value.keyword ? { keyword: query.value.keyword } : {}),
+  }
+  await downloadBlobFile('/rfq/export.xlsx', params, '询价单.xlsx')
 }
 
 const lineTotal = (row: Dict) => Number(row.qty || 0)
@@ -220,7 +225,12 @@ function quoteTotals(): Record<number, number> {
   return out
 }
 
-function printCompare() {
+async function printCompare() {
+  let cfg: Dict = { title: '比 价 单', orientation: 'portrait',
+    sections: { budget: true, conditions: true, scores: true, reason: true, conclusion: true },
+    extra_rows: [], footer_note: '' }
+  try { cfg = await fetchRfqPrintTemplate() } catch { /* 用默认模板 */ }
+  const show = (k: string) => (cfg.sections || {})[k] !== false
   const qs = (detail.value.quotes || []) as Dict[]
   if (!qs.length) { ElMessage.warning('暂无报价，无法打印比价单'); return }
   const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -302,6 +312,10 @@ function printCompare() {
     </th>`
   }).join('')
 
+  const extraHtml = ((cfg.extra_rows || []) as Dict[])
+    .filter((r: Dict) => String(r.value || '').trim())
+    .map((r: Dict) => `<tr><th>${esc(r.label)}</th><td colspan="${qs.length}">${esc(r.value)}</td></tr>`)
+    .join('')
   const info = [
     ['项目名称', detail.value.title || ''],
     ['项目内容', detail.value.project || ''],
@@ -314,22 +328,22 @@ function printCompare() {
   const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <title>比价单 · ${esc(detail.value.title || detail.value.doc_no || '')}</title>
 <style>
-  @page { size: A4 landscape; margin: 12mm 12mm 10mm; }
+  @page { size: A4 ${cfg.orientation === 'portrait' ? 'portrait' : 'landscape'}; margin: 10mm 10mm 8mm; }
   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  body { margin: 0; color: #2B3440; font-family: "PingFang SC", "Microsoft YaHei", "SimSun", serif; font-size: 11.5px; line-height: 1.55; }
-  .sheet { width: 100%; }
+  body { margin: 0; color: #2B3440; font-family: "PingFang SC", "Microsoft YaHei", "SimSun", serif; font-size: 10.5px; line-height: 1.45; }
+  .sheet { width: 100%; max-width: 19cm; margin: 0 auto; }
   /* 头部 */
   .hdr { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #0E4F4A; padding-bottom: 10px; }
   .brand { display: flex; gap: 12px; align-items: center; }
   .logo { width: 40px; height: 40px; border-radius: 9px; background: #0E4F4A; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; letter-spacing: 1px; }
-  h1 { margin: 0; font-size: 22px; letter-spacing: 4px; color: #0B3B37; }
+  h1 { margin: 0; font-size: 20px; letter-spacing: 4px; color: #0B3B37; }
   .sub-title { margin-top: 2px; color: #5A6672; font-size: 11px; }
   .hdr-right { text-align: right; font-size: 10.5px; color: #5A6672; max-width: 360px; }
   .hdr-right b { color: #2B3440; }
   .docno { margin-top: 3px; font-family: Consolas, monospace; color: #0E4F4A; font-weight: 700; }
 
   /* 信息条 */
-  .info { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 12px 0 14px; }
+  .info { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin: 9px 0 10px; }
   .cell { background: #F6F7F9; border: 1px solid #E4E7EC; border-left: 3px solid #0E4F4A; border-radius: 4px; padding: 6px 9px; }
   .cell span { display: block; color: #7C8794; font-size: 10px; letter-spacing: .5px; }
   .cell b { font-weight: 600; }
@@ -337,7 +351,7 @@ function printCompare() {
 
   /* 对比表 */
   table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-  th, td { border: 1px solid #DDE1E6; padding: 7px 9px; vertical-align: top; }
+  th, td { border: 1px solid #DDE1E6; padding: 5px 7px; vertical-align: top; }
   thead th { background: #F1F8F7; text-align: center; vertical-align: bottom; }
   thead th:first-child { width: 108px; background: #E4F2F0; text-align: left; color: #0E4F4A; }
   th.sup { position: relative; }
@@ -374,10 +388,10 @@ function printCompare() {
   .reason { color: #2B3440; }
 
   /* 结论 */
-  .conclusion { margin-top: 12px; border: 1px solid #CBD2DA; border-left: 4px solid #0E4F4A; background: #F1F8F7; border-radius: 4px; padding: 9px 12px; }
+  .conclusion { margin-top: 9px; border: 1px solid #CBD2DA; border-left: 4px solid #0E4F4A; background: #F1F8F7; border-radius: 4px; padding: 9px 12px; }
   .conclusion .k { font-weight: 700; color: #0E4F4A; margin-bottom: 3px; }
   /* 签字 */
-  .sign { display: flex; justify-content: space-between; margin-top: 26px; gap: 24px; }
+  .sign { display: flex; justify-content: space-between; margin-top: 18px; gap: 18px; }
   .sign .item { flex: 1; color: #5A6672; font-size: 11px; }
   .sign .line { border-bottom: 1px solid #A6AFB9; height: 30px; margin-top: 4px; }
   .foot { margin-top: 10px; display: flex; justify-content: space-between; color: #A6AFB9; font-size: 9.5px; border-top: 1px dashed #DDE1E6; padding-top: 6px; }
@@ -386,7 +400,7 @@ function printCompare() {
     <div class="brand">
       <div class="logo">比</div>
       <div>
-        <h1>比 价 单</h1>
+        <h1>${esc(cfg.title || '比 价 单')}</h1>
         <div class="sub-title">供应商比价与定标确认 · 采购内部资料</div>
       </div>
     </div>
@@ -408,13 +422,14 @@ function printCompare() {
     <tbody>
       ${sectionRow('一、报价对比')}
       ${priceRow}
-      ${budgetRow}
+      ${show('budget') ? budgetRow : ''}
       ${sectionRow('二、商务条件')}
       ${condRow}
-      ${scoreRows}
+      ${show('scores') ? scoreRows : ''}
+      ${extraHtml}
       ${sectionRow('三、比价结论')}
       ${awardRow}
-      ${reasonRow}
+      ${show('reason') ? reasonRow : ''}
     </tbody>
   </table>
 
@@ -429,7 +444,7 @@ function printCompare() {
     <div class="item"><span>单位负责人：</span><div class="line"></div></div>
     <div class="item"><span>日期：</span><div class="line"></div></div>
   </div>
-  <div class="foot"><span>颜色说明：琥珀底=该行最低报价；深墨青=中选供应商；评分进度条按 10 分制换算</span>
+  <div class="foot"><span>${esc(cfg.footer_note || '颜色说明：琥珀底=该行最低报价；深墨青=中选供应商；评分进度条按 10 分制换算')}</span>
   <span>CTMS · ${esc(detail.value.doc_no || '')}</span></div>
 </div></body></html>`
   const w = window.open('', '_blank', 'width=1180,height=820')

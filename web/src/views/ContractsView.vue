@@ -1250,15 +1250,23 @@ onMounted(async () => {
         <el-table-column label="操作" width="176" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="view(row)">详情</el-button>
-            <el-button link type="primary" size="small"
-                       @click="router.push({ name: 'contract-body', params: { id: row.id } })">正文</el-button>
             <template v-if="row.deleted">
               <el-button link type="success" size="small" @click="restore(row)">恢复</el-button>
             </template>
             <template v-else>
               <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
-              <el-button link type="warning" size="small" @click="openStatus(row)">状态</el-button>
-              <el-button link type="danger" size="small" @click="remove(row)">停用</el-button>
+              <el-dropdown trigger="click" class="row-more">
+                <el-button link type="primary" size="small">更多</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item @click="router.push({ name: 'contract-body', params: { id: row.id } })">
+                      合同正文/签署
+                    </el-dropdown-item>
+                    <el-dropdown-item @click="openStatus(row)">状态</el-dropdown-item>
+                    <el-dropdown-item divided @click="remove(row)">停用</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
             </template>
           </template>
         </el-table-column>

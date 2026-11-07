@@ -23,9 +23,13 @@ test.describe('合同台账', () => {
     await login(page, 'admin')
     await page.goto('/contracts')
 
-    await page.getByPlaceholder('编号/名称/甲乙方').fill('PUR-DEMO')
+    // 不依赖演示数据：取当前列表中第一条的合同编号作为检索关键词
+    const firstRow = page.locator('.el-table__row').first()
+    const keyword = (await firstRow.locator('td').first().innerText()).trim()
+    test.skip(!keyword, '当前库中没有合同数据')
+    await page.getByPlaceholder('编号/名称/甲乙方').fill(keyword)
     await page.getByRole('button', { name: '查询' }).click()
-    await expect(page.locator('.el-table__row').first()).toContainText('PUR-DEMO')
+    await expect(page.locator('.el-table__row').first()).toContainText(keyword)
 
     await page.getByRole('button', { name: '重置' }).click()
     await expect(page.getByPlaceholder('编号/名称/甲乙方')).toHaveValue('')
@@ -125,7 +129,8 @@ test.describe('合同台账', () => {
     await page.getByPlaceholder('编号/名称/甲乙方').fill(newName)
     await page.getByRole('button', { name: '查询' }).click()
     const row2 = page.locator('.el-table__row').filter({ hasText: newName })
-    await row2.getByRole('button', { name: '停用' }).click()
+    await row2.getByRole('button', { name: '更多' }).click()
+    await page.locator('.el-dropdown-menu__item', { hasText: '停用' }).click()
     await page.locator('.el-message-box input').fill('E2E 自动化测试停用')
     // 该确认框的确认按钮文案是「停用」（ElMessageBox.prompt 的 confirmButtonText）
     await page.locator('.el-message-box__btns button', { hasText: '停用' }).click()

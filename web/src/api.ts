@@ -886,6 +886,14 @@ export async function saveRfqQuote(id: number, supplierId: number, payload: Dict
   const { data } = await http.put(`/rfq/${id}/quotes/${supplierId}`, payload)
   return data
 }
+export async function fetchRfqPrintTemplate(): Promise<Dict> {
+  const { data } = await http.get('/rfq/print-template')
+  return data
+}
+export async function saveRfqPrintTemplate(payload: Dict): Promise<Dict> {
+  const { data } = await http.put('/rfq/print-template', payload)
+  return data
+}
 export async function awardRfq(id: number, payload: Dict): Promise<Dict> {
   const { data } = await http.post(`/rfq/${id}/award`, payload)
   return data
