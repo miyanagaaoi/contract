@@ -34,6 +34,7 @@ DEFAULT_PRINT_TEMPLATE: dict = {
                  "reason": True, "conclusion": True},
     "extra_rows": [{"label": "备注", "value": ""}],
     "signatures": ["制表人", "部门负责人", "单位负责人", "日期"],
+    "signature_columns": 3,   # 签字栏每行最多几个（打印自动换行）
     "footer_note": "",
 }
 
@@ -43,6 +44,7 @@ def _load_print_template(db: Session) -> dict:
     data = {**DEFAULT_PRINT_TEMPLATE, "sections": dict(DEFAULT_PRINT_TEMPLATE["sections"]),
             "extra_rows": [dict(r) for r in DEFAULT_PRINT_TEMPLATE["extra_rows"]],
             "signatures": list(DEFAULT_PRINT_TEMPLATE["signatures"])}
+    data.setdefault("signature_columns", 3)
     if row is not None:
         try:
             stored = json.loads(row.value)
@@ -111,8 +113,15 @@ def _load_print_template_payload(payload: dict) -> dict:
             signatures.append(label)
         if len(signatures) > 8:
             raise HTTPException(status_code=422, detail="签字栏最多 8 项")
+    try:
+        columns = int(payload.get("signature_columns", 3))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="签字栏每行个数格式错误")
+    if columns < 1 or columns > 4:
+        raise HTTPException(status_code=422, detail="签字栏每行个数只能是 1~4")
     return {"title": title, "orientation": orientation, "sections": sections,
-            "extra_rows": rows, "signatures": signatures, "footer_note": footer}
+            "extra_rows": rows, "signatures": signatures,
+            "signature_columns": columns, "footer_note": footer}
 
 
 def _dec(value, field: str) -> Decimal:

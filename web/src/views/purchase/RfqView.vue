@@ -228,7 +228,8 @@ function quoteTotals(): Record<number, number> {
 async function printCompare() {
   let cfg: Dict = { title: '比 价 单', orientation: 'portrait',
     sections: { budget: true, conditions: true, scores: true, reason: true, conclusion: true },
-    extra_rows: [], signatures: ['制表人', '部门负责人', '单位负责人', '日期'], footer_note: '' }
+    extra_rows: [], signatures: ['制表人', '部门负责人', '单位负责人', '日期'],
+    signature_columns: 3, footer_note: '' }
   try { cfg = await fetchRfqPrintTemplate() } catch { /* 用默认模板 */ }
   const show = (k: string) => (cfg.sections || {})[k] !== false
   const qs = (detail.value.quotes || []) as Dict[]
@@ -391,8 +392,8 @@ async function printCompare() {
   .conclusion { margin-top: 9px; border: 1px solid #CBD2DA; border-left: 4px solid #0E4F4A; background: #F1F8F7; border-radius: 4px; padding: 9px 12px; }
   .conclusion .k { font-weight: 700; color: #0E4F4A; margin-bottom: 3px; }
   /* 签字 */
-  .sign { display: flex; justify-content: space-between; margin-top: 18px; gap: 18px; }
-  .sign .item { flex: 1; color: #5A6672; font-size: 11px; }
+  .sign { display: grid; grid-template-columns: repeat(${Math.min(4, Math.max(1, Number(cfg.signature_columns) || 3))}, 1fr); margin-top: 18px; gap: 10px 22px; }
+  .sign .item { color: #5A6672; font-size: 11px; }
   .sign .line { border-bottom: 1px solid #A6AFB9; height: 30px; margin-top: 4px; }
   .foot { margin-top: 10px; display: flex; justify-content: space-between; color: #A6AFB9; font-size: 9.5px; border-top: 1px dashed #DDE1E6; padding-top: 6px; }
 </style></head><body><div class="sheet">

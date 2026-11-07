@@ -203,3 +203,17 @@ def test_print_template_signatures(client, h):
     # 还原默认
     client.put(f"{RFQ}/print-template", headers=h,
                json={"signatures": ["制表人", "部门负责人", "单位负责人", "日期"]})
+
+
+def test_signature_columns_default_three(client, h):
+    """签字栏默认每行最多 3 个；可配置 1~4；越界 422。"""
+    g = client.get(f"{RFQ}/print-template", headers=h).json()
+    assert g["signature_columns"] == 3
+
+    r = client.put(f"{RFQ}/print-template", headers=h, json={"signature_columns": 2})
+    assert r.status_code == 200 and r.json()["signature_columns"] == 2
+    assert client.put(f"{RFQ}/print-template", headers=h,
+                      json={"signature_columns": 5}).status_code == 422
+    assert client.put(f"{RFQ}/print-template", headers=h,
+                      json={"signature_columns": 0}).status_code == 422
+    client.put(f"{RFQ}/print-template", headers=h, json={"signature_columns": 3})

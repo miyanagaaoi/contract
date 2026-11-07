@@ -58,7 +58,8 @@ const openPanels = ref<string[]>(['text', 'blocks', 'head', 'items', 'sign'])
 const rfqTpl = ref<Dict>({
   title: '比 价 单', orientation: 'portrait',
   sections: { budget: true, conditions: true, scores: true, reason: true, conclusion: true },
-  extra_rows: [], signatures: ['制表人', '部门负责人', '单位负责人', '日期'], footer_note: '',
+  extra_rows: [], signatures: ['制表人', '部门负责人', '单位负责人', '日期'],
+  signature_columns: 3, footer_note: '',
 })
 const rfqSaving = ref(false)
 
@@ -343,7 +344,15 @@ onMounted(async () => {
         </el-form-item>
         <el-form-item label="签字栏">
           <div style="width: 100%">
-            <div class="tip-line">打印时依次排布；「制表人」自动带当前制表人，「日期」可按需手填。</div>
+            <div class="tip-line">
+              打印时依次排布，默认每行最多 3 个（超出自动换行）；「制表人」自动带当前制表人。
+            </div>
+            <el-form-item label="每行个数" label-width="80px" style="margin-bottom: 6px">
+              <el-select v-model="rfqTpl.signature_columns" size="small" style="width: 100px"
+                         :disabled="!canEdit">
+                <el-option v-for="n in [1, 2, 3, 4]" :key="n" :label="`${n} 个/行`" :value="n" />
+              </el-select>
+            </el-form-item>
             <el-row :gutter="8">
               <el-col v-for="(s, i) in rfqTpl.signatures" :key="i" :span="6">
                 <div style="display: flex; gap: 4px; margin-bottom: 6px">
