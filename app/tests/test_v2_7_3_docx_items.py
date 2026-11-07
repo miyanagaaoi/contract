@@ -182,3 +182,30 @@ def test_label_fallback_and_auto_tokens(client, h):
     assert "自动令牌合同" in body and "HTC" in body
     assert "甲方公司" in body and "乙方公司" in body
     assert "【甲方名称】" not in body and "{{" not in body
+
+
+def test_auto_contract_info_fills_template_fields(client, h):
+    """合同上已填的信息（编号/甲乙方/日期/金额等）生成正文时自动带入，无需重复填写。"""
+    tpl = client.post("/api/contract-templates", headers=h, json={
+        "name": "自动带入模板", "contract_type": "采购",
+        "body_html": '<p>甲方：<span data-key="customer_field">【甲方名称】</span></p>'
+                     '<p>编号：{{contract_no}} 类型：{{contract_type}} 经办：{{owner_name}}</p>'
+                     '<p>金额：{{amount_total}}（{{amount_words}}）</p>',
+        "fields": [{"key": "customer_field", "label": "甲方名称", "type": "text", "required": True}]})
+    assert tpl.status_code == 200, tpl.text
+    with SessionLocal() as db:
+        sfx = uuid.uuid4().hex[:6]
+        c = Contract(contract_no=f"HTA{sfx}", name="自动带入合同", type="采购/支出",
+                     party_a="自动甲方公司", party_b="乙方", amount=1234.56,
+                     owner_name="张三")
+        db.add(c)
+        db.commit()
+        cid, no = c.id, c.contract_no
+    r = client.put(f"/api/contracts/{cid}/body", headers=h,
+                   json={"template_id": tpl.json()["id"], "field_values": {}})
+    assert r.status_code == 200, r.text
+    body = r.json()["body_html"]
+    assert "自动甲方公司" in body          # 字段标签“甲方名称”自动带入
+    assert no in body and "采购/支出" in body and "张三" in body
+    assert "1,234.56" in body and "壹仟贰佰叁拾肆元伍角陆分" in body
+    assert "【" not in body and "{{" not in body

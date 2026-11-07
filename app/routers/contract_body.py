@@ -70,6 +70,11 @@ def _contract_fmt(c: Contract) -> dict:
     except (json.JSONDecodeError, TypeError):
         values = {}
     return {"contract_id": c.id, "contract_no": c.contract_no, "name": c.name,
+            "contract_type": c.type,
+            "party_a": c.party_a, "party_b": c.party_b,
+            "amount": float(c.amount or 0),
+            "sign_date": c.sign_date.isoformat() if c.sign_date else None,
+            "owner_name": c.owner_name, "remark": c.remark,
             "template_id": c.template_id, "field_values": values,
             "body_html": c.body_html or "", "body_hash": c.body_hash,
             "sign_status": c.sign_status or "none",
@@ -311,13 +316,72 @@ def _auto_tokens(contract) -> dict[str, str]:
         return html.escape(str(v if v is not None else ""))
 
     sign_date = getattr(contract, "sign_date", None)
+    amount = float(getattr(contract, "amount", 0) or 0)
     return {
         "contract_no": s(getattr(contract, "contract_no", "")),
         "contract_name": s(getattr(contract, "name", "")),
+        "contract_type": s(getattr(contract, "type", "")),
         "party_a": s(getattr(contract, "party_a", "")),
         "party_b": s(getattr(contract, "party_b", "")),
         "sign_date": s(sign_date.isoformat() if hasattr(sign_date, "isoformat") else sign_date or ""),
+        "owner_name": s(getattr(contract, "owner_name", "")),
+        "remark": s(getattr(contract, "remark", "")),
+        "amount_total": f"{amount:,.2f}",
+        "amount_words": "人民币 " + amount_words(amount),
     }
+
+
+#: 模板字段 key 与合同字段的对应（生成时自动带入，用户不必重复填写）
+_AUTO_FIELD_KEYS = {
+    "contract_no": "contract_no",
+    "contract_name": "name",
+    "name": "name",
+    "contract_type": "type",
+    "type": "type",
+    "party_a": "party_a",
+    "party_b": "party_b",
+    "sign_date": "sign_date",
+    "owner_name": "owner_name",
+    "remark": "remark",
+    "amount": "amount",
+    "total_amount": "amount",
+    "contract_amount": "amount",
+}
+
+#: 按字段中文名兜底对应（模板字段常用名称）
+_AUTO_FIELD_LABELS = {
+    "合同编号": "contract_no",
+    "合同名称": "name",
+    "甲方名称": "party_a",
+    "甲方": "party_a",
+    "购货方": "party_a",
+    "乙方名称": "party_b",
+    "乙方": "party_b",
+    "销货方": "party_b",
+    "签订日期": "sign_date",
+    "合同金额": "amount",
+    "合同总金额": "amount",
+    "经办人": "owner_name",
+}
+
+
+def _auto_field_values(contract) -> dict[str, str]:
+    """合同上已有的值 → 模板字段默认值（前端传值优先覆盖）。"""
+    if contract is None:
+        return {}
+
+    def v(attr: str) -> str:
+        raw = getattr(contract, attr, None)
+        if raw is None:
+            return ""
+        if hasattr(raw, "isoformat"):
+            return raw.isoformat()
+        return str(raw)
+
+    out: dict[str, str] = {}
+    for key, attr in _AUTO_FIELD_KEYS.items():
+        out[key] = v(attr)
+    return out
 
 
 def _render(body_html: str, fields: list[dict], values: dict, items=None,
@@ -452,6 +516,20 @@ def save_body(contract_id: int, payload: dict = Body(...),
     if not isinstance(values, dict):
         raise HTTPException(status_code=422, detail="字段值格式错误")
     fields = _validate_fields(json.loads(tpl.fields_json or "[]"))
+    # 合同上已有的信息自动带入（合同编号/甲乙方/签订日期/金额等），用户填写优先
+    merged_values = {**_auto_field_values(c)}
+    for k, v in (values or {}).items():
+        if str(v if v is not None else "").strip() != "":
+            merged_values[k] = v
+    for f in fields:
+        if str(merged_values.get(f["key"]) or "").strip():
+            continue
+        label_key = _AUTO_FIELD_LABELS.get(str(f.get("label") or "").strip())
+        if label_key:
+            patched = _auto_field_values(c).get(label_key, "")
+            if patched:
+                merged_values[f["key"]] = patched
+    values = merged_values
     body = _sanitize_html(_render(tpl.body_html, fields, values,
                                   items=list(getattr(c, "items", []) or []),
                                   amount=getattr(c, "amount", None),

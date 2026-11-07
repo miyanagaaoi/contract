@@ -31,7 +31,42 @@ async function load() {
     body.value = b
     templateId.value = b.template_id || null
     values.value = { ...(b.field_values || {}) }
+    prefillFromContract()
   } finally { loading.value = false }
+}
+
+const AUTO_FIELD_KEYS: Record<string, string> = {
+  contract_no: 'contract_no', contract_name: 'name', name: 'name',
+  contract_type: 'contract_type', type: 'contract_type',
+  party_a: 'party_a', party_b: 'party_b', sign_date: 'sign_date',
+  owner_name: 'owner_name', remark: 'remark',
+  amount: 'amount', total_amount: 'amount', contract_amount: 'amount',
+}
+const AUTO_FIELD_LABELS: Record<string, string> = {
+  合同编号: 'contract_no', 合同名称: 'name',
+  甲方名称: 'party_a', 甲方: 'party_a', 购货方: 'party_a',
+  乙方名称: 'party_b', 乙方: 'party_b', 销货方: 'party_b',
+  签订日期: 'sign_date', 合同金额: 'amount', 合同总金额: 'amount', 经办人: 'owner_name',
+}
+
+function bodyFieldValue(attr: string): string {
+  const v = (body.value as Dict)[attr]
+  if (v === null || v === undefined) return ''
+  if (attr === 'amount') return String(v)
+  return String(v)
+}
+
+/** 已填合同信息自动带进正文字段（合同编号/甲乙方/签订日期/金额等） */
+function prefillFromContract() {
+  const tpl = selected.value
+  if (!tpl) return
+  for (const f of tpl.fields || []) {
+    if (String(values.value[f.key] ?? '').trim()) continue
+    const attr = AUTO_FIELD_KEYS[String(f.key)] || AUTO_FIELD_LABELS[String(f.label || '').trim()]
+    if (!attr) continue
+    const v = bodyFieldValue(attr)
+    if (v) values.value[f.key] = v
+  }
 }
 
 async function saveBody() {

@@ -64,9 +64,14 @@ def test_body_render_and_snapshot(client, h, tpl):
     assert len(body["body_hash"]) == 64
     assert body["sign_status"] == "none"
 
-    # 必填缺失 422
+    # 必填缺失 422（甲乙方/金额已由合同自动带入，这里用自定义必填字段验证）
+    tpl2 = client.post("/api/contract-templates", headers=h, json={
+        "name": "必填校验模板", "contract_type": "采购",
+        "body_html": "<p>{{note}}</p>",
+        "fields": [{"key": "note", "label": "补充条款", "type": "text", "required": True}]})
+    assert tpl2.status_code == 200, tpl2.text
     bad = client.put(f"/api/contracts/{cid}/body", headers=h,
-                     json={"template_id": tpl["id"], "field_values": {"party_a": "X"}})
+                     json={"template_id": tpl2.json()["id"], "field_values": {}})
     assert bad.status_code == 422
 
     # 无签名不能签署（其它用例可能已上传过管理员签名，这里先清掉，避免顺序依赖）

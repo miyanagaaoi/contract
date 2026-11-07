@@ -170,6 +170,8 @@ defineExpose({ insertField, setContent })
                 @mousedown.prevent @click="insertToken('amount_words', '金额大写')">金额大写</button>
         <button type="button" class="re-field" title="插入金额小写令牌"
                 @mousedown.prevent @click="insertToken('amount_total', '金额小写')">金额小写</button>
+        <button type="button" class="re-field" title="合同名称（自动取当前合同）"
+                @mousedown.prevent @click="insertToken('contract_name', '合同名称')">合同名称</button>
         <button type="button" class="re-field" title="合同编号（自动取当前合同）"
                 @mousedown.prevent @click="insertToken('contract_no', '合同编号')">合同编号</button>
         <button type="button" class="re-field" title="甲方名称（自动取当前合同）"

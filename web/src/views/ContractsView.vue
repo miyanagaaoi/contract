@@ -634,8 +634,52 @@ function resetBody() {
   bodyValues.value = {}
 }
 
+/** 合同上已有字段 → 模板字段自动值（key 或常用中文名匹配） */
+const AUTO_FIELD_KEYS: Record<string, string> = {
+  contract_no: 'contract_no', contract_name: 'name', name: 'name',
+  contract_type: 'type', type: 'type',
+  party_a: 'party_a', party_b: 'party_b',
+  sign_date: 'sign_date', owner_name: 'owner_name', remark: 'remark',
+  amount: 'amount', total_amount: 'amount', contract_amount: 'amount',
+}
+const AUTO_FIELD_LABELS: Record<string, string> = {
+  合同编号: 'contract_no', 合同名称: 'name',
+  甲方名称: 'party_a', 甲方: 'party_a', 购货方: 'party_a',
+  乙方名称: 'party_b', 乙方: 'party_b', 销货方: 'party_b',
+  签订日期: 'sign_date', 合同金额: 'amount', 合同总金额: 'amount', 经办人: 'owner_name',
+}
+
+function contractFieldValue(attr: string): string {
+  switch (attr) {
+    case 'contract_no': return editingId.value ? form.contract_no : previewNo.value
+    case 'name': return form.name || ''
+    case 'type': return form.type || ''
+    case 'party_a': return form.party_a || ''
+    case 'party_b': return form.party_b || ''
+    case 'sign_date': return form.sign_date || ''
+    case 'owner_name': return form.owner_name || ''
+    case 'remark': return form.remark || ''
+    case 'amount': return hasItems.value ? String(itemsTotal.value) : String(form.amount || '')
+    default: return ''
+  }
+}
+
+/** 选中模板时把合同已有信息带进字段（用户仍可修改） */
+function prefillBodyValues() {
+  const tpl = bodySelected.value
+  if (!tpl) return
+  for (const f of tpl.fields || []) {
+    if (String(bodyValues.value[f.key] ?? '').trim()) continue
+    const attr = AUTO_FIELD_KEYS[String(f.key)] || AUTO_FIELD_LABELS[String(f.label || '').trim()]
+    if (!attr) continue
+    const v = contractFieldValue(attr)
+    if (v) bodyValues.value[f.key] = v
+  }
+}
+
 function onBodyTplChange() {
   bodyValues.value = {}
+  prefillBodyValues()
 }
 
 async function loadExistingBody(contractId: number) {
