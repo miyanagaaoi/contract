@@ -8,8 +8,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { DataAnalysis, Download, Plus, Search } from '@element-plus/icons-vue'
 
 import {
-  closeRfq, compareRfq, createRfq, deleteRfq, fetchMasterOptions, fetchRfqDetail,
-  fetchRfqs, publishRfq, saveRfqQuote, updateRfq, type Dict,
+  awardRfq, closeRfq, compareRfq, createRfq, deleteRfq, fetchMasterOptions,
+  fetchRfqDetail, fetchRfqs, publishRfq, saveRfqQuote, updateRfq, type Dict,
 } from '@/api'
 import { fmtMoney, fmtQty } from '@/utils/format'
 
@@ -33,13 +33,15 @@ async function load() {
 
 // ---------------- 新建 / 编辑 ----------------
 const formVisible = ref(false)
-const formRef = ref<Dict>({ title: '', project: '', deadline: '', remark: '' })
+const formRef = ref<Dict>({ title: '', project: '', deadline: '', remark: '',
+  responsibility_dept: '', budget_amount: null })
 const lines = ref<Dict[]>([])
 const editId = ref<number | null>(null)
 
 function openCreate() {
   editId.value = null
-  formRef.value = { title: '', project: '', deadline: '', remark: '' }
+  formRef.value = { title: '', project: '', deadline: '', remark: '',
+    responsibility_dept: '', budget_amount: null }
   lines.value = [{ material_name: '', spec: '', unit: '', qty: 1, need_date: '' }]
   formVisible.value = true
 }
@@ -48,7 +50,9 @@ async function openEdit(row: Dict) {
   const detail = await fetchRfqDetail(row.id)
   editId.value = row.id
   formRef.value = { title: detail.title, project: detail.project || '',
-    deadline: (detail.deadline || '').replace(' ', 'T'), remark: detail.remark || '' }
+    deadline: (detail.deadline || '').replace(' ', 'T'), remark: detail.remark || '',
+    responsibility_dept: detail.responsibility_dept || '',
+    budget_amount: detail.budget_amount ?? null }
   lines.value = (detail.lines || []).map((l: Dict) => ({
     material_name: l.material_name, spec: l.spec || '', unit: l.unit || '',
     qty: l.qty, need_date: l.need_date || '',
@@ -119,7 +123,9 @@ async function openDetail(row: Dict) {
 // ---------------- 录入报价 ----------------
 const quoteVisible = ref(false)
 const quoteRef = ref<Dict>({ supplier_id: null, quote_date: '', contact_name: '',
-  contact_phone: '', channel: '微信', remark: '' })
+  contact_phone: '', channel: '微信', remark: '', delivery_period: '',
+  payment_terms: '', after_sales: '', price_score: null, quality_score: null,
+  service_score: null })
 const quoteLines = ref<Dict[]>([])
 
 async function ensureSuppliers() {
@@ -128,7 +134,9 @@ async function ensureSuppliers() {
 
 function openQuote() {
   quoteRef.value = { supplier_id: null, quote_date: new Date().toISOString().slice(0, 10),
-    contact_name: '', contact_phone: '', channel: '微信', remark: '' }
+    contact_name: '', contact_phone: '', channel: '微信', remark: '',
+    delivery_period: '', payment_terms: '', after_sales: '',
+    price_score: null, quality_score: null, service_score: null }
   quoteLines.value = (detail.value.lines || []).map((l: Dict) => ({
     line_id: l.id, unit_price: 0, tax_rate: 13, moq: null, lead_days: null, remark: '',
   }))
@@ -179,6 +187,90 @@ function onExport() {
 }
 
 const lineTotal = (row: Dict) => Number(row.qty || 0)
+
+// ---------------- 定标确认（CR-058） ----------------
+const awardDlg = ref(false)
+const awardRef = ref<Dict>({ supplier_id: null, reason: '', conclusion: '' })
+
+function openAward() {
+  awardRef.value = {
+    supplier_id: detail.value.award_supplier_id || null,
+    reason: detail.value.award_reason || '',
+    conclusion: detail.value.award_conclusion || '',
+  }
+  awardDlg.value = true
+}
+
+async function saveAward() {
+  if (!awardRef.value.supplier_id) { ElMessage.warning('请选择中选供应商'); return }
+  const head = await awardRfq(detail.value.id, awardRef.value)
+  detail.value = { ...detail.value, ...head }
+  awardDlg.value = false
+  ElMessage.success('已定标，可打印比价单')
+}
+
+// ---------------- 打印比价单（参考业务 Excel） ----------------
+function quoteTotals(): Record<number, number> {
+  const out: Record<number, number> = {}
+  for (const row of cmp.value.rows || []) {
+    for (const offer of row.offers || []) {
+      out[offer.supplier_id] = (out[offer.supplier_id] || 0) + Number(offer.amount || 0)
+    }
+  }
+  return out
+}
+
+function printCompare() {
+  const qs = detail.value.quotes || []
+  if (!qs.length) { ElMessage.warning('暂无报价，无法打印比价单'); return }
+  const totals = quoteTotals()
+  const head: [string, string][] = [
+    ['项目名称', detail.value.title || ''], ['项目内容', detail.value.project || ''],
+    ['责任部门', detail.value.responsibility_dept || ''],
+    ['预算金额', detail.value.budget_amount != null ? fmtMoney(detail.value.budget_amount) : ''],
+    ['比价日期', (detail.value.deadline || detail.value.created_at || '').slice(0, 10)],
+    ['比价人', detail.value.created_by_name || ''],
+  ]
+  const rows: [string, (q: Dict) => string][] = [
+    ['供应商名称', (q) => q.supplier_name || ''],
+    ['联系人/电话', (q) => [q.contact_name, q.contact_phone].filter(Boolean).join(' / ')],
+    ['报价（元）', (q) => fmtMoney(totals[q.supplier_id] || 0)],
+    ['交货周期', (q) => q.delivery_period || ''],
+    ['付款条件', (q) => q.payment_terms || ''],
+    ['售后服务', (q) => q.after_sales || ''],
+    ['备注', (q) => q.remark || ''],
+    ['价格评分', (q) => q.price_score == null ? '' : String(q.price_score)],
+    ['质量/技术评分', (q) => q.quality_score == null ? '' : String(q.quality_score)],
+    ['服务/货期评分', (q) => q.service_score == null ? '' : String(q.service_score)],
+    ['综合得分', (q) => q.score_avg == null ? '' : q.score_avg.toFixed(2)],
+    ['比价结论', (q) => detail.value.award_supplier_id === q.supplier_id ? '√' : ''],
+    ['推荐理由', (q) => detail.value.award_supplier_id === q.supplier_id
+      ? (detail.value.award_reason || '') : ''],
+  ]
+  const info = head.map(([k, v]) => `<tr><th>${k}</th><td colspan="3">${v}</td></tr>`).join('')
+  const supHead = `<tr><th style="width:140px">供应商</th>` +
+    qs.map((q: Dict) => `<th>${q.supplier_name}</th>`).join('') + '</tr>'
+  const body = rows.map(([label, fn]) =>
+    `<tr><th>${label}</th>` + qs.map((q: Dict) => `<td>${fn(q)}</td>`).join('') + '</tr>').join('')
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>比价单</title>
+  <style>@page{size:A4 landscape;margin:12mm}body{font-family:"SimSun","宋体",serif;font-size:12px}
+  h1{text-align:center;font-size:20px;margin:0 0 12px}table{border-collapse:collapse;width:100%;table-layout:fixed}
+  th,td{border:1px solid #333;padding:5px 6px;vertical-align:middle;word-break:break-all}
+  tr>th:first-child{width:140px;background:#f2f2f2;text-align:left}thead th{background:#e8e8e8;text-align:center}
+  .concl{margin-top:10px}.concl th{width:90px;background:#f2f2f2;text-align:left;vertical-align:top}
+  .sign{display:flex;justify-content:space-between;margin-top:28px}</style></head><body>
+  <h1>比 价 单</h1><table>${info}</table>
+  <table style="margin-top:10px"><thead>${supHead}</thead><tbody>${body}</tbody></table>
+  <table class="concl"><tr><th>结论</th><td>${detail.value.award_conclusion || ''}</td></tr></table>
+  <div class="sign"><span>制表人：${detail.value.created_by_name || ''}</span><span>部门负责人：</span>
+  <span>单位负责人：</span></div></body></html>`
+  const w = window.open('', '_blank', 'width=1100,height=760')
+  if (!w) { ElMessage.warning('浏览器拦截了打印窗口，请允许弹窗后重试'); return }
+  w.document.write(html)
+  w.document.close()
+  w.focus()
+  setTimeout(() => w.print(), 400)
+}
 
 onMounted(load)
 </script>
@@ -245,6 +337,11 @@ onMounted(load)
                             style="width: 100%" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="备注">
             <el-input v-model="formRef.remark" maxlength="500" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="责任部门">
+            <el-input v-model="formRef.responsibility_dept" maxlength="64" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="预算金额">
+            <el-input-number v-model="formRef.budget_amount" :min="0" :precision="2"
+                             :controls="false" style="width: 100%" /></el-form-item></el-col>
         </el-row>
       </el-form>
       <el-table :data="lines" border size="small">
@@ -297,6 +394,13 @@ onMounted(load)
         <el-button v-if="detail.status !== 'draft'" type="primary" plain @click="openQuote">
           <el-icon><DataAnalysis /></el-icon>录入/修改供应商报价
         </el-button>
+        <el-button v-if="(detail.quotes || []).length" type="success" plain @click="openAward">
+          比价确认（定标）
+        </el-button>
+        <el-button @click="printCompare">打印比价单</el-button>
+        <el-tag v-if="detail.award_supplier_name" type="success">
+          已定标：{{ detail.award_supplier_name }}
+        </el-tag>
         <span style="flex: 1"></span>
         <span class="tip">最低价绿色高亮；差额 = 次低 − 最低</span>
       </div>
@@ -452,6 +556,22 @@ onMounted(load)
             <el-input v-model="quoteRef.contact_phone" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="备注">
             <el-input v-model="quoteRef.remark" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="交货周期">
+            <el-input v-model="quoteRef.delivery_period" placeholder="如 7-14 天" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="付款条件">
+            <el-input v-model="quoteRef.payment_terms" placeholder="如 一次性支付" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="售后服务">
+            <el-input v-model="quoteRef.after_sales" placeholder="如 优秀 / 1年换货" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="价格评分">
+            <el-input-number v-model="quoteRef.price_score" :min="0" :max="10" :precision="2"
+                             :controls="false" style="width: 100%" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="质量/技术评分">
+            <el-input-number v-model="quoteRef.quality_score" :min="0" :max="10" :precision="2"
+                             :controls="false" style="width: 100%" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="服务/货期评分">
+            <el-input-number v-model="quoteRef.service_score" :min="0" :max="10" :precision="2"
+                             :controls="false" style="width: 100%" />
+            <span class="tip">综合得分=三项平均</span></el-form-item></el-col>
         </el-row>
       </el-form>
       <el-table :data="quoteLines" border size="small">
@@ -489,6 +609,32 @@ onMounted(load)
       <template #footer>
         <el-button @click="quoteVisible = false">取消</el-button>
         <el-button type="primary" @click="saveQuote">保存报价</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 比价确认（定标） -->
+    <el-dialog v-model="awardDlg" title="比价确认（定标）" width="580px">
+      <el-form label-width="110px">
+        <el-form-item label="中选供应商" required>
+          <el-select v-model="awardRef.supplier_id" filterable style="width: 100%"
+                     placeholder="选择中选供应商">
+            <el-option v-for="q in (detail.quotes || [])" :key="q.supplier_id"
+                       :label="`${q.supplier_name}${q.score_avg != null ? '（综合 ' + q.score_avg.toFixed(2) + '）' : ''}`"
+                       :value="q.supplier_id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="推荐理由">
+          <el-input v-model="awardRef.reason" type="textarea" :rows="2"
+                    placeholder="如：价格在第二序列，但产品质量放心" />
+        </el-form-item>
+        <el-form-item label="比价结论">
+          <el-input v-model="awardRef.conclusion" type="textarea" :rows="3"
+                    placeholder="如：因进度要求较高，选择某供应商作为本次供货商" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="awardDlg = false">取消</el-button>
+        <el-button type="primary" @click="saveAward">确认定标</el-button>
       </template>
     </el-dialog>
   </div>

@@ -149,10 +149,11 @@ class TestPermissions:
         assert [n["key"] for n in menu_tree_for({"dashboard.view"})] == ["dashboard"]
 
     def test_menu_keeps_parent_of_visible_child(self):
-        # 只有采购单查看权限时：父菜单「采购管理」保留，且只含采购单子项
+        # 只有采购单查看权限时：父菜单「采购管理」保留，且只含采购单/询价单子项
+        # （询价单 CR-058 复用 purchase.order.view，故与采购单同时可见）
         tree = menu_tree_for({"purchase.order.view"})
         purchase = next(n for n in tree if n["key"] == "purchase")
-        assert [c["key"] for c in purchase["children"]] == ["purchase-order"]
+        assert [c["key"] for c in purchase["children"]] == ["purchase-order", "purchase-rfq"]
 
     def test_menu_nested_three_levels(self):
         # 基础信息下的三级菜单可按权限裁剪

@@ -31,6 +31,15 @@ class Rfq(Base):
     deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     status: Mapped[str] = mapped_column(String(12), nullable=False, default="draft", index=True)
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # CR-058：比价单（参考业务 Excel）：责任部门/预算/定标结论
+    responsibility_dept: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    budget_amount: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    award_supplier_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    award_supplier_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    award_reason: Mapped[str | None] = mapped_column(Text, nullable=True)      # 推荐理由
+    award_conclusion: Mapped[str | None] = mapped_column(Text, nullable=True)  # 结论
+    awarded_by_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    awarded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     org_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_by_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -79,6 +88,13 @@ class RfqQuote(Base):
     contact_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     channel: Mapped[str | None] = mapped_column(String(16), nullable=True)
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # CR-058：报价要素与评分（打印比价单用）
+    delivery_period: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    payment_terms: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    after_sales: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    price_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    quality_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    service_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_by_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())

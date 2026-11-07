@@ -886,6 +886,10 @@ export async function saveRfqQuote(id: number, supplierId: number, payload: Dict
   const { data } = await http.put(`/rfq/${id}/quotes/${supplierId}`, payload)
   return data
 }
+export async function awardRfq(id: number, payload: Dict): Promise<Dict> {
+  const { data } = await http.post(`/rfq/${id}/award`, payload)
+  return data
+}
 export async function compareRfq(id: number): Promise<Dict> {
   const { data } = await http.get(`/rfq/${id}/compare`)
   return data

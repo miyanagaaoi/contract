@@ -102,6 +102,21 @@ _ADD_COLUMNS: list[tuple[str, str, str]] = [
     ("contracts", "our_signed_at", "TIMESTAMP"),
     # ---- CR-049：合同模板描述 ----
     ("contract_templates", "description", "TEXT"),
+    # ---- CR-058：比价单（责任部门/预算/定标/评分） ----
+    ("rfqs", "responsibility_dept", "VARCHAR(64)"),
+    ("rfqs", "budget_amount", "NUMERIC(14, 2)"),
+    ("rfqs", "award_supplier_id", "INTEGER"),
+    ("rfqs", "award_supplier_name", "VARCHAR(128)"),
+    ("rfqs", "award_reason", "TEXT"),
+    ("rfqs", "award_conclusion", "TEXT"),
+    ("rfqs", "awarded_by_name", "VARCHAR(64)"),
+    ("rfqs", "awarded_at", "TIMESTAMP"),
+    ("rfq_quotes", "delivery_period", "VARCHAR(32)"),
+    ("rfq_quotes", "payment_terms", "VARCHAR(64)"),
+    ("rfq_quotes", "after_sales", "VARCHAR(64)"),
+    ("rfq_quotes", "price_score", "NUMERIC(5, 2)"),
+    ("rfq_quotes", "quality_score", "NUMERIC(5, 2)"),
+    ("rfq_quotes", "service_score", "NUMERIC(5, 2)"),
     # ---- CR-046：附件存储后端 ----
     ("attachments", "storage_backend", "VARCHAR(16) NOT NULL DEFAULT 'local'"),
     # ---- CR-040：盘点复盘 ----

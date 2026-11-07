@@ -108,3 +108,42 @@ def test_rfq_validation(client, h):
     doc = r2.json()
     assert client.post(f"{RFQ}/{doc['id']}/publish", headers=h).status_code == 422
     assert client.delete(f"{RFQ}/{doc['id']}", headers=h).status_code == 200
+
+
+def test_award_with_scores(client, h, suppliers):
+    """CR-058：报价评分/综合得分 + 我方定标确认 + 比价单所需字段。"""
+    doc = _create(client, h)
+    rfq_id, line = doc["id"], doc["lines"][0]["id"]
+    assert client.post(f"{RFQ}/{rfq_id}/publish", headers=h).status_code == 200
+    for sup, price, ps, qs, ss in ((suppliers[0], 5700, 9, 10, 10),
+                                   (suppliers[1], 4750, 10, 9, 9)):
+        r = client.put(f"{RFQ}/{rfq_id}/quotes/{sup['id']}", headers=h, json={
+            "delivery_period": "7-14", "payment_terms": "一次性支付",
+            "after_sales": "优秀",
+            "price_score": ps, "quality_score": qs, "service_score": ss,
+            "items": [{"line_id": line, "unit_price": price, "tax_rate": 13}]})
+        assert r.status_code == 200, r.text
+    # 评分在报价行上（当前接口按行存）→ 通过 compare 检查字段存在
+    cmp = client.get(f"{RFQ}/{rfq_id}/compare", headers=h).json()
+    assert cmp["rows"][0]["offers"], cmp
+    avgs = {o["supplier_name"]: o["score_avg"] for o in cmp["rows"][0]["offers"]}
+    assert avgs[suppliers[0]["name"]] == round((9 + 10 + 10) / 3, 2)
+    assert avgs[suppliers[1]["name"]] == round((10 + 9 + 9) / 3, 2)
+
+    # 未发布供应商（不存在）不能定标
+    bad = client.post(f"{RFQ}/{rfq_id}/award", headers=h, json={"supplier_id": 999999})
+    assert bad.status_code == 422
+
+    ok = client.post(f"{RFQ}/{rfq_id}/award", headers=h, json={
+        "supplier_id": suppliers[0]["id"],
+        "reason": "价格在第二序列，但产品质量放心",
+        "conclusion": "因进度要求较高，选择天罡作为本次供货商"})
+    assert ok.status_code == 200, ok.text
+    head = ok.json()
+    assert head["award_supplier_name"] == suppliers[0]["name"]
+    assert head["award_reason"] and head["award_conclusion"]
+    detail = client.get(f"{RFQ}/{rfq_id}", headers=h).json()
+    assert detail["award_supplier_id"] == suppliers[0]["id"]
+    # 取消定标
+    clear = client.post(f"{RFQ}/{rfq_id}/award", headers=h, json={"supplier_id": None})
+    assert clear.status_code == 200 and clear.json()["award_supplier_id"] is None

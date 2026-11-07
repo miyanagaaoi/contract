@@ -32,6 +32,33 @@ def _dec(value, field: str) -> Decimal:
         raise HTTPException(status_code=422, detail=f"{field}格式错误")
 
 
+def _opt_dec(value):
+    if value in (None, ""):
+        return None
+    try:
+        return Decimal(str(value))
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail="预算金额格式错误")
+
+
+def _opt_score(value, field: str):
+    if value in (None, ""):
+        return None
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail=f"{field}格式错误")
+    if score < 0 or score > 10:
+        raise HTTPException(status_code=422, detail=f"{field}应在 0~10 之间")
+    return Decimal(str(score))
+
+
+def _score_avg(quote) -> float | None:
+    parts = [quote.price_score, quote.quality_score, quote.service_score]
+    vals = [float(x) for x in parts if x is not None]
+    return round(sum(vals) / len(vals), 2) if vals else None
+
+
 def _dt(value) -> datetime | None:
     if not value:
         return None
@@ -63,6 +90,14 @@ def _fmt_header(rfq: Rfq) -> dict:
         "deadline": rfq.deadline.isoformat(sep=" ", timespec="minutes") if rfq.deadline else None,
         "status": rfq.status, "status_label": RFQ_STATUS.get(rfq.status, rfq.status),
         "remark": rfq.remark,
+        "responsibility_dept": rfq.responsibility_dept,
+        "budget_amount": float(rfq.budget_amount) if rfq.budget_amount is not None else None,
+        "award_supplier_id": rfq.award_supplier_id,
+        "award_supplier_name": rfq.award_supplier_name,
+        "award_reason": rfq.award_reason,
+        "award_conclusion": rfq.award_conclusion,
+        "awarded_by_name": rfq.awarded_by_name,
+        "awarded_at": rfq.awarded_at.isoformat(sep=" ", timespec="minutes") if rfq.awarded_at else None,
         "created_by_name": rfq.created_by_name,
         "published_at": rfq.published_at.isoformat(sep=" ", timespec="minutes") if rfq.published_at else None,
         "closed_at": rfq.closed_at.isoformat(sep=" ", timespec="minutes") if rfq.closed_at else None,
@@ -85,6 +120,13 @@ def _fmt_quote(quote: RfqQuote) -> dict:
             "quote_date": quote.quote_date.isoformat() if quote.quote_date else None,
             "contact_name": quote.contact_name, "contact_phone": quote.contact_phone,
             "channel": quote.channel, "remark": quote.remark,
+            "delivery_period": quote.delivery_period,
+            "payment_terms": quote.payment_terms,
+            "after_sales": quote.after_sales,
+            "price_score": float(quote.price_score) if quote.price_score is not None else None,
+            "quality_score": float(quote.quality_score) if quote.quality_score is not None else None,
+            "service_score": float(quote.service_score) if quote.service_score is not None else None,
+            "score_avg": _score_avg(quote),
             "items": [{"line_id": it.line_id, "unit_price": float(it.unit_price or 0),
                        "tax_rate": float(it.tax_rate or 0),
                        "moq": float(it.moq) if it.moq is not None else None,
@@ -101,7 +143,7 @@ def _fmt_detail(rfq: Rfq) -> dict:
 @router.get("", summary="询价单列表")
 def list_rfqs(keyword: str | None = Query(None), status: str | None = Query(None),
               page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
-              _user: User = Depends(require_perm("purchase.view")),
+              _user: User = Depends(require_perm("purchase.order.view")),
               db: Session = Depends(get_db)):
     q = db.query(Rfq)
     if status:
@@ -118,13 +160,15 @@ def list_rfqs(keyword: str | None = Query(None), status: str | None = Query(None
 
 @router.post("", summary="新建询价单（草稿）")
 def create_rfq(request: Request, payload: dict = Body(...),
-               user: User = Depends(require_perm("purchase.create")),
+               user: User = Depends(require_perm("purchase.order.create")),
                db: Session = Depends(get_db)):
     title = str(payload.get("title") or "").strip()
     if not title:
         raise HTTPException(status_code=422, detail="询价单标题必填")
     rfq = Rfq(doc_no=numbering_service.next_doc_no(db, "rfq", date.today()),
               title=title, project=(str(payload.get("project") or "").strip() or None),
+              responsibility_dept=(str(payload.get("responsibility_dept") or "").strip() or None),
+              budget_amount=_opt_dec(payload.get("budget_amount")),
               deadline=_dt(payload.get("deadline")), remark=payload.get("remark"),
               status="draft", org_id=getattr(user, "org_id", None),
               created_by=getattr(user, "id", None),
@@ -155,7 +199,7 @@ def _build_line(seq: int, row: dict) -> RfqLine:
 
 @router.get("/export.xlsx", summary="询价单导出（当前筛选）")
 def export_rfqs(keyword: str | None = Query(None), status: str | None = Query(None),
-                _user: User = Depends(require_perm("purchase.view")),
+                _user: User = Depends(require_perm("purchase.order.view")),
                 db: Session = Depends(get_db)):
     q = db.query(Rfq)
     if status:
@@ -176,14 +220,14 @@ def export_rfqs(keyword: str | None = Query(None), status: str | None = Query(No
 
 
 @router.get("/{rfq_id}", summary="询价单详情（含各家报价）")
-def get_rfq(rfq_id: int, _user: User = Depends(require_perm("purchase.view")),
+def get_rfq(rfq_id: int, _user: User = Depends(require_perm("purchase.order.view")),
             db: Session = Depends(get_db)):
     return _fmt_detail(_get(db, rfq_id))
 
 
 @router.put("/{rfq_id}", summary="修改询价单（仅草稿）")
 def update_rfq(rfq_id: int, request: Request, payload: dict = Body(...),
-               user: User = Depends(require_perm("purchase.create")),
+               user: User = Depends(require_perm("purchase.order.create")),
                db: Session = Depends(get_db)):
     rfq = _get(db, rfq_id)
     if rfq.status != "draft":
@@ -199,6 +243,10 @@ def update_rfq(rfq_id: int, request: Request, payload: dict = Body(...),
         rfq.deadline = _dt(payload.get("deadline"))
     if "remark" in payload:
         rfq.remark = payload.get("remark")
+    if "responsibility_dept" in payload:
+        rfq.responsibility_dept = str(payload.get("responsibility_dept") or "").strip() or None
+    if "budget_amount" in payload:
+        rfq.budget_amount = _opt_dec(payload.get("budget_amount"))
     if "lines" in payload:
         rfq.lines = [_build_line(i, row) for i, row in enumerate(payload.get("lines") or [], 1)]
     db.commit()
@@ -209,7 +257,7 @@ def update_rfq(rfq_id: int, request: Request, payload: dict = Body(...),
 
 
 @router.delete("/{rfq_id}", summary="删除询价单（仅草稿）")
-def delete_rfq(rfq_id: int, _user: User = Depends(require_perm("purchase.create")),
+def delete_rfq(rfq_id: int, _user: User = Depends(require_perm("purchase.order.create")),
                db: Session = Depends(get_db)):
     rfq = _get(db, rfq_id)
     if rfq.status != "draft":
@@ -220,7 +268,7 @@ def delete_rfq(rfq_id: int, _user: User = Depends(require_perm("purchase.create"
 
 
 @router.post("/{rfq_id}/publish", summary="发布询价单（草稿→询价中）")
-def publish_rfq(rfq_id: int, user: User = Depends(require_perm("purchase.create")),
+def publish_rfq(rfq_id: int, user: User = Depends(require_perm("purchase.order.create")),
                 db: Session = Depends(get_db)):
     rfq = _get(db, rfq_id)
     if rfq.status != "draft":
@@ -233,7 +281,7 @@ def publish_rfq(rfq_id: int, user: User = Depends(require_perm("purchase.create"
 
 
 @router.post("/{rfq_id}/close", summary="截止询价单（询价中→已截止）")
-def close_rfq(rfq_id: int, user: User = Depends(require_perm("purchase.create")),
+def close_rfq(rfq_id: int, user: User = Depends(require_perm("purchase.order.create")),
               db: Session = Depends(get_db)):
     rfq = _get(db, rfq_id)
     if rfq.status != "open":
@@ -245,7 +293,7 @@ def close_rfq(rfq_id: int, user: User = Depends(require_perm("purchase.create"))
 
 @router.put("/{rfq_id}/quotes/{supplier_id}", summary="录入/修改某供应商报价")
 def upsert_quote(rfq_id: int, supplier_id: int, request: Request, payload: dict = Body(...),
-                 user: User = Depends(require_perm("purchase.create")),
+                 user: User = Depends(require_perm("purchase.order.create")),
                  db: Session = Depends(get_db)):
     rfq = _get(db, rfq_id)
     if rfq.status == "draft":
@@ -270,6 +318,12 @@ def upsert_quote(rfq_id: int, supplier_id: int, request: Request, payload: dict 
     quote.contact_phone = (str(payload.get("contact_phone") or "").strip() or None)
     quote.channel = channel
     quote.remark = payload.get("remark")
+    quote.delivery_period = (str(payload.get("delivery_period") or "").strip() or None)
+    quote.payment_terms = (str(payload.get("payment_terms") or "").strip() or None)
+    quote.after_sales = (str(payload.get("after_sales") or "").strip() or None)
+    quote.price_score = _opt_score(payload.get("price_score"), "价格评分")
+    quote.quality_score = _opt_score(payload.get("quality_score"), "质量/技术评分")
+    quote.service_score = _opt_score(payload.get("service_score"), "服务/货期评分")
 
     line_ids = {line.id for line in rfq.lines}
     existing = {it.line_id: it for it in (quote.items or [])}
@@ -304,7 +358,7 @@ def upsert_quote(rfq_id: int, supplier_id: int, request: Request, payload: dict 
 
 @router.delete("/{rfq_id}/quotes/{quote_id}", summary="删除某供应商报价")
 def delete_quote(rfq_id: int, quote_id: int,
-                 _user: User = Depends(require_perm("purchase.create")),
+                 _user: User = Depends(require_perm("purchase.order.create")),
                  db: Session = Depends(get_db)):
     rfq = _get(db, rfq_id)
     quote = next((q for q in rfq.quotes if q.id == quote_id), None)
@@ -315,8 +369,44 @@ def delete_quote(rfq_id: int, quote_id: int,
     return {"ok": True}
 
 
+@router.post("/{rfq_id}/award", summary="比价确认（定标）")
+def award_rfq(rfq_id: int, payload: dict = Body(...),
+              user: User = Depends(require_perm("purchase.order.create")),
+              db: Session = Depends(get_db)):
+    """我方确认中选供应商，填写推荐理由与结论；供打印比价单。"""
+    rfq = _get(db, rfq_id)
+    if rfq.status == "draft":
+        raise HTTPException(status_code=422, detail="询价单发布后才能定标")
+    supplier_id = payload.get("supplier_id")
+    if supplier_id in (None, ""):
+        # 取消定标
+        rfq.award_supplier_id = None
+        rfq.award_supplier_name = None
+        rfq.award_reason = None
+        rfq.award_conclusion = None
+        rfq.awarded_by_name = None
+        rfq.awarded_at = None
+        db.commit()
+        return _fmt_header(rfq)
+    quote = next((q for q in (rfq.quotes or []) if q.supplier_id == int(supplier_id)), None)
+    if quote is None:
+        raise HTTPException(status_code=422, detail="该供应商尚未报价，不能定标")
+    rfq.award_supplier_id = quote.supplier_id
+    rfq.award_supplier_name = quote.supplier_name
+    rfq.award_reason = (str(payload.get("reason") or "").strip() or None)
+    rfq.award_conclusion = (str(payload.get("conclusion") or "").strip() or None)
+    rfq.awarded_by_name = user.real_name or user.username
+    rfq.awarded_at = datetime.now()
+    db.commit()
+    audit_service.log(db, user, module="purchase", action="award", object_type="rfq",
+                      object_id=rfq.id, object_no=rfq.doc_no,
+                      detail=f"比价定标：{quote.supplier_name}")
+    db.commit()
+    return _fmt_header(rfq)
+
+
 @router.get("/{rfq_id}/compare", summary="比价报表（各行最低/次低/差额）")
-def compare_rfq(rfq_id: int, _user: User = Depends(require_perm("purchase.view")),
+def compare_rfq(rfq_id: int, _user: User = Depends(require_perm("purchase.order.view")),
                 db: Session = Depends(get_db)):
     rfq = _get(db, rfq_id)
     quotes = rfq.quotes or []
@@ -330,6 +420,14 @@ def compare_rfq(rfq_id: int, _user: User = Depends(require_perm("purchase.view")
                 continue
             offers.append({"quote_id": q.id, "supplier_id": q.supplier_id,
                            "supplier_name": q.supplier_name,
+                           "contact_phone": q.contact_phone,
+                           "delivery_period": q.delivery_period,
+                           "payment_terms": q.payment_terms,
+                           "after_sales": q.after_sales,
+                           "price_score": float(q.price_score) if q.price_score is not None else None,
+                           "quality_score": float(q.quality_score) if q.quality_score is not None else None,
+                           "service_score": float(q.service_score) if q.service_score is not None else None,
+                           "score_avg": _score_avg(q),
                            "unit_price": float(hit.unit_price), "tax_rate": float(hit.tax_rate or 0),
                            "moq": float(hit.moq) if hit.moq is not None else None,
                            "lead_days": hit.lead_days,

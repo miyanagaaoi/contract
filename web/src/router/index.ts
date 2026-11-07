@@ -229,7 +229,7 @@ const router = createRouter({
         {
           path: 'purchase/rfq', name: 'purchase-rfq',
           component: () => import('@/views/purchase/RfqView.vue'),
-          meta: { title: '询价单', perm: 'purchase.view' },
+          meta: { title: '询价单', perm: 'purchase.order.view' },
         },
         {
           path: 'purchase/orders', name: 'purchase-orders',

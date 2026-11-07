@@ -218,7 +218,7 @@ MENUS: list[dict] = [
          {"key": "purchase-order", "title": "采购单", "path": "/purchase/orders",
           "perm": "purchase.order.view"},
          {"key": "purchase-rfq", "title": "询价单", "path": "/purchase/rfq",
-          "perm": "purchase.view"}]},
+          "perm": "purchase.order.view"}]},
     {"key": "sales", "title": "销售管理", "icon": "Sell",
      "perm": "sales.request.view", "children": [
          {"key": "sales-request", "title": "销售申请单", "path": "/sales/requests",
