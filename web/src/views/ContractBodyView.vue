@@ -4,7 +4,7 @@
  * 模板维护（仅管理员）：名称/类型/富文本 HTML/字段定义。
  */
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import {
@@ -13,6 +13,7 @@ import {
 } from '@/api'
 
 const route = useRoute()
+const router = useRouter()
 const contractId = Number(route.params.id)
 const loading = ref(false)
 const templates = ref<Dict[]>([])
@@ -107,7 +108,7 @@ onMounted(async () => { await load(); canManageTpl.value = true })
         <el-tag :type="{ none: 'info', our_signed: 'warning', completed: 'success' }[body.sign_status] || 'info'">
           {{ body.sign_status_label }}
         </el-tag>
-        <el-button size="small" @click="openTpl">模板管理</el-button>
+        <el-button size="small" @click="router.push({ name: 'contract-templates' })">模板管理</el-button>
         <el-button size="small" @click="printBody">打印 / 另存 PDF</el-button>
       </div>
 
@@ -162,62 +163,7 @@ onMounted(async () => { await load(); canManageTpl.value = true })
       <el-empty v-else description="尚未生成正文：选择模板并点击「生成/刷新正文」" />
     </el-card>
 
-    <el-dialog v-model="tplDlg" title="合同模板管理（仅管理员可保存）" width="860px">
-      <div class="bar">
-        <el-select v-model="tplForm.id" placeholder="选择模板编辑" clearable style="width: 260px"
-                   @change="(id: number) => { const t = templates.find((x) => x.id === id); if (t) editTpl(t) }">
-          <el-option v-for="t in templates" :key="t.id" :label="t.name" :value="t.id" />
-        </el-select>
-        <el-button @click="openTpl">新建模板</el-button>
-      </div>
-      <el-form label-width="90px">
-        <el-form-item label="名称" required><el-input v-model="tplForm.name" style="width: 320px" /></el-form-item>
-        <el-form-item label="合同类型">
-          <el-select v-model="tplForm.contract_type" style="width: 160px">
-            <el-option v-for="t in ['采购', '销售', '框架', '补充协议']" :key="t" :label="t" :value="t" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="正文 HTML">
-          <el-input v-model="tplForm.body_html" type="textarea" :rows="10" />
-          <div class="tip">支持基础 HTML（h1/p/b/ul）；字段占位符写 {'{{field_key}}'}。</div>
-        </el-form-item>
-      </el-form>
-      <el-table :data="tplForm.fields" border size="small">
-        <el-table-column label="key" width="150">
-          <template #default="{ row }"><el-input v-model="row.key" size="small" /></template>
-        </el-table-column>
-        <el-table-column label="显示名" width="150">
-          <template #default="{ row }"><el-input v-model="row.label" size="small" /></template>
-        </el-table-column>
-        <el-table-column label="类型" width="140">
-          <template #default="{ row }">
-            <el-select v-model="row.type" size="small">
-              <el-option v-for="t in fieldTypes" :key="t.value" :label="t.label" :value="t.value" />
-            </el-select>
-          </template>
-        </el-table-column>
-        <el-table-column label="必填" width="80">
-          <template #default="{ row }"><el-switch v-model="row.required" /></template>
-        </el-table-column>
-        <el-table-column label="下拉选项（逗号分隔）">
-          <template #default="{ row }">
-            <el-input v-if="row.type === 'select'" size="small"
-                      :model-value="(row.options || []).join(',')"
-                      @update:model-value="(v: string) => row.options = v.split(',').map((s) => s.trim()).filter(Boolean)" />
-          </template>
-        </el-table-column>
-        <el-table-column label="" width="60">
-          <template #default="{ $index }">
-            <el-button link type="danger" @click="delField($index)">删</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <el-button class="mt8" size="small" @click="addField">添加字段</el-button>
-      <template #footer>
-        <el-button @click="tplDlg = false">关闭</el-button>
-        <el-button type="primary" @click="saveTpl">保存模板</el-button>
-      </template>
-    </el-dialog>
+
   </div>
 </template>
 

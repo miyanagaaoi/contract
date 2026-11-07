@@ -205,14 +205,20 @@ MODULE_LABELS: dict[str, str] = {
 MENUS: list[dict] = [
     {"key": "dashboard", "title": "首页看板", "path": "/", "icon": "Odometer",
      "perm": "dashboard.view"},
-    {"key": "contract", "title": "合同管理", "path": "/contracts", "icon": "Files",
-     "perm": "contract.view"},
+    {"key": "contract", "title": "合同管理", "icon": "Files", "perm": "contract.view",
+     "children": [
+         {"key": "contract-ledger", "title": "合同台账", "path": "/contracts",
+          "perm": "contract.view"},
+         {"key": "contract-template", "title": "合同模板", "path": "/contracts/templates",
+          "perm": "contract.view"}]},
     {"key": "purchase", "title": "采购管理", "icon": "ShoppingCart",
      "perm": "purchase.request.view", "children": [
          {"key": "purchase-request", "title": "采购申请单", "path": "/purchase/requests",
           "perm": "purchase.request.view"},
          {"key": "purchase-order", "title": "采购单", "path": "/purchase/orders",
-          "perm": "purchase.order.view"}]},
+          "perm": "purchase.order.view"},
+         {"key": "purchase-rfq", "title": "询价单", "path": "/purchase/rfq",
+          "perm": "purchase.view"}]},
     {"key": "sales", "title": "销售管理", "icon": "Sell",
      "perm": "sales.request.view", "children": [
          {"key": "sales-request", "title": "销售申请单", "path": "/sales/requests",

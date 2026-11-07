@@ -539,6 +539,50 @@ async function saveTypes() {
   }
 }
 
+// ---------- 合同正文（CR-045）：在新增/编辑合同内生成 ----------
+const bodyTemplates = ref<Dict[]>([])
+const bodyTplId = ref<number | null>(null)
+const bodyValues = ref<Dict>({})
+const bodySelected = computed(() => bodyTemplates.value.find((x) => x.id === bodyTplId.value))
+const bodyPreview = computed(() => {
+  const tpl = bodySelected.value
+  if (!tpl) return ''
+  let html = String(tpl.body_html || '')
+  for (const f of tpl.fields || []) {
+    const v = String(bodyValues.value[f.key] ?? '')
+    const safe = v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>')
+    html = html.split('{{' + f.key + '}}').join(safe)
+  }
+  return html
+})
+
+async function ensureBodyTemplates() {
+  if (bodyTemplates.value.length) return
+  try {
+    const data = await fetchContractTemplates()
+    bodyTemplates.value = ((data.items || []) as Dict[]).filter((x) => x.enabled !== false)
+  } catch { bodyTemplates.value = [] }
+}
+
+function resetBody() {
+  bodyTplId.value = null
+  bodyValues.value = {}
+}
+
+function onBodyTplChange() {
+  bodyValues.value = {}
+}
+
+async function loadExistingBody(contractId: number) {
+  try {
+    const body = await fetchContractBody(contractId)
+    if (body.template_id && body.sign_status === 'none') {
+      bodyTplId.value = body.template_id
+      bodyValues.value = { ...(body.field_values || {}) }
+    }
+  } catch { /* 无正文时忽略 */ }
+}
+
 function openNew() {
   editingId.value = null
   resetForm()
@@ -547,6 +591,8 @@ function openNew() {
   form.owner_name = auth.displayName
   form.type = String(meta.value.contract_type_defs?.find((t: Dict) => t.enabled && t.code !== 'OTH')?.label ?? meta.value.contract_types?.[0] ?? '采购/支出')
   previewNo.value = ''
+  resetBody()
+  ensureBodyTemplates()
   dialogVisible.value = true
   refreshNumber()
 }
@@ -578,6 +624,9 @@ function openEdit(row: Dict) {
   })
   if (!form.items.length) form.items.push(emptyRow())
   previewNo.value = ''
+  resetBody()
+  ensureBodyTemplates()
+  loadExistingBody(row.id)
   dialogVisible.value = true
 }
 
@@ -638,9 +687,17 @@ async function save() {
       warranty_start: form.warranty_start || null, warranty_months: form.warranty_months,
     }
     payload.amount = items.length ? itemsTotal.value : form.amount // 有行项=Σ合计；无行项可手填
-    if (editingId.value) await updateContract(editingId.value, payload)
-    else await createContract(payload)
-    ElMessage.success(editingId.value ? '已保存' : '已新增合同')
+    const saved = editingId.value
+      ? await updateContract(editingId.value, payload)
+      : await createContract(payload)
+    const cid = editingId.value || (saved as Dict)?.id
+    let bodyMsg = ''
+    if (cid && bodyTplId.value) {
+      await saveContractBody(Number(cid), {
+        template_id: bodyTplId.value, field_values: bodyValues.value })
+      bodyMsg = '，合同正文已生成（可去「正文/签署」页签署）'
+    }
+    ElMessage.success((editingId.value ? '已保存' : '已新增合同') + bodyMsg)
     dialogVisible.value = false
     load()
   } finally {
@@ -1291,6 +1348,44 @@ onMounted(async () => {
           </el-form-item></el-col>
           <el-col :span="24"><el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item></el-col>
         </el-row>
+
+        <el-divider content-position="left">合同正文（可选 · 选模板填字段后生成）</el-divider>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="合同模板">
+              <el-select v-model="bodyTplId" filterable clearable placeholder="不使用模板 / 选择模板"
+                         style="width: 100%" @change="onBodyTplChange" @visible-change="ensureBodyTemplates">
+                <el-option v-for="t in bodyTemplates" :key="t.id"
+                           :label="`${t.name}（${t.contract_type}）`" :value="t.id" />
+              </el-select>
+              <el-button link type="primary" size="small"
+                         @click="router.push({ name: 'contract-templates' })">管理模板</el-button>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="正文预览">
+              <span class="gray">保存合同时一并生成正文快照</span>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form v-if="bodySelected" label-width="110px">
+          <el-row :gutter="12">
+            <el-col v-for="f in (bodySelected.fields || [])" :key="f.key" :span="12">
+              <el-form-item :label="f.label" :required="f.required">
+                <el-select v-if="f.type === 'select'" v-model="bodyValues[f.key]" style="width: 100%">
+                  <el-option v-for="o in (f.options || [])" :key="o" :label="o" :value="o" />
+                </el-select>
+                <el-input v-else-if="f.type === 'textarea'" v-model="bodyValues[f.key]" type="textarea" :rows="2" />
+                <el-input-number v-else-if="f.type === 'number'" v-model="bodyValues[f.key]"
+                                 :controls="false" style="width: 100%" />
+                <el-date-picker v-else-if="f.type === 'date'" v-model="bodyValues[f.key]" type="date"
+                                value-format="YYYY-MM-DD" style="width: 100%" />
+                <el-input v-else v-model="bodyValues[f.key]" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <div v-if="bodyPreview" class="body-preview" v-html="bodyPreview"></div>
+        </el-form>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -1558,4 +1653,7 @@ onMounted(async () => {
 .child-icon { color: #c0c4cc; }
 :deep(.tree-child-row td) { background: #fafbfd; }
 :deep(.tree-fw-row td) { font-weight: 600; background: #ecf5ff; }
+.body-preview { border: 1px dashed var(--el-border-color); border-radius: 4px;
+  padding: 12px 16px; max-height: 260px; overflow: auto; background: #fff; margin-top: 4px; }
+.body-preview :deep(h1) { font-size: 18px; text-align: center; }
 </style>

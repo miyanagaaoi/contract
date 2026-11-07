@@ -57,6 +57,11 @@ const router = createRouter({
           meta: { title: '合同台账', perm: 'contract.view' },
         },
         {
+          path: 'contracts/templates', name: 'contract-templates',
+          component: () => import('@/views/ContractTemplatesView.vue'),
+          meta: { title: '合同模板', perm: 'contract.view' },
+        },
+        {
           path: 'contracts/:id/body', name: 'contract-body',
           component: () => import('@/views/ContractBodyView.vue'),
           meta: { title: '合同正文', perm: 'contract.view' },

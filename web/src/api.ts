@@ -822,6 +822,10 @@ export async function createContractTemplate(payload: Dict): Promise<Dict> {
   const { data } = await http.post('/contract-templates', payload)
   return data
 }
+export async function deleteContractTemplate(id: number): Promise<Dict> {
+  const { data } = await http.delete(`/contract-templates/${id}`)
+  return data
+}
 export async function updateContractTemplate(id: number, payload: Dict): Promise<Dict> {
   const { data } = await http.put(`/contract-templates/${id}`, payload)
   return data
