@@ -246,6 +246,8 @@ class Attachment(Base):
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # CR-033：内容哈希（附件去重：同一对象重复上传同一文件不落第二份）
     sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # CR-046：附件存储后端（local / smb）；stored_path 即该后端内的相对 key
+    storage_backend: Mapped[str] = mapped_column(String(16), nullable=False, default="local")
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # ---- V2.0：单据附件预留（M2 启用，届时 contract_id 需放开为可空）----

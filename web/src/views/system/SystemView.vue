@@ -8,7 +8,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import SettingsView from '@/views/SettingsView.vue'
 import {
-  assignUserRoles,
+  fetchAttachmentStorage,
+  migrateAttachmentStorage,
+  saveAttachmentStorage,
+  testAttachmentStorage,
+assignUserRoles,
   checkFeishuConnectivity,
   createBackup,
   deleteBackup,
@@ -58,6 +62,52 @@ async function saveParams() {
     ElMessage.success('系统参数已保存')
   } finally {
     paramSaving.value = false
+  }
+}
+
+// ---------------- 附件存储（CR-046） ----------------
+const storage = ref<Dict>({ backend: 'local', smb_path: '', prefix: 'ctms/' })
+const storageMsg = ref('')
+const storageBusy = ref(false)
+
+async function loadStorage() {
+  try {
+    storage.value = await fetchAttachmentStorage()
+  } catch { /* 拦截器已提示 */ }
+}
+
+async function saveStorage() {
+  storageBusy.value = true
+  try {
+    storage.value = await saveAttachmentStorage({
+      backend: storage.value.backend,
+      smb_path: storage.value.smb_path,
+      prefix: storage.value.prefix,
+    })
+    ElMessage.success('附件存储配置已保存')
+  } finally {
+    storageBusy.value = false
+  }
+}
+
+async function testStorage() {
+  storageBusy.value = true
+  try {
+    const r = await testAttachmentStorage()
+    storageMsg.value = `${r.ok ? '连接正常' : '自检失败'}：${r.message}（${r.root}）`
+    ElMessage[r.ok ? 'success' : 'warning'](storageMsg.value)
+  } finally {
+    storageBusy.value = false
+  }
+}
+
+async function migrateStorage() {
+  storageBusy.value = true
+  try {
+    const r = await migrateAttachmentStorage()
+    ElMessage.success(r.message || '迁移完成')
+  } finally {
+    storageBusy.value = false
   }
 }
 
@@ -388,6 +438,35 @@ onMounted(async () => {
       <!-- 数据字典：保留 V1.0 `系统设置` 页全部能力 -->
       <el-tab-pane label="数据字典" name="dict">
         <SettingsView />
+      </el-tab-pane>
+
+      <el-tab-pane label="附件存储" name="storage">
+        <el-form label-width="200px" class="narrow">
+          <el-form-item label="存储后端">
+            <el-select v-model="storage.backend" :disabled="!canParamEdit" style="width: 220px">
+              <el-option label="本地磁盘（默认）" value="local" />
+              <el-option label="SMB 共享（挂载路径）" value="smb" />
+            </el-select>
+            <span class="tip">SMB 需先在 NAS/宿主机挂载共享；应用只读写挂载目录，不保存共享密码。</span>
+          </el-form-item>
+          <el-form-item v-if="storage.backend === 'smb'" label="共享挂载路径">
+            <el-input v-model="storage.smb_path" :disabled="!canParamEdit"
+                      placeholder="容器内路径，如 /mnt/ctms-share" style="width: 320px" />
+          </el-form-item>
+          <el-form-item v-if="storage.backend === 'smb'" label="路径前缀">
+            <el-input v-model="storage.prefix" :disabled="!canParamEdit"
+                      placeholder="ctms/" style="width: 220px" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" :loading="storageBusy" :disabled="!canParamEdit"
+                       @click="saveStorage">保存</el-button>
+            <el-button :loading="storageBusy" :disabled="!canParamEdit" @click="testStorage">测试读写</el-button>
+            <el-button :loading="storageBusy" :disabled="!canParamEdit" @click="migrateStorage">
+              本地附件迁移至当前后端
+            </el-button>
+            <span class="tip" v-if="storageMsg">{{ storageMsg }}</span>
+          </el-form-item>
+        </el-form>
       </el-tab-pane>
 
       <el-tab-pane label="系统参数" name="params">

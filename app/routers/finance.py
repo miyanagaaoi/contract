@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from datetime import date
 
@@ -732,12 +733,24 @@ def invoice_print_package(ids: str = Query(..., description="逗号分隔发票 
         if att is None:
             skipped.append(f"{inv.invoice_no} 未上传原始文件")
             continue
-        path = UPLOAD_DIR / att.stored_path
-        if not path.is_file():
+        import tempfile
+
+        from ..services import storage_service
+
+        try:
+            data = storage_service.read_bytes(db, getattr(att, "storage_backend", "local"),
+                                              att.stored_path)
+        except FileNotFoundError:
             skipped.append(f"{inv.invoice_no} 文件丢失")
             continue
         try:
-            writer.append(str(path))
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                tmp.write(data)
+                tmp_path = tmp.name
+            try:
+                writer.append(tmp_path)
+            finally:
+                Path(tmp_path).unlink(missing_ok=True)
             merged += 1
         except Exception as exc:  # noqa: BLE001
             skipped.append(f"{inv.invoice_no} 读取失败: {exc}")

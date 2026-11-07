@@ -135,12 +135,16 @@ def _attach(db: Session, inv: Invoice, file_name: str, data: bytes, dest_dir: Pa
     if dup is not None:
         return
     safe = f"{inv.invoice_no}_{Path(file_name).name}"
-    (dest_dir / safe).write_bytes(data)
+    key = f"invoices/{safe}"
+    from . import storage_service
+
+    backend, key = storage_service.save_bytes(db, data, key)   # CR-046：随附件存储后端
     db.add(Attachment(
         file_name=Path(file_name).name,
-        stored_path=f"invoices/{safe}",
+        stored_path=key,
         content_type=("application/pdf" if safe.lower().endswith(".pdf") else "application/xml"),
-        size_bytes=len(data), sha256=sha, object_type="invoice", object_id=inv.id,
+        size_bytes=len(data), sha256=sha, storage_backend=backend,
+        object_type="invoice", object_id=inv.id,
     ))
 
 

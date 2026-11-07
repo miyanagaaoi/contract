@@ -353,6 +353,42 @@ def delete_signature(user_id: int, request: Request,
 
 # ==================== 系统参数（T-V2-12 / AC-V2-38） ====================
 
+@router.get("/attachment-storage", summary="附件存储配置（CR-046）")
+def get_attachment_storage(_user: User = Depends(require_perm("system.param.view")),
+                           db: Session = Depends(get_db)):
+    from ..services import storage_service
+
+    return storage_service.get_config(db)
+
+
+@router.put("/attachment-storage", summary="保存附件存储配置（CR-046）")
+def save_attachment_storage(payload: dict = Body(...),
+                            _user: User = Depends(require_perm("system.param.edit")),
+                            db: Session = Depends(get_db)):
+    from ..services import storage_service
+
+    try:
+        return storage_service.save_config(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.post("/attachment-storage/test", summary="附件存储读写自检（CR-046）")
+def test_attachment_storage(_user: User = Depends(require_perm("system.param.edit")),
+                            db: Session = Depends(get_db)):
+    from ..services import storage_service
+
+    return storage_service.probe(db)
+
+
+@router.post("/attachment-storage/migrate", summary="本地附件迁移到当前后端（CR-046）")
+def migrate_attachment_storage(_user: User = Depends(require_perm("system.param.edit")),
+                               db: Session = Depends(get_db)):
+    from ..services import storage_service
+
+    return storage_service.migrate_local_to_current(db)
+
+
 @router.get("/params")
 def get_params(_user: User = Depends(require_perm("system.param.view")),
                db: Session = Depends(get_db)):

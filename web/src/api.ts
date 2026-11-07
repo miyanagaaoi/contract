@@ -813,6 +813,27 @@ export async function fetchStockReturnRecords(outId: number): Promise<Dict> {
   return data
 }
 
+/** CR-046：附件存储配置 */
+export async function fetchAttachmentStorage(): Promise<Dict> {
+  const { data } = await http.get('/system/attachment-storage')
+  return data
+}
+
+export async function saveAttachmentStorage(payload: Dict): Promise<Dict> {
+  const { data } = await http.put('/system/attachment-storage', payload)
+  return data
+}
+
+export async function testAttachmentStorage(): Promise<Dict> {
+  const { data } = await http.post('/system/attachment-storage/test')
+  return data
+}
+
+export async function migrateAttachmentStorage(): Promise<Dict> {
+  const { data } = await http.post('/system/attachment-storage/migrate')
+  return data
+}
+
 /** CR-040：盘点复盘登记（审核后留痕） */
 export async function reviewStockTake(takeId: number, note: string): Promise<Dict> {
   const { data } = await http.post(`/stock/takes/${takeId}/review`, { note })

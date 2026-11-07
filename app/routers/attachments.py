@@ -27,7 +27,7 @@ from ..config import ALLOWED_UPLOAD_EXT, MAX_UPLOAD_MB, UPLOAD_DIR
 from ..database import get_db
 from ..models import Attachment, ChangeLog, Contract
 from ..models_auth import User
-from ..services import audit_service
+from ..services import audit_service, storage_service
 from ..services.permission_service import collect_perms, get_current_user, require_perm
 
 router = APIRouter(prefix="/api", tags=["attachments"])
@@ -121,8 +121,9 @@ def list_object_attachments(object_type: str = Query(...), object_id: int = Quer
     return [_fmt(a) for a in rows]
 
 
-async def _store_upload(file: UploadFile, folder_key: str) -> tuple[str, int, str]:
-    """保存上传文件，返回 (stored_path, size, original_name)。"""
+async def _store_upload(db: Session, file: UploadFile,
+                        folder_key: str) -> tuple[str, str, int, str, str]:
+    """保存上传文件到**当前启用的存储后端**，返回 (backend, key, size, original, sha256)。"""
     original = Path(file.filename or "").name
     if not original:
         raise HTTPException(status_code=422, detail="文件名无效")
@@ -130,31 +131,28 @@ async def _store_upload(file: UploadFile, folder_key: str) -> tuple[str, int, st
     if suffix not in ALLOWED_UPLOAD_EXT:
         raise HTTPException(status_code=422, detail=f"不支持的文件类型 {suffix or '(无后缀)'}")
 
-    folder = UPLOAD_DIR / folder_key
-    folder.mkdir(parents=True, exist_ok=True)
-    stored_name = f"{uuid.uuid4().hex}{suffix}"
-    target = folder / stored_name
+    import io
 
+    buf = io.BytesIO()
     size = 0
     digest = hashlib.sha256()
-    with target.open("wb") as out:
-        while chunk := await file.read(1024 * 1024):
-            size += len(chunk)
-            if size > MAX_UPLOAD_MB * 1024 * 1024:
-                out.close()
-                target.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail=f"附件超过 {MAX_UPLOAD_MB}MB 限制")
-            digest.update(chunk)
-            out.write(chunk)
-    return f"{folder_key}/{stored_name}", size, original, digest.hexdigest()
-
-
-def _remove_stored(stored_path: str) -> None:
-    """删除刚落盘但判定为重复的附件文件（忽略异常）。"""
+    while chunk := await file.read(1024 * 1024):
+        size += len(chunk)
+        if size > MAX_UPLOAD_MB * 1024 * 1024:
+            raise HTTPException(status_code=413, detail=f"附件超过 {MAX_UPLOAD_MB}MB 限制")
+        digest.update(chunk)
+        buf.write(chunk)
+    key = f"{folder_key}/{uuid.uuid4().hex}{suffix}"
     try:
-        (UPLOAD_DIR / stored_path).unlink(missing_ok=True)
-    except OSError:
-        pass
+        backend, key = storage_service.save_bytes(db, buf.getvalue(), key)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"写入附件存储失败：{exc}")
+    return backend, key, size, original, digest.hexdigest()
+
+
+def _remove_stored(db: Session, backend: str, key: str) -> None:
+    """删除刚落盘但判定为重复的附件文件（忽略异常）。"""
+    storage_service.delete_bytes(db, backend, key)
 
 
 @router.post("/attachments/upload", summary="通用附件上传")
@@ -166,7 +164,8 @@ async def upload_object_attachment(object_type: str = Query(...), object_id: int
     _assert_perm(db, user, edit_perm)
     _assert_object_exists(db, object_type, object_id)
 
-    stored_path, size, original, sha = await _store_upload(file, f"{object_type}/{object_id}")
+    backend, stored_path, size, original, sha = await _store_upload(
+        db, file, f"{object_type}/{object_id}")
     # CR-033：同一对象重复上传同一文件 → 直接返回已有附件（不落第二份）
     exists = (db.query(Attachment)
               .filter(Attachment.object_type == object_type,
@@ -175,14 +174,14 @@ async def upload_object_attachment(object_type: str = Query(...), object_id: int
                       Attachment.deleted == False)  # noqa: E712
               .first())
     if exists is not None:
-        _remove_stored(stored_path)
+        _remove_stored(db, backend, stored_path)
         return _fmt(exists)
     att = Attachment(
         contract_id=object_id if object_type == "contract" else None,
         object_type=object_type, object_id=object_id,
         file_name=original, stored_path=stored_path,
         content_type=file.content_type or mimetypes.guess_type(original)[0],
-        size_bytes=size, sha256=sha,
+        size_bytes=size, sha256=sha, storage_backend=backend,
     )
     db.add(att)
     db.flush()
@@ -241,13 +240,13 @@ async def upload_attachment(contract_id: int, file: UploadFile = File(...),
     if contract.deleted:
         raise HTTPException(status_code=400, detail="合同已停用，不能上传附件")
 
-    stored_path, size, original, sha = await _store_upload(file, str(contract_id))
+    backend, stored_path, size, original, sha = await _store_upload(db, file, str(contract_id))
     exists = (db.query(Attachment)
               .filter(Attachment.object_type == "contract", Attachment.object_id == contract_id,
                       Attachment.sha256 == sha, Attachment.deleted == False)  # noqa: E712
               .first())
     if exists is not None:
-        _remove_stored(stored_path)
+        _remove_stored(db, backend, stored_path)
         return {"id": exists.id, "file_name": exists.file_name, "size_bytes": exists.size_bytes,
                 "uploaded_at": exists.uploaded_at.isoformat() if exists.uploaded_at else None,
                 "duplicated": True}
@@ -255,7 +254,7 @@ async def upload_attachment(contract_id: int, file: UploadFile = File(...),
         contract_id=contract_id, object_type="contract", object_id=contract_id,
         file_name=original, stored_path=stored_path,
         content_type=file.content_type or mimetypes.guess_type(original)[0],
-        size_bytes=size, sha256=sha,
+        size_bytes=size, sha256=sha, storage_backend=backend,
     )
     db.add(att)
     db.flush()
@@ -290,11 +289,15 @@ def download_attachment(attachment_id: int, inline: bool = Query(False),
     view_perm, _ = _permissions_of(object_type)
     _assert_perm(db, user, view_perm)
 
-    path = UPLOAD_DIR / att.stored_path
-    if not path.exists():
+    try:
+        data = storage_service.read_bytes(db, getattr(att, "storage_backend", "local"),
+                                          att.stored_path)
+    except FileNotFoundError:
         raise HTTPException(status_code=404, detail="文件已丢失")
     media_type = att.content_type or "application/octet-stream"
     disposition = "inline" if inline else "attachment"
     quoted = quote(att.file_name)
-    return FileResponse(path, media_type=media_type,
-                        headers={"Content-Disposition": f"{disposition}; filename*=UTF-8''{quoted}"})
+    from fastapi import Response
+
+    return Response(content=data, media_type=media_type,
+                    headers={"Content-Disposition": f"{disposition}; filename*=UTF-8''{quoted}"})
