@@ -814,6 +814,33 @@
   返回 warnings）、`ContractRichEditor.vue`（表格/图片/列表样式）、`ContractTemplatesView.vue`（导入提示）；
   测试：居中/加粗字号/首行缩进/colspan/内嵌图片全部命中；全量 **553 passed**
 
+### CR-051 Word 导入改用 mammoth + python-docx
+
+- **问题**（2026-11-07 业务反馈）：自研 OOXML 解析效果不理想，与原 Word 格式差距较大。
+- **规则**：引入 **mammoth**（docx→语义 HTML，主流方案）为主、**python-docx** 补版式：
+  1. mammoth 负责标题样式映射（Title/Heading 1~4 中英文样式）、加粗/斜体、列表、表格合并单元格、图片（内嵌 data URI）；
+  2. python-docx 读取段落补齐 mammoth 不保留的**对齐（居中/右/两端）、首行缩进、字号**，按文本顺序回填样式；
+  3. 表格补统一边框样式；输出仍走服务端 HTML 白名单清洗；
+  4. 依赖加入 `app/requirements.txt`：`mammoth>=1.8,<2`、`python-docx>=1.1,<2`（镜像构建时装包）。
+- **状态**：已实现（2026-11-07）
+- **证据**：`app/services/docx_import_service.py`（mammoth + python-docx 增强）、
+  `test_v2_7_3_docx_items.py`（python-docx 生成带标题/居中加粗字号/首行缩进/合并单元格/图片的 docx，
+  导入后全部命中）；全量 553 passed
+
+### CR-052 合同标的物表格（可调整）
+
+- **来源**：2026-11-07 业务要求“合同标的位置、选择可以引入已有的标的物行项，格式变为可调整的表格”。
+- **规则**：
+  1. 模板正文可插入「标的物表格」令牌（`<span data-key="items_table">【标的物表格】</span>` 或 `{{items_table}}`）；
+  2. 生成合同正文时，后端按**合同行项**（序号/产品名称/规格型号/数量/单位/含税单价/金额/备注）自动渲染为表格；
+  3. **签署前**正文可编辑：正文页新增「编辑正文/表格」→ 富文本编辑器（含 +行/-行/-列 表格操作）→ 保存正文；
+     保存走 `PUT /api/contracts/{id}/body-html`（白名单清洗 + 重算哈希，签署后只读）；
+  4. 模板编辑器工具栏新增「插入标的物表格」按钮；表格样式可在编辑器内调整后保存。
+- **状态**：已实现（2026-11-07）
+- **证据**：`app/routers/contract_body.py`（`_items_table_html`、`_render(items)`、`/body-html`）、
+  `ContractRichEditor.vue`（插入标的物表格、表格 +行/-行/-列）、`ContractTemplatesView.vue`、
+  `ContractBodyView.vue`（编辑正文）；测试：行项渲染为表格 + 正文 HTML 编辑保存；全量 553 passed
+
 ## 版本计划（2.7.0，两批）
 
 | 批次 | 内容 | 说明 |
@@ -840,6 +867,8 @@
 |---|---|---|---|
 | 2026-10-20 | 建立开发文档体系 | — | PRD/TODO/AGENTS/CLAUDE 首次落地；回填 V2.6.0（CR-001~007）与 V2.6.1（CR-008~014），状态均「已实现」 |
 | 2026-10-24 | 桥插件 peer 版本适配宿主 0.2.1-rc.2 | CR-015 | 本地插件清单 13 处 peer 由 `0.2.0-rc.2` 改为 `0.2.1-rc.2`；重启后 `/ext/bridge-config` 已返回 wsUrl、`browser_*` 工具已注册（扩展侧待填新端口） |
+| 2026-11-07 | 合同标的物表格（可调整） | CR-052 | 模板插入标的令牌，生成时按合同行项渲染表格；签署前正文可编辑（含表格 +行/-行/-列）；553 passed |
+| 2026-11-07 | Word 导入改用 mammoth+python-docx | CR-051 | 语义结构由 mammoth 转换，python-docx 补对齐/缩进/字号；依赖入 requirements；553 passed |
 | 2026-11-07 | Word 导入保真 | CR-050 | OOXML 解析保留标题/对齐/缩进/加粗字号/列表/表格合并/图片（base64，4MB 上限）；553 passed |
 | 2026-11-07 | 模板编辑器左右布局/字段设计/Word 导入 | CR-049 | 正文令牌显示【字段名】；右侧字段卡片（属性+插入）；Word(.docx) 转 HTML 导入；字段宽度；552 passed |
 | 2026-11-07 | 合同模板富文本编辑 | CR-048 | 免依赖 contenteditable 工具栏（标题/加粗/列表/对齐/撤销/插入字段）+ 服务端 HTML 白名单清洗；550 passed |

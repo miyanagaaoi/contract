@@ -11,6 +11,7 @@ import { onMounted, ref, watch } from 'vue'
 const props = defineProps<{
   modelValue: string
   fields?: { key: string; label?: string }[]
+  itemsTable?: boolean
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 
@@ -87,6 +88,35 @@ function normalizeTokens(raw: string): string {
 }
 
 /** 粘贴：优先保留富文本结构（后端会白名单清洗），否则纯文本 */
+function insertItemsTable() {
+  editorEl.value?.focus()
+  const html = '<span class="ct-field" data-key="items_table">【标的物表格】</span>&nbsp;'
+  document.execCommand('insertHTML', false, html)
+  emitValue()
+}
+
+/** 表格行/列调整（光标所在单元格）：+行 / -行 / -列 */
+function tableOp(op: 'addRow' | 'delRow' | 'delCol') {
+  const sel = window.getSelection()
+  const node = sel?.anchorNode
+  const el = node instanceof Element ? node : node?.parentElement
+  const cell = el?.closest('td,th') as HTMLTableCellElement | null
+  if (!cell) { return }
+  const row = cell.parentElement as HTMLTableRowElement
+  const table = cell.closest('table') as HTMLTableElement
+  if (op === 'addRow') {
+    const clone = row.cloneNode(true) as HTMLTableRowElement
+    Array.from(clone.cells).forEach((c) => { c.innerHTML = '&nbsp;' })
+    row.after(clone)
+  } else if (op === 'delRow') {
+    row.remove()
+  } else {
+    const idx = cell.cellIndex
+    Array.from(table.rows).forEach((r) => r.cells[idx]?.remove())
+  }
+  emitValue()
+}
+
 function onPaste(e: ClipboardEvent) {
   e.preventDefault()
   const html = e.clipboardData?.getData('text/html')
@@ -108,6 +138,15 @@ defineExpose({ insertField })
                  @change="onBlockChange">
         <el-option v-for="o in block" :key="o.value" :label="o.label" :value="o.value" />
       </el-select>
+      <template v-if="itemsTable">
+        <span class="re-sep" />
+        <button type="button" class="re-field" title="插入合同标的物表格（生成时按合同行项填充）"
+                @mousedown.prevent @click="insertItemsTable">插入标的物表格</button>
+      </template>
+      <span class="re-sep" />
+      <button type="button" class="re-btn" title="表格加一行" @mousedown.prevent @click="tableOp('addRow')">+行</button>
+      <button type="button" class="re-btn" title="删除当前行" @mousedown.prevent @click="tableOp('delRow')">-行</button>
+      <button type="button" class="re-btn" title="删除当前列" @mousedown.prevent @click="tableOp('delCol')">-列</button>
       <template v-if="(fields || []).length">
         <span class="re-sep" />
         <span class="re-hint">插入字段：</span>

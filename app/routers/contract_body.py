@@ -195,7 +195,35 @@ def _validate_fields(raw_fields) -> list[dict]:
     return out
 
 
-def _render(body_html: str, fields: list[dict], values: dict) -> str:
+def _items_table_html(items) -> str:
+    """把合同行项渲染成正文里的“合同标的”表格（可后续在正文编辑里调整）。"""
+    rows: list[str] = []
+    for i, it in enumerate(items or [], 1):
+        def f(v) -> str:
+            return html.escape(str(v if v is not None else ""))
+
+        qty = float(getattr(it, "qty", 0) or 0)
+        price = float(getattr(it, "unit_price", 0) or 0)
+        total = float(getattr(it, "total", 0) or 0)
+        remark = f(getattr(it, "remark", "") or "")
+        rows.append(
+            "<tr>"
+            f"<td>{i}</td><td>{f(getattr(it, 'name', ''))}</td>"
+            f"<td>{f(getattr(it, 'spec', ''))}</td>"
+            f"<td style=\"text-align:right\">{qty:g}</td><td></td>"
+            f"<td style=\"text-align:right\">{price:,.2f}</td>"
+            f"<td style=\"text-align:right\">{total:,.2f}</td>"
+            f"<td>{remark}</td></tr>")
+    if not rows:
+        rows.append('<tr><td colspan="8" style="text-align:center">（本合同暂无行项）</td></tr>')
+    head = ("<tr><th>序号</th><th>产品名称</th><th>规格型号</th><th>数量</th><th>单位</th>"
+            "<th>含税单价</th><th>金额</th><th>备注</th></tr>")
+    return ('<table border="1" cellspacing="0" cellpadding="6" '
+            'style="border-collapse:collapse;width:100%;">'
+            f"<thead>{head}</thead><tbody>{''.join(rows)}</tbody></table>")
+
+
+def _render(body_html: str, fields: list[dict], values: dict, items=None) -> str:
     missing = [f["label"] for f in fields
                if f.get("required") and not str(values.get(f["key"]) or "").strip()]
     if missing:
@@ -210,6 +238,11 @@ def _render(body_html: str, fields: list[dict], values: dict) -> str:
             r'<span[^>]*data-key="' + re.escape(f["key"]) + r'"[^>]*>.*?</span>', re.S)
         rendered = span_re.sub(lambda _m, _s=safe: _s, rendered)
         rendered = rendered.replace("{{" + f["key"] + "}}", safe)
+    # 合同标的物表格：{{items_table}} 或 <span data-key="items_table">【标的物表格】</span>
+    items_html = _items_table_html(items)
+    rendered = rendered.replace("{{items_table}}", items_html)
+    rendered = re.sub(r'<span[^>]*data-key="items_table"[^>]*>.*?</span>',
+                      lambda _m: items_html, rendered, flags=re.S)
     # 未定义但正文里出现的占位符：清空，避免模板语法外露
     rendered = re.sub(r"\{\{[A-Za-z_][A-Za-z0-9_]*\}\}", "", rendered)
     return rendered
@@ -300,7 +333,8 @@ def save_body(contract_id: int, payload: dict = Body(...),
     if not isinstance(values, dict):
         raise HTTPException(status_code=422, detail="字段值格式错误")
     fields = _validate_fields(json.loads(tpl.fields_json or "[]"))
-    body = _sanitize_html(_render(tpl.body_html, fields, values))
+    body = _sanitize_html(_render(tpl.body_html, fields, values,
+                                  items=list(getattr(c, "items", []) or [])))
     c.template_id = tpl.id
     c.field_values = json.dumps(values, ensure_ascii=False)
     c.body_html = body
@@ -309,6 +343,25 @@ def save_body(contract_id: int, payload: dict = Body(...),
     audit_service.log(db, user, module="contract", action="body", object_type="contract",
                       object_id=c.id, object_no=c.contract_no,
                       detail=f"生成合同正文（模板：{tpl.name}）")
+    db.commit()
+    return _contract_fmt(c)
+
+
+@router.put("/api/contracts/{contract_id}/body-html", summary="直接保存正文 HTML（签署前，可调整表格）")
+def save_body_html(contract_id: int, payload: dict = Body(...),
+                   user: User = Depends(require_perm("contract.edit")),
+                   db: Session = Depends(get_db)):
+    c = _get_contract(db, contract_id)
+    if (c.sign_status or "none") != "none":
+        raise HTTPException(status_code=422, detail="合同已签署，正文只读")
+    raw = str(payload.get("body_html") or "")
+    if not raw.strip():
+        raise HTTPException(status_code=422, detail="正文不能为空")
+    c.body_html = _sanitize_html(raw)
+    c.body_hash = hashlib.sha256(c.body_html.encode("utf-8")).hexdigest()
+    db.commit()
+    audit_service.log(db, user, module="contract", action="body_edit", object_type="contract",
+                      object_id=c.id, object_no=c.contract_no, detail="编辑合同正文（表格调整）")
     db.commit()
     return _contract_fmt(c)
 

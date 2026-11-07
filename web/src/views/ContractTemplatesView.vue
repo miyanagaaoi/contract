@@ -139,7 +139,8 @@ onMounted(async () => { await load(); reset() })
     <el-row :gutter="12">
       <el-col :span="17">
         <el-card shadow="never">
-          <ContractRichEditor ref="editorRef" v-model="form.body_html" :fields="form.fields" />
+          <ContractRichEditor ref="editorRef" v-model="form.body_html" :fields="form.fields"
+                               :items-table="true" />
         </el-card>
       </el-col>
       <el-col :span="7">

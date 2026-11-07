@@ -7,9 +7,10 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
+import ContractRichEditor from '@/components/contract/ContractRichEditor.vue'
 import {
-  createContractTemplate, fetchContractBody, fetchContractTemplates, saveContractBody,
-  signContract, updateContractTemplate, uploadCounterpartScan, type Dict,
+  fetchContractBody, fetchContractTemplates, saveContractBody, saveContractBodyHtml,
+  signContract, uploadCounterpartScan, type Dict,
 } from '@/api'
 
 const route = useRoute()
@@ -56,6 +57,21 @@ async function uploadScan(e: Event) {
   const r = await uploadCounterpartScan(contractId, file)
   body.value = r as Dict
   ElMessage.success('对方签署件已上传，合同已生效')
+}
+
+// 编辑正文（签署前）：生成后可直接调整表格/排版
+const editing = ref(false)
+const editHtml = ref('')
+
+function startEdit() {
+  editHtml.value = body.value.body_html || ''
+  editing.value = true
+}
+
+async function saveEdit() {
+  body.value = await saveContractBodyHtml(contractId, editHtml.value)
+  editing.value = false
+  ElMessage.success('正文已保存（可继续签署）')
 }
 
 function printBody() { window.print() }
@@ -109,6 +125,12 @@ onMounted(async () => { await load(); canManageTpl.value = true })
           {{ body.sign_status_label }}
         </el-tag>
         <el-button size="small" @click="router.push({ name: 'contract-templates' })">模板管理</el-button>
+        <el-button v-if="body.body_html && body.sign_status === 'none' && !editing"
+                   size="small" type="primary" plain @click="startEdit">编辑正文/表格</el-button>
+        <template v-if="editing">
+          <el-button size="small" type="primary" @click="saveEdit">保存正文</el-button>
+          <el-button size="small" @click="editing = false">取消</el-button>
+        </template>
         <el-button size="small" @click="printBody">打印 / 另存 PDF</el-button>
       </div>
 
@@ -154,7 +176,8 @@ onMounted(async () => { await load(); canManageTpl.value = true })
           （{{ body.our_signed_at }}）</span>
       </div>
 
-      <div class="a4" v-if="body.body_html">
+      <ContractRichEditor v-if="editing" v-model="editHtml" :items-table="true" />
+      <div class="a4" v-else-if="body.body_html">
         <div v-html="body.body_html"></div>
         <div class="sign-area" v-if="body.sign_status !== 'none'">
           <div>我方（签字）：{{ body.our_signed_name }}</div>

@@ -838,6 +838,10 @@ export async function saveContractBody(contractId: number, payload: Dict): Promi
   const { data } = await http.put(`/contracts/${contractId}/body`, payload)
   return data
 }
+export async function saveContractBodyHtml(contractId: number, bodyHtml: string): Promise<Dict> {
+  const { data } = await http.put(`/contracts/${contractId}/body-html`, { body_html: bodyHtml })
+  return data
+}
 export async function signContract(contractId: number): Promise<Dict> {
   const { data } = await http.post(`/contracts/${contractId}/sign`)
   return data
