@@ -5,6 +5,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { DataAnalysis, Download, Plus, Search } from '@element-plus/icons-vue'
 
 import {
   closeRfq, compareRfq, createRfq, deleteRfq, fetchMasterOptions, fetchRfqDetail,
@@ -76,6 +77,37 @@ async function saveForm() {
 const detailVisible = ref(false)
 const detail = ref<Dict>({})
 const cmp = ref<Dict>({ rows: [], supplier_totals: [] })
+// ---- 比价对比表（交叉表，参考 xunjia 询价项目的统计报表设计）----
+const matrixSuppliers = computed(() => (detail.value.quotes || []) as Dict[])
+/** 各供应商拿下“该行最低价”的次数（列头展示，一眼看出谁最有竞争力） */
+const winCount = computed(() => {
+  const out: Record<number, number> = {}
+  for (const row of cmp.value.rows || []) {
+    const low = row.lowest
+    if (low) out[low.supplier_id] = (out[low.supplier_id] || 0) + 1
+  }
+  return out
+})
+/** 每行：按供应商取报价，并补统计列（最低/最高/均价/价差率） */
+const matrixRows = computed(() => (cmp.value.rows || []).map((row: Dict) => {
+  const offers = row.offers || []
+  const prices = offers.map((o: Dict) => Number(o.unit_price))
+  const max = prices.length ? Math.max(...prices) : null
+  const avg = prices.length ? prices.reduce((a: number, b: number) => a + b, 0) / prices.length : null
+  const spread = row.lowest && max ? ((max - row.lowest.unit_price) / row.lowest.unit_price * 100) : null
+  const bySupplier: Record<number, Dict> = {}
+  for (const o of offers) bySupplier[o.supplier_id] = o
+  return { ...row, bySupplier, max, avg, spread, count: offers.length }
+}))
+/** 比价结论：按“各行最低价 × 数量”合计排序，给出建议供应商 */
+const conclusion = computed(() => {
+  const totals = (cmp.value.supplier_totals || []) as Dict[]
+  const sorted = [...totals].sort((a, b) => Number(a.amount) - Number(b.amount))
+  if (!sorted.length) return null
+  return { best: sorted[0], count: sorted.length,
+           gap: sorted.length > 1 ? Number(sorted[1].amount) - Number(sorted[0].amount) : null }
+})
+
 const suppliers = ref<Dict[]>([])
 
 async function openDetail(row: Dict) {
@@ -152,7 +184,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div>
+  <div class="rfq-page">
     <el-card shadow="never">
       <div class="bar">
         <el-input v-model="query.keyword" placeholder="单号/标题/项目" clearable style="width: 220px"
@@ -161,10 +193,12 @@ onMounted(load)
                    @change="() => { query.page = 1; load() }">
           <el-option v-for="s in statuses" :key="s.code" :label="s.label" :value="s.code" />
         </el-select>
-        <el-button type="primary" @click="() => { query.page = 1; load() }">查询</el-button>
+        <el-button type="primary" @click="() => { query.page = 1; load() }">
+          <el-icon><Search /></el-icon>查询
+        </el-button>
         <span style="flex: 1"></span>
-        <el-button @click="onExport">导出 Excel</el-button>
-        <el-button type="primary" @click="openCreate">新建询价单</el-button>
+        <el-button @click="onExport"><el-icon><Download /></el-icon>导出 Excel</el-button>
+        <el-button type="primary" @click="openCreate"><el-icon><Plus /></el-icon>新建询价单</el-button>
       </div>
       <el-table v-loading="loading" :data="rows" border stripe size="small">
         <el-table-column prop="doc_no" label="单号" width="170" />
@@ -261,10 +295,78 @@ onMounted(load)
 
       <div class="bar mt12">
         <el-button v-if="detail.status !== 'draft'" type="primary" plain @click="openQuote">
-          录入/修改供应商报价
+          <el-icon><DataAnalysis /></el-icon>录入/修改供应商报价
         </el-button>
         <span style="flex: 1"></span>
         <span class="tip">最低价绿色高亮；差额 = 次低 − 最低</span>
+      </div>
+
+      <el-alert v-if="detail.status === 'closed' && conclusion" type="success" :closable="false"
+                show-icon class="mt12"
+                :title="`比价结束：${conclusion.count} 家报价，建议 ${conclusion.best.supplier_name}（合计 ${fmtMoney(conclusion.best.amount)}${conclusion.gap ? '，比次低省 ' + fmtMoney(conclusion.gap) : ''}）`" />
+
+      <!-- 比价对比表（交叉表：行=物料，列=供应商；琥珀底=该行最低价） -->
+      <div class="rfq-compare">
+        <div class="rfq-compare__head">
+          <b>比价对比表</b>
+          <span class="rfq-compare__sub">
+            共 {{ matrixRows.length }} 行 · {{ matrixSuppliers.length }} 家供应商 ·
+            <span class="best-legend">琥珀底 = 该行最低价</span>
+          </span>
+          <span style="flex: 1"></span>
+          <el-tag v-if="conclusion" type="success" effect="plain">
+            建议：{{ conclusion.best.supplier_name }}（{{ fmtMoney(conclusion.best.amount) }}）
+            <template v-if="conclusion.gap">，比次低省 {{ fmtMoney(conclusion.gap) }}</template>
+          </el-tag>
+        </div>
+        <div class="rfq-compare__scroll">
+          <table class="rfq-matrix">
+            <thead>
+              <tr>
+                <th class="sticky-col">物料 / 需求</th>
+                <th v-for="s in matrixSuppliers" :key="s.supplier_id" class="is-num">
+                  <div class="sup-name">{{ s.supplier_name }}</div>
+                  <div class="sup-meta">
+                    {{ s.channel || '—' }}<template v-if="s.quote_date"> · {{ s.quote_date }}</template>
+                  </div>
+                  <div v-if="winCount[s.supplier_id]" class="win">最低价 ×{{ winCount[s.supplier_id] }}</div>
+                </th>
+                <th class="is-num">最低价</th>
+                <th>最低价方</th>
+                <th class="is-num">最高价</th>
+                <th class="is-num">均价</th>
+                <th class="is-num">价差率</th>
+                <th class="is-num">报价家数</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in matrixRows" :key="row.id">
+                <td class="sticky-col">
+                  <div class="mat-name">{{ row.material_name }}</div>
+                  <div class="mat-meta">{{ row.spec || '—' }} · {{ fmtQty(row.qty) }} {{ row.unit || '' }}</div>
+                </td>
+                <td v-for="s in matrixSuppliers" :key="s.supplier_id" class="is-num"
+                    :class="{ 'is-best': row.lowest && row.lowest.supplier_id === s.supplier_id }">
+                  <template v-if="row.bySupplier[s.supplier_id]">
+                    <div class="price">{{ fmtMoney(row.bySupplier[s.supplier_id].unit_price) }}</div>
+                    <div class="cell-meta">
+                      <template v-if="row.bySupplier[s.supplier_id].lead_days !== null">
+                        交期 {{ row.bySupplier[s.supplier_id].lead_days }}天
+                      </template>
+                    </div>
+                  </template>
+                  <span v-else class="none">—</span>
+                </td>
+                <td class="is-num">{{ row.lowest ? fmtMoney(row.lowest.unit_price) : '—' }}</td>
+                <td>{{ row.lowest ? row.lowest.supplier_name : '—' }}</td>
+                <td class="is-num">{{ row.max === null ? '—' : fmtMoney(row.max) }}</td>
+                <td class="is-num">{{ row.avg === null ? '—' : fmtMoney(row.avg) }}</td>
+                <td class="is-num">{{ row.spread === null ? '—' : `${row.spread.toFixed(1)}%` }}</td>
+                <td class="is-num">{{ row.count }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <el-table :data="cmp.rows" border stripe size="small">
@@ -399,4 +501,41 @@ onMounted(load)
 .tip { color: var(--el-text-color-secondary); font-size: 12px; }
 .low { color: var(--el-color-success); font-weight: 600; }
 .pager { margin-top: 10px; justify-content: flex-end; }
+/* CR-047：比价视觉参考 xunjia 设计系统（品牌深墨青 + 最低价琥珀） */
+.rfq-compare { margin-top: 12px; }
+.rfq-compare__head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap;
+  color: var(--rfq-brand-800, #0E4F4A); }
+.rfq-compare__sub { font-size: 12px; color: #5A6672; }
+.best-legend { color: #8A5A00; background: #FFFBEB; border: 1px solid #F5D77A;
+  padding: 1px 6px; border-radius: 3px; }
+.rfq-compare__scroll { overflow: auto; max-height: 48vh; border: 1px solid #E4E7EC; border-radius: 4px; }
+.rfq-matrix { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%;
+  font-size: 12px; }
+.rfq-matrix th, .rfq-matrix td { padding: 7px 10px; border-bottom: 1px solid #EFF1F4;
+  border-right: 1px solid #EFF1F4; vertical-align: top; background: #fff; }
+.rfq-matrix thead th { position: sticky; top: 0; z-index: 2; background: #F1F8F7;
+  color: #0E4F4A; font-weight: 600; text-align: left; }
+.rfq-matrix thead th.is-num { text-align: right; }
+.rfq-matrix .sticky-col { position: sticky; left: 0; z-index: 1; background: #fff;
+  min-width: 180px; text-align: left; }
+.rfq-matrix thead .sticky-col { z-index: 3; background: #E4F2F0; }
+.rfq-matrix td.is-num { text-align: right; font-variant-numeric: tabular-nums; }
+.rfq-matrix td.is-best { background: #FFFBEB; box-shadow: inset 3px 0 0 #F5D77A; }
+.rfq-matrix td.is-best .price { color: #8A5A00; font-weight: 600; }
+.rfq-matrix .price { font-weight: 600; }
+.rfq-matrix .cell-meta, .rfq-matrix .mat-meta, .rfq-matrix .sup-meta { color: #7C8794; font-size: 11px; }
+.rfq-matrix .sup-name { font-weight: 600; }
+.rfq-matrix .win { color: #8A5A00; font-size: 11px; margin-top: 2px; }
+.rfq-matrix .none { color: #A6AFB9; }
+/* xunjia 设计令牌：品牌深墨青 + 最低价琥珀（仅本页作用域） */
+.rfq-page {
+  --rfq-brand-800: #0E4F4A;
+  --el-color-primary: #0E4F4A;
+  --el-color-primary-light-3: #1D8F84;
+  --el-color-primary-light-5: #4FA89F;
+  --el-color-primary-light-7: #A9D2CD;
+  --el-color-primary-light-8: #CBE3E0;
+  --el-color-primary-light-9: #F1F8F7;
+  --el-color-primary-dark-2: #0B3B37;
+}
 </style>
