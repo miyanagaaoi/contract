@@ -3,9 +3,13 @@
 内网合同台账 + 采购/销售/库存/财务的轻量 ERP。后端 FastAPI + SQLAlchemy（SQLite / PostgreSQL），
 前端 Vue3 + Element Plus，单容器 Docker 部署。
 
+## 发布记录
+
+- 2026-11-09：**ctms:2.7.0** 已导出（`ctms-image-2.7.0-core.tar.gz`，sha256 `c78ca07440697529181615c28871838d6b7dd1bae01588d007bbedb4f33eb45a`）
+
 ## 当前状态
 
-- **版本**：`2.7.0`（第一批：附件 SMB 存储；询价模块待做）（`app/config.py: APP_VERSION`；含 CR-025 行项修正、CR-026 发票上传识别、CR-028 白屏修复、CR-029 库存总额度口径、
+- **版本**：`2.7.0`（已打包发布：附件 SMB / 询价与比价单 / 合同正文富文本+签署）（`app/config.py: APP_VERSION`；含 CR-025 行项修正、CR-026 发票上传识别、CR-028 白屏修复、CR-029 库存总额度口径、
   CR-031 单价可改、CR-032 金额增量列与发票方向识别）
 - **质量基线**：`pytest` **553 passed**；前端 `vite build` 通过
 - **开发库数据**：已全量清空业务数据（保留账号/角色/字典），仅含 `DEMO27` 10 批次演示数据；
